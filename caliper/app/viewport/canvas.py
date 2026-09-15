@@ -10,6 +10,8 @@ Navigation, following Fusion/SolidWorks on a Mac:
 - Hold Option (Alt) to suspend snapping.
 """
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QInputDevice,
@@ -25,6 +27,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
+from caliper.app.agent.proposal import Proposal
 from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind
@@ -82,6 +85,9 @@ class Canvas(QWidget):
         self._space = False
         self._pointer: Pointer | None = None
         self._mouse_px = QPoint()
+        self.proposal: Callable[[], Proposal | None] = lambda: None
+        """The agent proposal to preview, if any; set by the main window."""
+        self.reject_proposal: Callable[[], None] = lambda: None
         self._layer: QPixmap | None = None
         self._layer_key: tuple[float, float, float, int, int, float, bool] | None = None
         self._layer_document: object = None
@@ -144,6 +150,19 @@ class Canvas(QWidget):
                 self.height(),
             )
             self.update()
+
+    def frame_box(self, box: BoundingBox, right_inset: float = 0.0) -> None:
+        """Fit `box` into the canvas, leaving `right_inset` pixels free on the right."""
+        margin = max(box.width, box.height, 1.0) * 0.15
+        padded = BoundingBox(
+            x_min=box.x_min - margin,
+            y_min=box.y_min - margin,
+            x_max=box.x_max + margin,
+            y_max=box.y_max + margin,
+        )
+        width = max(self.width() - right_inset, 100.0)
+        self.view.fit(padded, width, self.height())
+        self.update()
 
     def reset_view(self) -> None:
         self.view.scale = min(self.width(), self.height()) / DEFAULT_VIEW_MM
@@ -375,7 +394,10 @@ class Canvas(QWidget):
             self.entry.open(tool.numeric_fields, text, self._mouse_px)
             return
         if event.key() == Qt.Key.Key_Escape:
-            self.controller.escape()
+            if self.proposal() is not None:
+                self.reject_proposal()
+            else:
+                self.controller.escape()
         elif event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -493,6 +515,24 @@ class Canvas(QWidget):
             if isinstance(entity, _GEOMETRY):
                 painter.geometry(entity)
         paint_annotations(painter, self.session, selection, only=selection)
+        self._paint_proposal(painter)
+
+    def _paint_proposal(self, painter: ModelPainter) -> None:
+        """Ghost geometry: what accepting would add (agent colour), change, or remove (dashed)."""
+        proposal = self.proposal()
+        if proposal is None:
+            return
+        before, after = proposal.base.entities, proposal.result.entities
+        dashed = Qt.PenStyle.DashLine
+        for id, entity in before.items():
+            if isinstance(entity, _GEOMETRY) and after.get(id) != entity:
+                colour = theme.TEXT_DIM if id in after else theme.ERROR
+                painter.set_pen(cosmetic_pen(colour, theme.GUIDE_WIDTH, dashed))
+                painter.geometry(entity)
+        painter.set_pen(cosmetic_pen(theme.AGENT, theme.HIGHLIGHT_WIDTH))
+        for id, entity in after.items():
+            if isinstance(entity, _GEOMETRY) and before.get(id) != entity:
+                painter.geometry(entity)
 
     def _paint_snap(self, painter: ModelPainter) -> None:
         pointer = self._pointer
