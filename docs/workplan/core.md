@@ -1,4 +1,4 @@
-Status: Phase 0.5 Queries done on local stream/core, next: open the stream/core PR for Lucas, then `check` for bbox metrics
+Status: waiting on Lucas's review of PR #2 (spike queries + planegcs result, CI green), next: `check` for bbox metrics, then ADR 0003 proposal
 
 # Core workplan — Stream A
 
