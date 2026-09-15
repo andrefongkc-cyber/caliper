@@ -1,8 +1,8 @@
 """In-memory CommandBus (ADR 0002).
 
-Phase 0 slice: every create command, ModifyEntity, undo/redo, change notifications, and
-the Phase 0.5 queries. MoveEntities, DeleteEntities, transactions, and merge keys raise
-NotImplementedError until they land in V1 (docs/workplan/core.md).
+Every create command, ModifyEntity, undo/redo, change notifications, and queries.
+MoveEntities, DeleteEntities, transactions, and merge keys raise NotImplementedError until
+they land in V1 (docs/workplan/core.md).
 """
 
 from collections import deque
@@ -22,6 +22,7 @@ from caliper.contracts.commands import (
     Unsubscribe,
 )
 from caliper.contracts.document import Document
+from caliper.contracts.kernel import Kernel
 from caliper.contracts.queries import Queries
 from caliper.engine.commands.handlers import handle
 from caliper.engine.document.delta import apply, diff, is_empty
@@ -38,8 +39,15 @@ class _UndoEntry:
 
 
 class Bus:
-    def __init__(self, document: Document | None = None, *, undo_limit: int = 1000) -> None:
+    def __init__(
+        self,
+        document: Document | None = None,
+        *,
+        undo_limit: int = 1000,
+        kernel: Kernel | None = None,
+    ) -> None:
         self._document = document if document is not None else Document.empty()
+        self._kernel = kernel
         self._undo: deque[_UndoEntry] = deque(maxlen=undo_limit)
         self._redo: list[_UndoEntry] = []
         self._listeners: list[Listener] = []
@@ -50,7 +58,7 @@ class Bus:
 
     @property
     def queries(self) -> Queries:
-        return DocumentQueries(self._document)
+        return DocumentQueries(self._document, self._kernel)
 
     def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
         """Validate and apply. A command that changes nothing is Applied but not recorded."""
