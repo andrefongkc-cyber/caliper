@@ -1,4 +1,4 @@
-Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries, move/delete, transactions, files + CLI done), next: OCCTKernel
+Status: doing the V1 engine backlog locally in stacked stream/core/* branches (all but property tests done), next: property tests on geometry invariants
 
 # Core workplan — Stream A
 
@@ -106,7 +106,13 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Stateful hypothesis test over commands/undo/redo/merge keys/nested transactions; 1,000 extra histories run locally. No new shell test flips
   - Contract gap 9: committing a transaction changes `undo_label` but sends no `Change` (no COMMIT reason), so a shell undo menu can go stale until the next change
 - [x] Undo/redo: bounded stack (count + bytes: `undo_bytes`, compact JSON size of each delta, newest entry always kept), display labels
-- [ ] `OCCTKernel` behind the `occt` extra; passes the shared conformance suite
+- [x] `OCCTKernel` behind the `occt` extra; passes the shared conformance suite unchanged (branch `stream/core/occt-kernel`, local)
+  - cadquery-ocp 8.0.1 (Apache-2.0) installs from the existing lock. First OCP import on this Mac took 28 s (cold), 0.3 s warm
+  - Faces: polygon wire (rectangle) or circular edge (circle) → planar face; GProp area/centroid/inertia (products of inertia negated back); `AddOptimal` bounds; `BRepCheck` validity
+  - Conformance property tests also pass at 3,000 examples each (verified 3,000 faces built). A test runs `area_properties` through `Bus(kernel=OCCTKernel())`
+  - OCP has no type information; one `from OCP import (...)  # type: ignore[import-not-found, import-untyped, unused-ignore]` keeps mypy clean with and without the extra (checked both)
+  - **For maintainers:** no CI job installs the `occt` extra and runs tests, so OCCT conformance only runs locally. Proposal: add `--extra occt` to `core.yml` or a small `occt` job running `tests/engine/geometry`
+  - **Open decision:** nothing picks a kernel by default. `Bus()` has none, so `area_properties` (and `check` on `area`) return `kernel.unavailable` in the app, CLI, and bench. The shell may not import kernels, so the engine needs to expose a choice (e.g. use OCCTKernel when the extra is installed)
 - [x] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export (branch `stream/core/files-cli`, local)
   - The migration framework already existed (chain, newer-file refusal, ordering test). Added a guard that every version below `SCHEMA_VERSION` has a migration
   - `snapshot.read` / `read_file` → `Snapshot(document, history, schema_version)`; `dumps`/`save` take `history=`; history is structure-checked only
