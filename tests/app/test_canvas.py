@@ -124,6 +124,7 @@ def test_zoom_to_fit_on_an_empty_document_resets(window) -> None:
     assert window.canvas.view.origin_x == window.canvas.width() / 2
 
 
+@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
 def test_paints_every_entity_kind(window) -> None:
     draw_everything(window.session)
     assert pixel(window, 50, 0) != theme.CANVAS  # rectangle bottom edge
@@ -162,6 +163,7 @@ def test_pointer_snaps_to_features_before_the_grid(window, driver) -> None:
     assert open_space.snap is SnapKind.GRID
 
 
+@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
 def test_without_point_queries_the_pointer_snaps_to_the_grid(window, driver) -> None:
     draw_everything(window.session)
     pointer = window.canvas.pointer_at(
@@ -199,6 +201,7 @@ def test_dimension_tool_on_a_circle_makes_a_diameter(window, driver, bus) -> Non
     ]
 
 
+@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
 def test_dimension_tool_reports_missing_point_picking(window, driver, bus) -> None:
     draw_everything(window.session)
     bus.sent.clear()

@@ -84,6 +84,7 @@ def test_a_new_click_after_a_result_starts_over(window, driver, plate) -> None:
     assert tool.result is None
 
 
+@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
 def test_without_point_queries_it_says_so(window, driver, plate) -> None:
     driver.tool("Measure")
     driver.click(0, 0)

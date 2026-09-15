@@ -86,6 +86,7 @@ def test_acquired_points_are_forgotten_when_the_document_changes(window, driver)
     assert window.canvas.acquired == []
 
 
+@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
 def test_without_point_queries_nothing_is_acquired(window, driver) -> None:
     window.session.execute(CreateRectangle(corner=P(x=0, y=0), width=100, height=50))
     driver.move(100, 50)
