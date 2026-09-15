@@ -1,4 +1,4 @@
-Status: doing Part 2/3 kickoff prompt rewrite, next: step 8 check-in with the user
+Status: waiting on user check-in (step 8) before the first PR, next: fill CODEOWNERS usernames, push, open PR
 
 # Core workplan — Stream A
 
@@ -27,7 +27,6 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] `.github/CODEOWNERS` with placeholder usernames (user fills in before the first PR)
   - [x] ADRs 0001, 0003 (Proposed), 0004, 0006
   - [x] architecture.md, vision.md, CLAUDE.md (+ nested engine/app), README, CONTRIBUTING (incl. branch protection settings)
-  - [ ] Apply branch protection on `main` once the remote exists (needs `gh`; private repos need a paid plan)
 - [x] Step 5: `FakeKernel` + shared kernel conformance suite
   - [x] `caliper/engine/geometry/fake_kernel.py`: analytic Rectangle/Circle faces; mypy strict clean
   - [x] `tests/engine/geometry/test_kernel_conformance.py`: hypothesis property tests with size-scaled tolerances; OCCT cases skip until OCCTKernel exists. Verified it fails on a wrong formula and a 10 µm bbox error
@@ -38,11 +37,14 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] `engine/commands/bus.py`: execute, undo/redo (bounded by count), labels, subscribe; transactions/merge_key/queries raise NotImplementedError until V1
   - [x] `engine/io/`: canonical JSON (strict parse), structural codec, snapshot save (atomic)/load with validation + migration chain, command scripts
   - [x] `python -m caliper.engine replay` + committed golden file compared on Linux and macOS CI; `.gitattributes` keeps files LF
-- [~] Rewrite Part 2 / Part 3 kickoff prompts (user request, 2026-09-14)
+- [x] Rewrite Part 2 / Part 3 kickoff prompts → `docs/kickoff/stream-a-core.md`, `docs/kickoff/stream-b-shell.md`
 - [x] Step 7: Bench stub: `bench/run.py` + cases `rectangle-100x50`, `resize-width-120`
   - [x] Reference solver, byte-exact snapshot comparison; expectations report "pending" until queries land (V1)
   - [x] `tests/test_bench.py` confirms wrong results and rejected solutions fail
-- [ ] Step 8: Check in with the user; open PR `phase-0/foundation` → `main`
+- [~] Step 8: Check in with the user, then open PR `phase-0/foundation` → `main`
+  - [ ] CODEOWNERS: real usernames (andrefongkc-cyber, lucassnam); waiting on which stream each owns
+  - [ ] User installs `gh`; create the public GitHub repo; push
+  - [ ] Apply branch protection (CONTRIBUTING.md), then open the PR
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
 
