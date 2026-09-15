@@ -1,0 +1,26 @@
+# Stream branches may only touch their own areas. A second layer on top of
+# code-owner review; see .github/scripts/check_boundaries.py and CONTRIBUTING.md.
+name: boundaries
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    name: boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check stream directory boundaries
+        # Values go through env, never inline ${{ }} in the script, so a crafted
+        # branch name can't inject shell commands.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/check_boundaries.py --branch "$HEAD_REF" --base "$BASE_SHA" --head "$HEAD_SHA"
