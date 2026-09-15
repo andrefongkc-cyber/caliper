@@ -73,6 +73,10 @@ member, or entity field with a default.
   small.
 - **Reviews:** every PR needs an approving review from the other person; GitHub requests
   them automatically through [`.github/CODEOWNERS`](.github/CODEOWNERS).
+- **PR description:** start with a plain-language summary (what it does, what depends on
+  the other stream, what the reviewer must decide, risk). The
+  [template](.github/pull_request_template.md) fills this in for new PRs.
+- **Merge with "Rebase and merge",** never squash, so each small commit survives on `main`.
 - **PR checklist:**
   - [ ] CI green (lint, format, types, tests, boundaries)
   - [ ] Your stream's workplan updated

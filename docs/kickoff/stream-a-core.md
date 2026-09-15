@@ -98,7 +98,10 @@ rectangle, change its width to 120, save, reopen, and it's still 120. Your part:
 
 - **Commits:** small, single-concern conventional commits (`feat(engine): ...`).
 - **Merging:** rebase onto `main` before every merge. Every PR needs Stream B's approval and
-  green CI.
+  green CI. Merge with "Rebase and merge", never squash.
+- **PR descriptions:** start with a plain-language `## Summary` from
+  `.github/pull_request_template.md`: what it does, what depends on Stream B, what the
+  reviewer must decide, and risk.
 - **Workplan:** update `docs/workplan/core.md` after every meaningful change, mid-task
   included, so a fresh session can pick up where you left off.
 - **No speculative structure:** no plugin systems, factories, or config layers for anything
