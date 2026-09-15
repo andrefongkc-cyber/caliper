@@ -24,7 +24,7 @@ from PySide6.QtGui import (
     QResizeEvent,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
 from caliper.app import theme
 from caliper.app.agent.proposal import Proposal
@@ -95,6 +95,15 @@ class Canvas(QWidget):
         """Feature points the pointer recently passed over, for alignment guides."""
         self._editing: tuple[EntityId, str] | None = None
         """(entity, field) while the entry edits an existing value rather than a new shape."""
+        self.empty_hint = QLabel(
+            "Draw with R, L, C, or A  ·  type sizes as you go\n"
+            "or ask the agent below  ·  ⌘K finds anything",
+            self,
+        )
+        self.empty_hint.setObjectName("empty-hint")
+        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        session.document_changed.connect(self._sync_empty_hint)
         self.entry = NumericEntry(self)
         self.entry.changed.connect(self._typed)
         self.entry.committed.connect(self._commit_typed)
@@ -255,6 +264,14 @@ class Canvas(QWidget):
         if self.entry.isVisible() and self._editing is None and not self.controller.active.busy:
             self.entry.close_entry()
 
+    def _sync_empty_hint_geometry(self, width: int, height: int) -> None:
+        hint_height = self.empty_hint.sizeHint().height()
+        self.empty_hint.setGeometry(0, (height - hint_height) // 2, width, hint_height)
+
+    def _sync_empty_hint(self) -> None:
+        self.empty_hint.setVisible(not self.session.document.entities)
+        self._sync_empty_hint_geometry(self.width(), self.height())
+
     def _forget_acquired(self) -> None:
         self.acquired = []
 
@@ -264,6 +281,7 @@ class Canvas(QWidget):
     # --- Qt events ------------------------------------------------------------------------
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        self._sync_empty_hint_geometry(event.size().width(), event.size().height())
         if not self._placed:
             self._placed = True
             self.reset_view()

@@ -239,3 +239,14 @@ def test_selected_dimensions_are_drawn_in_the_accent_colour(window) -> None:
     before = accent_pixels()
     window.session.set_selection(frozenset({radial}))
     assert accent_pixels() > before + 20
+
+
+def test_empty_canvas_shows_a_hint_until_something_is_drawn(window, qtbot) -> None:
+    hint = window.canvas.empty_hint
+    window.session.new()
+    assert hint.isVisible()
+    assert "ask the agent" in hint.text()
+    window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5))
+    assert not hint.isVisible()
+    window.undo_action.trigger()
+    assert hint.isVisible()

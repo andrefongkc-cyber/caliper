@@ -112,6 +112,7 @@ QPushButton#accept {{ background: {P.agent}; color: {P.field}; border-color: {P.
     font-weight: 600; }}
 QPushButton#accept:disabled {{ background: {P.field}; color: {P.ink_dim};
     border-color: {P.border}; }}
+QLabel#empty-hint {{ color: {P.ink_dim}; font-size: 13px; line-height: 150%; }}
 QToolTip {{ background: {P.panel}; color: {P.ink}; border: 1px solid {P.border};
     padding: {s.xs}px {s.s}px; }}
 """
