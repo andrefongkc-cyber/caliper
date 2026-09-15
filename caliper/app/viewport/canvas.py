@@ -10,7 +10,7 @@ Navigation, following Fusion/SolidWorks on a Mac:
 - Hold Option (Alt) to suspend snapping.
 """
 
-from PySide6.QtCore import QEvent, QLineF, QPointF, Qt, Signal
+from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import (
     QInputDevice,
     QKeyEvent,
@@ -30,6 +30,7 @@ from caliper.app.tools.base import Pointer, SnapKind
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.annotations import paint_annotations
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
+from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
 from caliper.contracts.document import Arc, Circle, EntityId, Line, Point2, Rectangle
@@ -67,6 +68,11 @@ class Canvas(QWidget):
         self._pan_from: QPointF | None = None
         self._space = False
         self._pointer: Pointer | None = None
+        self._mouse_px = QPoint()
+        self.entry = NumericEntry(self)
+        self.entry.changed.connect(self._typed)
+        self.entry.committed.connect(self._commit_typed)
+        self.entry.closed.connect(self._entry_closed)
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -77,6 +83,7 @@ class Canvas(QWidget):
         session.selection_changed.connect(self.update)
         session.hover_changed.connect(self.update)
         controller.changed.connect(self.update)
+        controller.changed.connect(self._sync_entry)
 
     # --- View -----------------------------------------------------------------------------
 
@@ -138,6 +145,29 @@ class Canvas(QWidget):
             raw=raw, point=raw, snap=SnapKind.NONE, ref=None, tolerance=tolerance, shift=shift
         )
 
+    # --- Typed values ---------------------------------------------------------------------
+
+    def _typed(self, values: tuple[float | None, ...]) -> None:
+        self.controller.active.type_values(values)
+        self.update()
+
+    def _commit_typed(self, values: tuple[float | None, ...]) -> None:
+        if self.controller.active.commit_values(values):
+            self.entry.close_entry()
+            self.controller.changed.emit()
+        else:
+            self.session.message.emit("Those values don't make a shape: sizes must be above 0")
+
+    def _entry_closed(self) -> None:
+        tool = self.controller.active
+        tool.type_values([None] * len(tool.numeric_fields))
+        self.setFocus()
+        self.update()
+
+    def _sync_entry(self) -> None:
+        if self.entry.isVisible() and not self.controller.active.busy:
+            self.entry.close_entry()
+
     def _hit(self, pointer: Pointer) -> EntityId | None:
         return self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
 
@@ -183,6 +213,7 @@ class Canvas(QWidget):
             self.view.pan(delta.x(), delta.y())
             self.update()
             return
+        self._mouse_px = event.position().toPoint()
         pointer = self.pointer_at(event.position(), event.modifiers())
         self._pointer = pointer
         tool = self.controller.active
@@ -237,6 +268,17 @@ class Canvas(QWidget):
         return super().event(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        tool = self.controller.active
+        text = event.text()
+        if (
+            tool.busy
+            and tool.numeric_fields
+            and text
+            and text in STARTS_ENTRY
+            and not self.entry.isVisible()
+        ):
+            self.entry.open(tool.numeric_fields, text, self._mouse_px)
+            return
         if event.key() == Qt.Key.Key_Escape:
             self.controller.escape()
         elif event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():

@@ -4,6 +4,7 @@ Tools see model coordinates only (millimetres, Y up). The canvas converts mouse 
 a `Pointer` before a tool gets them, including the pick tolerance in mm and any snap.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -63,3 +64,18 @@ class Tool:
 
     def paint(self, painter: ModelPainter) -> None:
         """Draw the preview for the operation in progress."""
+
+    # --- Typed values ---------------------------------------------------------------------
+
+    numeric_fields: tuple[str, ...] = ()
+    """Labels of the values a user can type while this tool is busy, e.g. ("Width", "Height").
+
+    Empty means the tool takes no typed input.
+    """
+
+    def type_values(self, values: Sequence[float | None]) -> None:
+        """Preview with typed values. `None` means "not typed yet": follow the pointer."""
+
+    def commit_values(self, values: Sequence[float | None]) -> bool:
+        """Finish the operation with typed values. False if they don't make a valid shape."""
+        return False
