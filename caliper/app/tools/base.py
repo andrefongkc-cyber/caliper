@@ -17,6 +17,8 @@ class SnapKind(StrEnum):
     NONE = "none"
     GRID = "grid"
     FEATURE = "feature"
+    GUIDE = "guide"
+    """Aligned with a recently hovered feature point's x or y."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -31,6 +33,8 @@ class Pointer:
     tolerance: float
     """Pick radius in mm, derived from a fixed on-screen radius and the current zoom."""
     shift: bool = False
+    guides: tuple[tuple[Point2, Point2], ...] = ()
+    """Alignment guides to draw, from an acquired feature point to `point`."""
 
 
 class Tool:

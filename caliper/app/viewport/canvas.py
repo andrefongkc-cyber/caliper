@@ -33,6 +33,7 @@ from caliper.app.tools.select import editable_field
 from caliper.app.viewport.annotations import paint_annotations
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
+from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
 from caliper.contracts.commands import Applied, ModifyEntity
@@ -72,6 +73,8 @@ class Canvas(QWidget):
         self._space = False
         self._pointer: Pointer | None = None
         self._mouse_px = QPoint()
+        self.acquired: list[Point2] = []
+        """Feature points the pointer recently passed over, for alignment guides."""
         self._editing: tuple[EntityId, str] | None = None
         """(entity, field) while the entry edits an existing value rather than a new shape."""
         self.entry = NumericEntry(self)
@@ -85,6 +88,7 @@ class Canvas(QWidget):
         self.setMinimumSize(200, 150)
         self.setCursor(Qt.CursorShape.CrossCursor)
         session.document_changed.connect(self.update)
+        session.document_changed.connect(self._forget_acquired)
         session.selection_changed.connect(self.update)
         session.hover_changed.connect(self.update)
         controller.changed.connect(self.update)
@@ -136,18 +140,18 @@ class Canvas(QWidget):
                     tolerance=tolerance,
                     shift=shift,
                 )
-        if self.snap_to_grid:
-            snapped = snap_to_grid(raw, minor_spacing(self.view.scale))
-            return Pointer(
-                raw=raw,
-                point=snapped,
-                snap=SnapKind.GRID,
-                ref=None,
-                tolerance=tolerance,
-                shift=shift,
-            )
+        base = snap_to_grid(raw, minor_spacing(self.view.scale)) if self.snap_to_grid else raw
+        point, guides = align(raw, base, self.acquired, tolerance)
+        fallback = SnapKind.GRID if self.snap_to_grid else SnapKind.NONE
+        kind = SnapKind.GUIDE if guides else fallback
         return Pointer(
-            raw=raw, point=raw, snap=SnapKind.NONE, ref=None, tolerance=tolerance, shift=shift
+            raw=raw,
+            point=point,
+            snap=kind,
+            ref=None,
+            tolerance=tolerance,
+            shift=shift,
+            guides=guides,
         )
 
     # --- Typed values ---------------------------------------------------------------------
@@ -190,6 +194,9 @@ class Canvas(QWidget):
     def _sync_entry(self) -> None:
         if self.entry.isVisible() and self._editing is None and not self.controller.active.busy:
             self.entry.close_entry()
+
+    def _forget_acquired(self) -> None:
+        self.acquired = []
 
     def _hit(self, pointer: Pointer) -> EntityId | None:
         return self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
@@ -260,6 +267,8 @@ class Canvas(QWidget):
             return
         self._mouse_px = event.position().toPoint()
         pointer = self.pointer_at(event.position(), event.modifiers())
+        if pointer.snap is SnapKind.FEATURE:
+            self.acquired = acquire(self.acquired, pointer.point)
         self._pointer = pointer
         tool = self.controller.active
         pressed = bool(event.buttons() & Qt.MouseButton.LeftButton)
@@ -415,10 +424,16 @@ class Canvas(QWidget):
 
     def _paint_snap(self, painter: ModelPainter) -> None:
         pointer = self._pointer
-        if pointer is None or pointer.snap is not SnapKind.FEATURE:
+        if pointer is None:
             return
-        painter.set_pen(cosmetic_pen(theme.SNAP, theme.GEOMETRY_WIDTH))
-        painter.marker(pointer.point, 5.0)
+        if pointer.snap is SnapKind.FEATURE:
+            painter.set_pen(cosmetic_pen(theme.SNAP, theme.GEOMETRY_WIDTH))
+            painter.marker(pointer.point, 5.0)
+        elif pointer.snap is SnapKind.GUIDE:
+            painter.set_pen(cosmetic_pen(theme.SNAP, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
+            for source, target in pointer.guides:
+                painter.line(source, target)
+                painter.marker(source, 2.5)
 
     def _paint_overlay(self, qp: QPainter) -> None:
         if not self.hidden_dimensions:
