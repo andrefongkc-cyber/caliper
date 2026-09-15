@@ -99,8 +99,10 @@ def test_typing_filters_and_shows_shortcuts(window, qtbot) -> None:
     open_palette(window, qtbot)
     type_keys(qtbot, "circle")
     assert window.palette.visible_titles() == ["Circle", "Create Circle"]
-    first = window.palette.results.item(0).text()
-    assert first.split("\t")[1] == "C"
+    from caliper.app.palette import DETAIL_ROLE
+
+    assert window.palette.results.item(0).data(DETAIL_ROLE) == "C"
+    assert window.palette.results.item(1).data(DETAIL_ROLE) == "center, radius"
 
 
 def test_running_an_action_switches_tools(window, qtbot) -> None:
@@ -172,3 +174,24 @@ def test_missing_engine_pieces_are_reported_in_the_palette(window, qtbot) -> Non
     type_keys(qtbot, "move entities\n5\t0\n")
     assert window.palette.isVisible()
     assert "isn't in the engine yet" in window.palette.error.text()
+
+
+def test_titles_starting_with_the_query_rank_first(window, qtbot) -> None:
+    window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5))
+    open_palette(window, qtbot)
+    type_keys(qtbot, "cre")
+    titles = window.palette.visible_titles()
+    assert titles[0].startswith("Create")
+    assert titles[-1] == "Undo Create Circle"
+
+
+def test_list_shrinks_to_the_results(window, qtbot) -> None:
+    open_palette(window, qtbot)
+    type_keys(qtbot, "create rect")
+    one_row = window.palette.results.height()
+    qtbot.keyClick(window.palette.search, Qt.Key.Key_Backspace)
+    type_keys(qtbot, "")
+    window.palette.search.setText("create")
+    assert window.palette.results.height() > one_row
+    window.palette.search.setText("zzz")
+    assert not window.palette.results.isVisible()

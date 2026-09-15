@@ -9,8 +9,8 @@ Keyboard only: type to filter, Up/Down to move, Return to run, Esc to go back or
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QAction, QKeyEvent, QKeySequence
+from PySide6.QtCore import QEvent, QModelIndex, QObject, QPersistentModelIndex, QRect, Qt
+from PySide6.QtGui import QAction, QKeyEvent, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
@@ -19,6 +19,9 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QStackedWidget,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +36,38 @@ from caliper.contracts.commands import Applied, Rejected
 WIDTH = 460
 LIST_ROWS = 9
 TOP_MARGIN = 56
+
+
+DETAIL_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class _Row(QStyledItemDelegate):
+    """Title on the left, shortcut or parameters right-aligned and dimmed."""
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> None:
+        super().paint(painter, option, index)
+        detail = index.data(DETAIL_ROLE)
+        if not detail:
+            return
+        painter.save()
+        enabled = bool(option.state & QStyle.StateFlag.State_Enabled)
+        painter.setPen(theme.TEXT_DIM if enabled else theme.BORDER)
+        rect: QRect = option.rect.adjusted(0, 0, -SPACE.m, 0)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, detail)
+        painter.restore()
+
+
+def rank(query: str, title: str) -> int:
+    """0 if the title starts with the query, 1 if a word does, 2 for any other match."""
+    q, t = query.lower().strip(), title.lower()
+    if not q or t.startswith(q):
+        return 0
+    return 1 if any(word.startswith(q.split()[0]) for word in t.split()) else 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +121,7 @@ class CommandPalette(QFrame):
         self.search.installEventFilter(self)
         self.results = QListWidget()
         self.results.setUniformItemSizes(True)
+        self.results.setItemDelegate(_Row(self.results))
         self.results.itemActivated.connect(lambda _item: self._run_current())
         search_layout.addWidget(self.search)
         search_layout.addWidget(self.results)
@@ -117,19 +153,14 @@ class CommandPalette(QFrame):
                 action=a,
             )
             for a in self.actions
-        ] + [
-            Entry(spec.title, "Selection" if spec.uses_selection else "Command", spec=spec)
-            for spec in command_specs()
-        ]
+        ] + [Entry(spec.title, _parameters(spec), spec=spec) for spec in command_specs()]
         self.stack.setCurrentIndex(0)
         self.error.hide()
         self.search.clear()
         self._refilter("")
         parent = self.parentWidget()
         self.setFixedWidth(WIDTH)
-        row = self.results.sizeHintForRow(0) if self.results.count() else 24
-        self.results.setFixedHeight(row * LIST_ROWS + 4)
-        self.adjustSize()
+        self._fit_list()
         if parent is not None:
             self.move((parent.width() - self.width()) // 2, TOP_MARGIN)
         self.show()
@@ -145,14 +176,23 @@ class CommandPalette(QFrame):
     # --- Filtering ------------------------------------------------------------------------
 
     def visible_titles(self) -> list[str]:
-        return [self.results.item(i).text().split("\t")[0] for i in range(self.results.count())]
+        return [self.results.item(i).text() for i in range(self.results.count())]
+
+    def _fit_list(self) -> None:
+        """As tall as the results, up to LIST_ROWS; hidden when nothing matches."""
+        count = self.results.count()
+        row = self.results.sizeHintForRow(0) if count else 0
+        self.results.setFixedHeight(row * min(count, LIST_ROWS) + (4 if count else 0))
+        self.results.setVisible(count > 0)
+        self.adjustSize()
 
     def _refilter(self, query: str) -> None:
         self.results.clear()
-        for entry in self.entries:
-            if not matches(query, entry.title):
-                continue
-            item = QListWidgetItem(f"{entry.title}\t{entry.detail}")
+        found = [e for e in self.entries if matches(query, e.title)]
+        found.sort(key=lambda e: rank(query, e.title))  # stable: keeps menu order within a rank
+        for entry in found:
+            item = QListWidgetItem(entry.title)
+            item.setData(DETAIL_ROLE, entry.detail)
             item.setData(Qt.ItemDataRole.UserRole, self.entries.index(entry))
             if entry.action is not None and not entry.action.isEnabled():
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
@@ -161,6 +201,8 @@ class CommandPalette(QFrame):
             if self.results.item(i).flags() & Qt.ItemFlag.ItemIsEnabled:
                 self.results.setCurrentRow(i)
                 break
+        if self.isVisible():
+            self._fit_list()
 
     def _move(self, step: int) -> None:
         count = self.results.count()
@@ -295,3 +337,10 @@ class CommandPalette(QFrame):
                 self.search.selectAll()
                 return True
         return False
+
+
+def _parameters(spec: CommandSpec) -> str:
+    """What the form will ask for, e.g. "corner, width, height" or "selection"."""
+    names = dict.fromkeys(f.path.partition(".")[0].replace("_", " ") for f in spec.fields)
+    parts = (["selection"] if spec.uses_selection else []) + list(names)
+    return ", ".join(parts)
