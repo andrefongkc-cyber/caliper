@@ -1,4 +1,4 @@
-Status: waiting on Lucas's shell-test fix (issue #7); stream/core/feature-queries ready locally, next: rebase + push + PR once it's on main, then dimension_value
+Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries done), next: MoveEntities + DeleteEntities
 
 # Core workplan — Stream A
 
@@ -75,6 +75,8 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   4. `bounding_box` doesn't specify: a document with no geometry (engine: `SELECTION_EMPTY`), an annotation id (engine: `ENTITY_WRONG_KIND`), duplicate ids (engine: allowed). `Error.field` is `"ids"` with no index
   5. Bounds exclude annotations, so zoom-to-fit clips dimension text unless the shell adds label extents
   6. `nearest_feature` doesn't say how ties break or what distance means. Engine: distance to feature points (not outlines), ties to the lower entity id (the shell's test fake agrees)
+  7. `entities_in_box` "touching" is unspecified for closed shapes. Engine: outline only, so a crossing box inside a rectangle misses
+  8. `area_properties` needs a kernel, but `CommandBus` has no say in which. Engine: optional `kernel=` on `Bus`, `kernel.unavailable` without one
 - [x] PR #2 merged 2026-09-15 (Lucas, squashed into `7ac0543`); PR #3 (milestone + V1 shell) rebase-merged the same day. Tests on `main` with the app extra: 293 passed
 - [x] PR #4 (PR summary template, "Rebase and merge" rule) rebase-merged 2026-09-15 as `88a23df`. Deleted the old `stream/core` branch (local and remote; its content is `7ac0543` on main). Stream A now works on `stream/core/<topic>` branches
 - [ ] Engine pieces the shell already calls through `caliper/app/engine_gaps.py`, in its order (shell.md):
@@ -82,10 +84,12 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
     - Engine side done: every POINT_FEATURES entry for all four types (arc points exact at multiples of 90°); bad refs reuse the command validator's errors (`ref.entity` / `ref.feature`); tests include a hypothesis round-trip (arc feature → snap → same point, on the arc), verified to fail on a wrong arc mid, a reversed tie-break, and a wrong rectangle center
     - Blocked on Stream B: `tests/app/test_canvas.py` has 3 tests that assert these queries are missing (`test_paints_every_entity_kind` expects 1 hidden dimension, `test_without_point_queries_the_pointer_snaps_to_the_grid`, `test_dimension_tool_reports_missing_point_picking`). They fail on this branch, and `app (macOS)` is required. `CompletedQueries` in `tests/app/conftest.py` can drop its two stand-ins once this lands
     - Sent Lucas issue #7 (2026-09-15) with a tested patch: a `missing_point_queries=True` bus marker for those 3 tests. Verified 81 app tests pass with it on `main` (`88a23df`) and on this branch. Dropping the stand-ins must wait until this PR merges: on current `main` that breaks 3 `complete_queries` tests. Not pushing until the fix is on `main`
-  - [ ] `dimension_value` (dimension labels show "?")
+  - [x] `dimension_value`, plus `measure_distance`, `area_properties`, `entities_in_box`, `check`: every Queries method now answers (branch `stream/core/queries`, stacked on `qt-license-check` → `feature-queries`, local)
+    - `area_properties` goes through the kernel: `Bus(kernel=...)` / `DocumentQueries(document, kernel)`, `kernel.unavailable` without one. Default kernel wiring waits for OCCTKernel
+    - `entities_in_box`: window = bounds inside the box; crossing = any outline point in the box (consistent with `entity_at_point`)
+    - `check`: every Metric; bad expectations and unmeasurable metrics fail with the `Error` (`refs[1].entity`, `ids`, `tolerance`, ...). Bench now evaluates expectations (2 passed per case)
+    - Flips one more shell test: `tests/app/test_selection.py::test_box_select_reports_the_missing_engine_piece`
   - [ ] `MoveEntities`, `DeleteEntities` (cascade to dimensions)
-  - [ ] `entities_in_box` (box selection)
-  - [ ] `check` for bbox metrics, so the bench cases stop showing pending
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
@@ -96,7 +100,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 - [ ] Undo/redo: bounded stack (count + bytes), display labels
 - [ ] `OCCTKernel` behind the `occt` extra; passes the shared conformance suite
 - [ ] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export
-- [ ] Query API: `measure_distance`, `bounding_box`, `entity_at_point`, `mass_properties`
+- [x] Query API: every `Queries` method (the contract calls it `area_properties`, not `mass_properties`)
 - [ ] CLI: `python -m caliper.engine replay | inspect | export`
 - [ ] Property-based tests on geometry invariants
 - [ ] Bench cases as features land
