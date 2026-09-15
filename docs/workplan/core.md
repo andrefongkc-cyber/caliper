@@ -1,4 +1,4 @@
-Status: waiting on user check-in after step 5 (FakeKernel), next: step 6 headless vertical slice
+Status: doing Part 2/3 kickoff prompt rewrite, next: step 8 check-in with the user
 
 # Core workplan — Stream A
 
@@ -32,8 +32,16 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] `caliper/engine/geometry/fake_kernel.py`: analytic Rectangle/Circle faces; mypy strict clean
   - [x] `tests/engine/geometry/test_kernel_conformance.py`: hypothesis property tests with size-scaled tolerances; OCCT cases skip until OCCTKernel exists. Verified it fails on a wrong formula and a 10 µm bbox error
   - [x] `tests/conftest.py`: hypothesis `ci` profile (derandomized) when `CI` is set
-- [ ] Step 6: Headless vertical slice: `CreateRectangle` → Document → save → replay → byte-identical
-- [ ] Step 7: Bench stub: `bench/run.py` + two trivial cases
+- [x] Step 6: Headless vertical slice: the milestone without UI (create 100×50 → width 120 → save → load → replay byte-identical)
+  - [x] `engine/document/delta.py`: diff + checked apply (stale deltas fail loudly)
+  - [x] `engine/commands/validation.py` + `handlers.py`: all create commands and ModifyEntity; Move/Delete raise NotImplementedError until V1
+  - [x] `engine/commands/bus.py`: execute, undo/redo (bounded by count), labels, subscribe; transactions/merge_key/queries raise NotImplementedError until V1
+  - [x] `engine/io/`: canonical JSON (strict parse), structural codec, snapshot save (atomic)/load with validation + migration chain, command scripts
+  - [x] `python -m caliper.engine replay` + committed golden file compared on Linux and macOS CI; `.gitattributes` keeps files LF
+- [~] Rewrite Part 2 / Part 3 kickoff prompts (user request, 2026-09-14)
+- [x] Step 7: Bench stub: `bench/run.py` + cases `rectangle-100x50`, `resize-width-120`
+  - [x] Reference solver, byte-exact snapshot comparison; expectations report "pending" until queries land (V1)
+  - [x] `tests/test_bench.py` confirms wrong results and rejected solutions fail
 - [ ] Step 8: Check in with the user; open PR `phase-0/foundation` → `main`
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
