@@ -82,7 +82,11 @@ class DocumentQueries:
         )
 
     def entity_at_point(self, point: Point2, tolerance: float) -> EntityId | None:
-        """Distance is measured to an entity's outline, so a rectangle's interior is a miss.
+        """The entity under a click, as in any drawing tool.
+
+        An outline within `tolerance` wins first (nearest, then lower id), so lines and
+        edges stay pickable where they cross a shape. Otherwise the smallest closed shape
+        (circle or rectangle) containing the point wins, then the lower id.
 
         The contract has no Error return here, so invalid input (a non-finite point, or a
         negative or non-finite tolerance) matches nothing.
@@ -91,13 +95,15 @@ class DocumentQueries:
             return None
         if not (math.isfinite(tolerance) and tolerance >= 0):
             return None
-        hits = (
-            (_distance(entity, point), id)
-            for id, entity in self._document.entities.items()
-            if isinstance(entity, _GEOMETRY)
-        )
-        nearest = min((hit for hit in hits if hit[0] <= tolerance), default=None)
-        return None if nearest is None else nearest[1]
+        ranked: list[tuple[int, float, EntityId]] = []
+        for id, entity in self._document.entities.items():
+            if not isinstance(entity, _GEOMETRY):
+                continue
+            if (distance := _distance(entity, point)) <= tolerance:
+                ranked.append((0, distance, id))
+            elif (area := _enclosing_area(entity, point)) is not None:
+                ranked.append((1, area, id))
+        return min(ranked)[2] if ranked else None
 
     def feature_point(self, ref: Ref) -> Point2 | Error:
         return self._point(ref, "ref")
@@ -123,10 +129,11 @@ class DocumentQueries:
         return self._distance(a, b, fields=("a", "b"))
 
     def entities_in_box(self, box: BoundingBox, *, crossing: bool) -> tuple[EntityId, ...]:
-        """Window selection, or crossing selection when `crossing`, measured on outlines.
+        """Window selection, or crossing selection when `crossing`.
 
-        A crossing box touching no part of an outline misses, even inside a rectangle. An
-        invalid box (not finite, or min above max) matches nothing.
+        Crossing takes anything the box touches, including the inside of a circle or
+        rectangle, matching `entity_at_point`. An invalid box (not finite, or min above
+        max) matches nothing.
         """
         if not _valid_box(box):
             return ()
@@ -351,8 +358,21 @@ def _inside(p: Point2, box: BoundingBox) -> bool:
     return box.x_min <= p.x <= box.x_max and box.y_min <= p.y <= box.y_max
 
 
+def _enclosing_area(entity: Geometry, p: Point2) -> float | None:
+    """The area of a closed shape containing `p`, or None. Lines and arcs enclose nothing."""
+    match entity:
+        case Circle(center=c, radius=r) if math.hypot(p.x - c.x, p.y - c.y) <= r:
+            return math.pi * r * r
+        case Rectangle(corner=c, width=w, height=h) if (
+            c.x <= p.x <= c.x + w and c.y <= p.y <= c.y + h
+        ):
+            return w * h
+        case _:
+            return None
+
+
 def _touches(entity: Geometry, box: BoundingBox) -> bool:
-    """Whether any point of the entity's outline lies in the closed box."""
+    """Whether the closed box meets the entity: its outline, or the inside of a closed shape."""
     match entity:
         case Line(start=a, end=b):
             return _segment_touches(a, b, box)
@@ -361,11 +381,7 @@ def _touches(entity: Geometry, box: BoundingBox) -> bool:
                 max(box.x_min - c.x, 0.0, c.x - box.x_max),
                 max(box.y_min - c.y, 0.0, c.y - box.y_max),
             )
-            far = math.hypot(
-                max(abs(c.x - box.x_min), abs(c.x - box.x_max)),
-                max(abs(c.y - box.y_min), abs(c.y - box.y_max)),
-            )
-            return near <= r <= far
+            return near <= r
         case Arc(center=c, radius=r, start_angle=start, sweep_angle=sweep):
             ends = _features(entity)
             if _inside(ends[Feature.START], box) or _inside(ends[Feature.END], box):
@@ -376,16 +392,12 @@ def _touches(entity: Geometry, box: BoundingBox) -> bool:
                 for p in _circle_meets_box_edges(c, r, box)
             )
         case Rectangle(corner=c, width=w, height=h):
-            overlaps = (
+            return (
                 c.x <= box.x_max
                 and box.x_min <= c.x + w
                 and c.y <= box.y_max
                 and box.y_min <= c.y + h
             )
-            strictly_within = (
-                c.x < box.x_min and box.x_max < c.x + w and c.y < box.y_min and box.y_max < c.y + h
-            )
-            return overlaps and not strictly_within
 
 
 def _segment_touches(a: Point2, b: Point2, box: BoundingBox) -> bool:
