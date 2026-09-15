@@ -23,4 +23,5 @@ jobs:
       - name: Install everything
         run: uv sync --locked --all-extras --all-groups
       - name: Check licenses
-        run: uv run pytest tests/test_licenses.py
+        # pytest-qt loads Qt graphics libraries at startup, which Linux runners lack.
+        run: uv run pytest -p no:pytest-qt tests/test_licenses.py
