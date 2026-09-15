@@ -1,4 +1,4 @@
-Status: waiting on Andre's review of PR #3 (milestone + V1 shell, CI green; merge with Rebase and merge), next: Stream A lands point queries + move/delete, then the contract-freeze PR
+Status: waiting on review of PR #3 (CI green; merge with Rebase and merge) and on approval of the next-goal plan (P2 + P3: design system and precision input), next: step 1, design tokens
 
 # Shell workplan — Stream B
 
