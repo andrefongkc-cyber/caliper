@@ -1,4 +1,4 @@
-Status: doing Phase 0.3 contracts/ + ADR 0002, 0005, next: stop for contract review
+Status: waiting on user review of contracts/ (Phase 0.3), next: Phase 0.4 docs + ADRs 0001, 0003, 0004, 0006
 
 # Core workplan — Stream A
 
@@ -15,10 +15,10 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
   - [x] ruff (incl. GPL-only Qt module ban), mypy strict on contracts + engine
   - [x] Import-boundary test (invariants 1 and 7, contracts stdlib-only); verified it fails on violations
   - [x] CI: `core.yml` (Linux, every PR) + `app.yml` (macOS, main + shell-affecting PRs). Not yet run on GitHub: no remote
-- [~] 0.3 `contracts/` — **stop for review when done**
+- [~] 0.3 `contracts/` — written; **awaiting user review** before building on it
   - [x] `errors.py` (ErrorCode, Error), `document.py`, `queries.py`, `commands.py`, `kernel.py` (Provisional); mypy strict clean
   - [x] `tests/contracts/test_contracts.py`: frozen/slots/kw_only, unique kinds, create commands mirror entities, ModifyEntity covers every field
-  - [ ] ADR 0002 (command bus, deltas, undo) and ADR 0005 (file format)
+  - [x] ADR 0002 (command bus, deltas, undo) and ADR 0005 (file format)
 - [ ] 0.4 Docs: CLAUDE.md, architecture.md, ADRs 0001–0006, README, CONTRIBUTING, CODEOWNERS, vision.md
 - [ ] 0.5 `FakeKernel` + shared kernel conformance suite
 - [ ] 0.6 Headless vertical slice: `CreateRectangle` → Document → save → replay → byte-identical
