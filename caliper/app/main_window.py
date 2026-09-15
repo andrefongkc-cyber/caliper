@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from caliper.app import icons
+from caliper.app.palette import CommandPalette
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
 from caliper.app.tools.controller import ToolController
@@ -41,6 +42,8 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas(self.session, self.controller)
         self.properties = PropertiesPanel(self.session)
         self.tool_actions: dict[str, QAction] = {}
+        self.palette = CommandPalette(self.session, self)
+        self.palette.return_focus = self.canvas
 
         self.setCentralWidget(self.canvas)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -57,6 +60,22 @@ class MainWindow(QMainWindow):
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
 
+        self.palette.set_actions(
+            [
+                *self.tool_actions.values(),
+                self.undo_action,
+                self.redo_action,
+                self.delete_action,
+                self.select_all_action,
+                self.fit_action,
+                self.grid_action,
+                self.snap_action,
+                self.new_action,
+                self.open_action,
+                self.save_action,
+                self.save_as_action,
+            ]
+        )
         self._update_title()
         self._update_edit_actions()
         self._update_tool_state()
@@ -106,6 +125,8 @@ class MainWindow(QMainWindow):
         ):
             action.setIcon(icons.icon(name))
 
+        self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
+
         group = QActionGroup(self)
         group.setExclusive(True)
         for name, tool in self.controller.tools.items():
@@ -137,6 +158,8 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.select_all_action)
 
         view_menu = bar.addMenu("View")
+        view_menu.addAction(self.palette_action)
+        view_menu.addSeparator()
         view_menu.addAction(self.fit_action)
         view_menu.addSeparator()
         view_menu.addAction(self.grid_action)
