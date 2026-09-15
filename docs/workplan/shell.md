@@ -1,4 +1,4 @@
-Status: P2 + P3 goal built (steps 1-9) locally on `stream/shell`, not pushed; guides, Measure, Move, Delete, and dimension values light up when Stream A lands the point queries; next: review pass and PR
+Status: P2 + P3 goal done locally on `stream/shell` (not pushed); guides, Measure, Move, Delete, and dimension values light up when Stream A lands the point queries; next: push and open the PR
 
 # Shell workplan — Stream B
 
@@ -174,7 +174,7 @@ Chosen because it needs almost nothing new from Stream A and every later phase b
 7. [x] **Command palette.** Cmd+K lists every tool and action by name with its shortcut; typing filters; commands with parameters open typed fields generated from the command dataclass (the same fields an AI tool call would fill). *Done when* Cmd+K → "rect" → 120, 50 → Enter creates the rectangle, and the palette's list is derived from the `Command` union, not hand-maintained.
 8. [x] **Measure tool.** Click two points to see distance, dx, and dy in a small overlay; a "Keep as check" button is visible but disabled until P4. *Done when* measuring two corners shows 120.000 (needs `measure_distance`).
 9. [x] **Keyboard map and discoverability.** Every action has a shortcut shown in menus, tooltips, and the palette; a Help → Keyboard Shortcuts sheet is generated from the actions. *Done when* a test asserts no two actions share a shortcut.
-10. [~] **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
+10. [x] **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
 
 ### Contract and repo items to raise (not Stream B's to change)
 
