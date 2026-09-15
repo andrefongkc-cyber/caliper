@@ -10,7 +10,7 @@ Navigation, following Fusion/SolidWorks on a Mac:
 - Hold Option (Alt) to suspend snapping.
 """
 
-from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, Qt, Signal
+from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QInputDevice,
     QKeyEvent,
@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QNativeGestureEvent,
     QPainter,
     QPaintEvent,
+    QPixmap,
     QResizeEvent,
     QWheelEvent,
 )
@@ -81,6 +82,9 @@ class Canvas(QWidget):
         self._space = False
         self._pointer: Pointer | None = None
         self._mouse_px = QPoint()
+        self._layer: QPixmap | None = None
+        self._layer_key: tuple[float, float, float, int, int, float, bool] | None = None
+        self._layer_document: object = None
         self.acquired: list[Point2] = []
         """Feature points the pointer recently passed over, for alignment guides."""
         self._editing: tuple[EntityId, str] | None = None
@@ -397,13 +401,10 @@ class Canvas(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         qp = QPainter(self)
-        qp.fillRect(self.rect(), theme.CANVAS)
-        if self.show_grid:
-            self._paint_grid(qp)
+        qp.drawPixmap(0, 0, self._static_layer())
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter = ModelPainter(qp, self.view)
-        self._paint_geometry(painter)
-        self.hidden_dimensions = paint_annotations(painter, self.session, self.session.selection)
+        self._paint_highlights(painter)
         self.controller.active.paint(painter)
         self._paint_snap(painter)
         self._paint_overlay(qp)
@@ -440,14 +441,47 @@ class Canvas(QWidget):
         qp.setPen(cosmetic_pen(theme.AXIS_Y, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(round(ox) + 0.5, 0.0, round(ox) + 0.5, h))
 
-    def _paint_geometry(self, painter: ModelPainter) -> None:
+    def _static_layer(self) -> QPixmap:
+        """Grid, geometry, and dimensions, redrawn only when the document or the view changes.
+
+        Hover, selection, tool previews, and snap markers are painted over it every frame, so
+        moving the pointer never repaints the whole sketch.
+        """
+        ratio = self.devicePixelRatioF()
+        view = self.view
+        key = (
+            view.scale,
+            view.origin_x,
+            view.origin_y,
+            self.width(),
+            self.height(),
+            ratio,
+            self.show_grid,
+        )
+        document = self.session.document
+        if self._layer is not None and self._layer_key == key and self._layer_document is document:
+            return self._layer
+        layer = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
+        layer.setDevicePixelRatio(ratio)
+        qp = QPainter(layer)
+        qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
+        if self.show_grid:
+            self._paint_grid(qp)
+        qp.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter = ModelPainter(qp, view)
+        painter.set_pen(cosmetic_pen(theme.GEOMETRY, theme.GEOMETRY_WIDTH))
+        for entity in document.entities.values():
+            if isinstance(entity, _GEOMETRY):
+                painter.geometry(entity)
+        self.hidden_dimensions = paint_annotations(painter, self.session, frozenset())
+        qp.end()
+        self._layer, self._layer_key, self._layer_document = layer, key, document
+        return layer
+
+    def _paint_highlights(self, painter: ModelPainter) -> None:
         entities = self.session.document.entities
         selection = self.session.selection
         hover = self.session.hover
-        painter.set_pen(cosmetic_pen(theme.GEOMETRY, theme.GEOMETRY_WIDTH))
-        for id, entity in entities.items():
-            if isinstance(entity, _GEOMETRY) and id not in selection and id != hover:
-                painter.geometry(entity)
         if hover is not None and hover not in selection:
             entity = entities.get(hover)
             if isinstance(entity, _GEOMETRY):
@@ -458,6 +492,7 @@ class Canvas(QWidget):
             entity = entities.get(id)
             if isinstance(entity, _GEOMETRY):
                 painter.geometry(entity)
+        paint_annotations(painter, self.session, selection, only=selection)
 
     def _paint_snap(self, painter: ModelPainter) -> None:
         pointer = self._pointer

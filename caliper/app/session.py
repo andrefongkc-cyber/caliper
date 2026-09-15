@@ -46,6 +46,10 @@ class HistoryEntry:
 class DocumentSession(QObject):
     document_changed = Signal()
     """The document was replaced or changed. Read `session.document`."""
+    changed = Signal(object)
+    """A `Change` from the bus, before `document_changed`, for views that update incrementally."""
+    document_replaced = Signal()
+    """New or Open swapped in another document: views should rebuild from scratch."""
     selection_changed = Signal()
     hover_changed = Signal()
     file_changed = Signal()
@@ -169,6 +173,7 @@ class DocumentSession(QObject):
         if self._hover is not None and self._hover not in live:
             self._hover = None
             self.hover_changed.emit()
+        self.changed.emit(change)
         self.document_changed.emit()
         self.file_changed.emit()
 
@@ -199,6 +204,7 @@ class DocumentSession(QObject):
         self.checks_changed.emit()
         self.selection_changed.emit()
         self.hover_changed.emit()
+        self.document_replaced.emit()
         self.document_changed.emit()
         self.file_changed.emit()
 

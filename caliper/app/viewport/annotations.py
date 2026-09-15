@@ -33,13 +33,16 @@ EXTENSION_OVERSHOOT_PX = 4.0
 
 
 def paint_annotations(
-    painter: ModelPainter, session: DocumentSession, selected: frozenset[EntityId]
+    painter: ModelPainter,
+    session: DocumentSession,
+    selected: frozenset[EntityId],
+    only: frozenset[EntityId] | None = None,
 ) -> int:
-    """Draw every dimension. Returns how many couldn't be drawn yet."""
+    """Draw dimensions (all of them, or just `only`). Returns how many couldn't be drawn."""
     document = session.document
     skipped = 0
-    for id in sorted(document.entities):
-        entity = document.entities[id]
+    for id in sorted(document.entities) if only is None else sorted(only):
+        entity = document.entities.get(id)
         color = theme.SELECTED if id in selected else theme.DIMENSION
         match entity:
             case DistanceDimension():

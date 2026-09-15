@@ -198,3 +198,44 @@ def test_dimension_tool_reports_an_empty_click(window, driver, bus) -> None:
     driver.click(300, 300)
     assert bus.sent == []
     assert window.statusBar().currentMessage() == "No point under the pointer"
+
+
+def test_hover_and_selection_reuse_the_cached_layer(window, driver) -> None:
+    draw_everything(window.session)
+    window.canvas.grab()
+    layer = window.canvas._layer
+    driver.move(50, 0)  # hover the rectangle
+    window.session.set_selection(frozenset(window.session.document.entities))
+    window.canvas.grab()
+    assert window.canvas._layer is layer
+    window.session.execute(CreateCircle(center=Point2(x=300, y=0), radius=3))
+    window.canvas.grab()
+    assert window.canvas._layer is not layer  # a document change redraws it
+    layer = window.canvas._layer
+    window.canvas.view.pan(5, 0)
+    window.canvas.grab()
+    assert window.canvas._layer is not layer  # so does moving the view
+
+
+def test_selected_dimensions_are_drawn_in_the_accent_colour(window) -> None:
+    draw_everything(window.session)
+    (radial,) = [
+        id for id, e in window.session.document.entities.items() if e.kind == "radial_dimension"
+    ]
+
+    def accent_pixels() -> int:
+        image = window.canvas.grab().toImage()
+        target = theme.SELECTED
+        return sum(
+            1
+            for x in range(image.width())
+            for y in range(image.height())
+            if abs(image.pixelColor(x, y).red() - target.red()) < 40
+            and abs(image.pixelColor(x, y).green() - target.green()) < 40
+            and abs(image.pixelColor(x, y).blue() - target.blue()) < 40
+        )
+
+    window.canvas.zoom_to_fit()  # the fixture's fixed view leaves the circle off-screen
+    before = accent_pixels()
+    window.session.set_selection(frozenset({radial}))
+    assert accent_pixels() > before + 20

@@ -231,3 +231,15 @@ def test_delete_key_removes_a_check(window, qtbot, sketch) -> None:
     qtbot.keyClick(panel.list, Qt.Key.Key_Delete)
     assert window.session.checks == ()
     assert QApplication.focusWidget() is not None
+
+
+def test_browser_updates_rows_in_place(window, sketch) -> None:
+    plate, hole = sketch
+    hole_item = window.browser.items[hole]
+    window.session.execute(ModifyEntity(id=plate, changes={"width": 150.0}))
+    assert window.browser.items[hole] is hole_item  # untouched rows aren't rebuilt
+    assert window.browser.items[plate].text(1) == "150 \u00d7 50"
+    window.undo_action.trigger()
+    window.undo_action.trigger()
+    assert hole not in window.browser.items
+    assert window.browser.groups["Geometry"].childCount() == 1
