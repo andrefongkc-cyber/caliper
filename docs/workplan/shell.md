@@ -1,4 +1,4 @@
-Status: not started, next: Phase 0.5 milestone spike (after the Phase 0 check-in)
+Status: not started, next: Phase 0.5 milestone spike once PR #1 (Phase 0) merges
 
 # Shell workplan — Stream B
 
