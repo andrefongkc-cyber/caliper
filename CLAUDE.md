@@ -47,6 +47,7 @@ The `boundaries` CI check rejects stream branches that touch files outside their
 - **Selection, hover, and previews are UI state:** never commands, never in the document.
 - **Licenses:** no GPL/AGPL dependencies (ADR 0006). No secrets in git; `.env.example` only.
 - **Commits** are small, single-concern conventional commits (`feat(engine): ...`). Rebase onto `main` before every merge.
+- **Pull requests** start with a plain-language `## Summary` (what it does, what depends on the other stream, what the reviewer must decide, risk), following `.github/pull_request_template.md`. Merge with "Rebase and merge", never squash.
 - **ADRs** are immutable once Accepted. Supersede with a new ADR; don't edit.
 - **Workplan:** update your stream's file after every meaningful change, mid-task included. Its first line is `Status: doing X, next: Y`; markers are `[ ]` `[~]` `[x]`.
 - **End every response** with a one-paragraph summary, your workplan's `Status:` line, and the next 1–3 tasks with markers.
