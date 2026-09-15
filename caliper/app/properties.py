@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -51,6 +52,10 @@ class PropertiesPanel(QWidget):
         self.fields: dict[str, QLineEdit | QComboBox] = {}
         """Editable fields by path: "width", "corner.x", "orientation"."""
         self._entity_id: EntityId | None = None
+        # The panel's width must not depend on what's selected: a dock that grows when a
+        # selection appears shrinks the canvas and shifts the view under the user.
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setAutoFillBackground(True)
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(10, 8, 10, 8)
         self._layout.setSpacing(6)
@@ -140,6 +145,7 @@ class PropertiesPanel(QWidget):
     def _number(self, path: str, value: float) -> QLineEdit:
         edit = QLineEdit(format_number(value))
         edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        edit.setMinimumWidth(40)
         edit.setObjectName(path)
         edit.editingFinished.connect(lambda p=path, e=edit: self._commit_text(p, e))
         self.fields[path] = edit

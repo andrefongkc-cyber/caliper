@@ -49,6 +49,7 @@ QDockWidget::title {{ background: {WINDOW.name()}; padding: 4px 8px; text-align:
 QStatusBar {{ background: {WINDOW.name()}; border-top: 1px solid {BORDER.name()};
     color: {TEXT_DIM.name()}; }}
 QStatusBar::item {{ border: none; }}
+QStatusBar QLabel {{ padding: 2px 8px; }}
 QLineEdit, QComboBox {{ background: {FIELD.name()}; border: 1px solid {BORDER.name()};
     border-radius: 2px; padding: 2px 4px; selection-background-color: {ACCENT.name()}; }}
 QLineEdit:focus {{ border-color: {ACCENT.name()}; }}

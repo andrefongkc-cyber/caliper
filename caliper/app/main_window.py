@@ -26,6 +26,7 @@ from caliper.engine.io.canonical import LoadError
 FILE_FILTER = "Caliper documents (*.caliper)"
 SUFFIX = ".caliper"
 MESSAGE_MS = 5000
+DOCK_WIDTH = 260
 
 
 class MainWindow(QMainWindow):
@@ -155,8 +156,9 @@ class MainWindow(QMainWindow):
         dock.setObjectName("properties")
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
         dock.setWidget(self.properties)
-        dock.setMinimumWidth(240)
+        dock.setMinimumWidth(DOCK_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.resizeDocks([dock], [DOCK_WIDTH], Qt.Orientation.Horizontal)
         self.properties_dock = dock
 
     def _build_status_bar(self) -> None:

@@ -115,3 +115,14 @@ def test_number_formatting_round_trips(value: float, text: str) -> None:
 @pytest.mark.parametrize("text", ["", "abc", "nan", "inf", "1e999"])
 def test_parse_number_rejects_non_finite_and_garbage(text: str) -> None:
     assert parse_number(text) is None
+
+
+def test_selecting_does_not_resize_the_canvas(window, qtbot) -> None:
+    before = window.canvas.width()
+    result = window.session.execute(
+        CreateRectangle(corner=Point2(x=0, y=0), width=12345.678, height=50)
+    )
+    window.session.set_selection(frozenset(result.created_ids))
+    qtbot.wait(50)
+    assert window.properties.fields["width"].isVisible()
+    assert window.canvas.width() == before
