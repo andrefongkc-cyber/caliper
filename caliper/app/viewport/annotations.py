@@ -86,7 +86,7 @@ def _distance(
     painter.line(da, db)
     _arrow(painter, da, ux, uy)
     _arrow(painter, db, -ux, -uy)
-    _label(
+    label(
         painter, Point2(x=(da.x + db.x) / 2, y=(da.y + db.y) / 2), _value_text(session, id), color
     )
     return True
@@ -117,7 +117,7 @@ def _radial(
         painter.line(c, label_at)
         prefix = "R"
     _arrow(painter, rim, -ux, -uy)
-    _label(painter, label_at, prefix + _value_text(session, id), color)
+    label(painter, label_at, prefix + _value_text(session, id), color)
     return True
 
 
@@ -131,7 +131,7 @@ def _arrow(painter: ModelPainter, tip: Point2, ux: float, uy: float) -> None:
         )
 
 
-def _label(painter: ModelPainter, at: Point2, text: str, color: QColor) -> None:
+def label(painter: ModelPainter, at: Point2, text: str, color: QColor) -> None:
     qp = painter.painter
     center = painter.point(at)
     metrics = QFontMetricsF(qp.font())

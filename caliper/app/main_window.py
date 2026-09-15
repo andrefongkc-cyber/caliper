@@ -192,12 +192,11 @@ class MainWindow(QMainWindow):
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         bar.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
         # Groups by category, so later categories (constrain, inspect) add a group, not a redesign.
-        select, *create = self.tool_actions.values()
-        bar.addAction(select)
-        bar.addSeparator()
-        for action in create:
-            bar.addAction(action)
-        bar.addSeparator()
+        for category in ("select", "create", "inspect"):
+            for name, tool in self.controller.tools.items():
+                if tool.category == category:
+                    bar.addAction(self.tool_actions[name])
+            bar.addSeparator()
         bar.addAction(self.fit_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar

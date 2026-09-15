@@ -42,6 +42,8 @@ class Tool:
 
     name: str = ""
     shortcut: str = ""
+    category: str = "create"
+    """Tool bar group: "select", "create", or "inspect"."""
     uses_hover: bool = False
     """Whether the canvas should highlight the entity under the pointer."""
 

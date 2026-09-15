@@ -33,6 +33,7 @@ class SelectPhase(StrEnum):
 
 class SelectTool(Tool):
     name = "Select"
+    category = "select"
     shortcut = "S"
     uses_hover = True
 

@@ -58,7 +58,7 @@ if HAVE_QT:
         Ref,
     )
     from caliper.contracts.errors import Error, ErrorCode
-    from caliper.contracts.queries import Queries
+    from caliper.contracts.queries import Distance, Queries
     from caliper.engine.commands.bus import Bus
     from caliper.engine.queries import DocumentQueries
 
@@ -112,6 +112,15 @@ if HAVE_QT:
                     if distance <= tolerance and (best is None or distance < best[0]):
                         best = (distance, id, feature)
             return None if best is None else Ref(entity=best[1], feature=best[2])
+
+        def measure_distance(self, a: Ref, b: Ref) -> Distance | Error:
+            pa, pb = self.feature_point(a), self.feature_point(b)
+            if isinstance(pa, Error):
+                return pa
+            if isinstance(pb, Error):
+                return pb
+            dx, dy = pb.x - pa.x, pb.y - pa.y
+            return Distance(value=math.hypot(dx, dy), dx=dx, dy=dy)
 
         def dimension_value(self, id: EntityId) -> float | Error:
             entity = self._document.entities.get(id)
