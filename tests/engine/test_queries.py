@@ -1,3 +1,4 @@
+import itertools
 import math
 
 import pytest
@@ -11,23 +12,28 @@ from caliper.contracts.commands import (
     CreateCircle,
     CreateDistanceDimension,
     CreateLine,
+    CreateRadialDimension,
     CreateRectangle,
     ModifyEntity,
 )
 from caliper.contracts.document import (
     POINT_FEATURES,
     Arc,
+    Circle,
     DistanceOrientation,
-    Document,
+    Entity,
     EntityId,
     Feature,
+    Line,
     Point2,
+    RadialMeasure,
+    Rectangle,
     Ref,
 )
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.contracts.queries import BoundingBox, Expectation, Metric, Queries
+from caliper.contracts.queries import AreaProperties, BoundingBox, Distance, Queries
 from caliper.engine.commands.bus import Bus
-from caliper.engine.queries import DocumentQueries
+from caliper.engine.geometry.fake_kernel import FakeKernel
 
 E1, E2, E3 = EntityId("e1"), EntityId("e2"), EntityId("e3")
 
@@ -37,7 +43,7 @@ def P(x: float, y: float) -> Point2:  # noqa: N802
 
 
 def bus_with(*commands: Command) -> Bus:
-    bus = Bus()
+    bus = Bus(kernel=FakeKernel())
     for command in commands:
         assert isinstance(bus.execute(command), Applied)
     return bus
@@ -423,17 +429,270 @@ def test_queries_answer_for_the_snapshot_they_were_taken_from() -> None:
     assert box(bus.queries.bounding_box()) == (0.0, 0.0, 120.0, 50.0)
 
 
-def test_queries_landing_in_v1_say_so() -> None:
-    queries = DocumentQueries(Document.empty())
-    ref = Ref(entity=E1, feature=Feature.CENTER)
-    everything = BoundingBox(x_min=0.0, y_min=0.0, x_max=1.0, y_max=1.0)
-    with pytest.raises(NotImplementedError):
-        queries.measure_distance(ref, ref)
-    with pytest.raises(NotImplementedError):
-        queries.entities_in_box(everything, crossing=False)
-    with pytest.raises(NotImplementedError):
-        queries.dimension_value(E1)
-    with pytest.raises(NotImplementedError):
-        queries.area_properties([E1])
-    with pytest.raises(NotImplementedError):
-        queries.check(Expectation(metric=Metric.BBOX_WIDTH, expected=1.0, tolerance=0.0))
+# --- measure_distance -------------------------------------------------------------------
+
+
+def test_measure_distance_between_features() -> None:
+    queries = bus_with(rectangle(0.0, 0.0, 30.0, 40.0)).queries
+    bl, tr = Ref(entity=E1, feature=Feature.BOTTOM_LEFT), Ref(entity=E1, feature=Feature.TOP_RIGHT)
+    assert queries.measure_distance(bl, tr) == Distance(value=50.0, dx=30.0, dy=40.0)
+    assert queries.measure_distance(tr, bl) == Distance(value=50.0, dx=-30.0, dy=-40.0)
+    assert queries.measure_distance(bl, bl) == Distance(value=0.0, dx=0.0, dy=0.0)
+
+
+def test_measure_distance_names_the_bad_reference() -> None:
+    queries = bus_with(rectangle()).queries
+    good = Ref(entity=E1, feature=Feature.CENTER)
+    missing = Ref(entity=E2, feature=Feature.CENTER)
+    for a, b, field in [(missing, good, "a.entity"), (good, missing, "b.entity")]:
+        result = queries.measure_distance(a, b)
+        assert isinstance(result, Error)
+        assert (result.code, result.field) == (ErrorCode.ENTITY_NOT_FOUND, field)
+
+
+# --- dimension_value --------------------------------------------------------------------
+
+
+def distance_dimension(
+    a: Feature, b: Feature, orientation: DistanceOrientation, entity: EntityId = E1
+) -> Command:
+    return CreateDistanceDimension(
+        a=Ref(entity=entity, feature=a),
+        b=Ref(entity=entity, feature=b),
+        orientation=orientation,
+        offset=5.0,
+    )
+
+
+def test_distance_dimension_values_follow_orientation() -> None:
+    queries = bus_with(
+        rectangle(0.0, 0.0, 30.0, 40.0),
+        distance_dimension(Feature.BOTTOM_LEFT, Feature.TOP_RIGHT, DistanceOrientation.ALIGNED),
+        distance_dimension(Feature.TOP_RIGHT, Feature.BOTTOM_LEFT, DistanceOrientation.HORIZONTAL),
+        distance_dimension(Feature.TOP_RIGHT, Feature.BOTTOM_LEFT, DistanceOrientation.VERTICAL),
+    ).queries
+    assert queries.dimension_value(E2) == 50.0
+    assert queries.dimension_value(E3) == 30.0  # absolute, whatever the a→b direction
+    assert queries.dimension_value(EntityId("e4")) == 40.0
+
+
+def test_radial_dimension_values() -> None:
+    queries = bus_with(
+        CreateCircle(center=P(0.0, 0.0), radius=7.5),
+        CreateArc(center=P(0.0, 0.0), radius=2.0, start_angle=10.0, sweep_angle=20.0),
+        CreateRadialDimension(target=E1, measure=RadialMeasure.DIAMETER, label_angle=45.0),
+        CreateRadialDimension(target=E2, measure=RadialMeasure.RADIUS, label_angle=45.0),
+    ).queries
+    assert queries.dimension_value(E3) == 15.0
+    assert queries.dimension_value(EntityId("e4")) == 2.0
+
+
+def test_a_dimension_value_follows_its_geometry() -> None:
+    bus = bus_with(
+        rectangle(),
+        distance_dimension(
+            Feature.BOTTOM_LEFT, Feature.BOTTOM_RIGHT, DistanceOrientation.HORIZONTAL
+        ),
+    )
+    bus.execute(ModifyEntity(id=E1, changes={"width": 120.0}))
+    assert bus.queries.dimension_value(E2) == 120.0
+
+
+def test_dimension_value_reports_bad_ids() -> None:
+    queries = bus_with(rectangle()).queries
+    assert error_code(queries.dimension_value(E2)) == ErrorCode.ENTITY_NOT_FOUND
+    assert error_code(queries.dimension_value(E1)) == ErrorCode.ENTITY_WRONG_KIND
+    assert error_code(queries.dimension_value(EntityId("Bad Id"))) == ErrorCode.ID_INVALID
+
+
+# --- area_properties --------------------------------------------------------------------
+
+
+def test_area_properties_of_a_rectangle_and_a_circle() -> None:
+    queries = bus_with(
+        rectangle(10.0, 20.0, 6.0, 3.0), CreateCircle(center=P(1.0, 2.0), radius=2.0)
+    ).queries
+    assert queries.area_properties([E1]) == AreaProperties(
+        area=18.0, centroid=P(13.0, 21.5), ixx=6.0 * 27.0 / 12, iyy=3.0 * 216.0 / 12, ixy=0.0
+    )
+    circle = queries.area_properties([E2])
+    assert isinstance(circle, AreaProperties)
+    assert circle.area == pytest.approx(4.0 * math.pi)
+    assert circle.centroid == P(1.0, 2.0)
+
+
+def test_area_properties_errors() -> None:
+    queries = bus_with(
+        rectangle(),
+        CreateLine(start=P(0.0, 0.0), end=P(1.0, 1.0)),
+        distance_dimension(Feature.BOTTOM_LEFT, Feature.TOP_RIGHT, DistanceOrientation.ALIGNED),
+    ).queries
+    assert error_code(queries.area_properties([])) == ErrorCode.SELECTION_EMPTY
+    assert error_code(queries.area_properties([EntityId("nope")])) == ErrorCode.ENTITY_NOT_FOUND
+    assert error_code(queries.area_properties([E3])) == ErrorCode.ENTITY_WRONG_KIND
+    assert error_code(queries.area_properties([E2])) == ErrorCode.PROFILE_NOT_CLOSED
+    assert error_code(queries.area_properties([E1, E1])) == ErrorCode.PROFILE_NOT_CLOSED
+
+
+def test_area_properties_without_a_kernel_says_so() -> None:
+    bus = Bus()
+    bus.execute(rectangle())
+    assert error_code(bus.queries.area_properties([E1])) == ErrorCode.KERNEL_UNAVAILABLE
+    assert error_code(bus.queries.area_properties([E2])) == ErrorCode.ENTITY_NOT_FOUND
+
+
+# --- entities_in_box --------------------------------------------------------------------
+
+
+def B(x_min: float, y_min: float, x_max: float, y_max: float) -> BoundingBox:  # noqa: N802
+    return BoundingBox(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max)
+
+
+def test_window_selection_needs_the_whole_entity_inside() -> None:
+    queries = bus_with(
+        rectangle(0.0, 0.0, 10.0, 10.0),
+        CreateCircle(center=P(50.0, 50.0), radius=5.0),
+        CreateLine(start=P(0.0, 20.0), end=P(100.0, 20.0)),
+    ).queries
+    assert queries.entities_in_box(B(-1.0, -1.0, 60.0, 60.0), crossing=False) == (E1, E2)
+    assert queries.entities_in_box(B(0.0, 0.0, 10.0, 10.0), crossing=False) == (E1,)  # edges count
+    assert queries.entities_in_box(B(-1.0, -1.0, 99.0, 60.0), crossing=False) == (E1, E2)
+
+
+def test_crossing_selection_takes_anything_the_box_touches() -> None:
+    queries = bus_with(
+        rectangle(0.0, 0.0, 100.0, 100.0),
+        CreateCircle(center=P(50.0, 50.0), radius=10.0),
+        CreateLine(start=P(-50.0, 50.0), end=P(150.0, 50.0)),
+    ).queries
+    # A box inside the rectangle, clear of the circle and the line, touches nothing.
+    assert queries.entities_in_box(B(20.0, 70.0, 30.0, 80.0), crossing=True) == ()
+    # Inside the circle, clear of its outline, but across the line.
+    assert queries.entities_in_box(B(45.0, 45.0, 55.0, 55.0), crossing=True) == (E3,)
+    # Across the rectangle's left edge and the line's left part.
+    assert queries.entities_in_box(B(-5.0, 40.0, 5.0, 60.0), crossing=True) == (E1, E3)
+    # Just touching the circle's top.
+    assert queries.entities_in_box(B(49.0, 60.0, 51.0, 65.0), crossing=True) == (E2,)
+
+
+def test_crossing_an_arc_only_counts_the_drawn_part() -> None:
+    queries = bus_with(
+        CreateArc(center=P(0.0, 0.0), radius=10.0, start_angle=0.0, sweep_angle=90.0)
+    ).queries
+    assert (
+        queries.entities_in_box(B(-11.0, -1.0, -9.0, 1.0), crossing=True) == ()
+    )  # 180°: not drawn
+    assert queries.entities_in_box(B(6.0, 6.0, 8.0, 8.0), crossing=True) == (
+        E1,
+    )  # 45°, crosses edges
+    assert queries.entities_in_box(B(9.0, -1.0, 11.0, 1.0), crossing=True) == (
+        E1,
+    )  # holds the start
+
+
+@pytest.mark.parametrize(
+    "box",
+    [B(1.0, 0.0, 0.0, 1.0), B(0.0, math.nan, 1.0, 1.0), B(0.0, 0.0, math.inf, 1.0), "e1"],
+)
+def test_an_invalid_box_selects_nothing(box: BoundingBox) -> None:
+    queries = bus_with(rectangle()).queries
+    assert queries.entities_in_box(box, crossing=True) == ()
+    assert queries.entities_in_box(box, crossing=False) == ()
+
+
+geometry_commands = st.one_of(
+    st.builds(
+        lambda x, y, dx, dy: CreateLine(start=P(x, y), end=P(x + dx, y + dy)),
+        coordinate,
+        coordinate,
+        size,
+        st.floats(min_value=-1e4, max_value=1e4),
+    ),
+    st.builds(lambda x, y, r: CreateCircle(center=P(x, y), radius=r), coordinate, coordinate, size),
+    st.builds(
+        lambda x, y, r, a, s: CreateArc(center=P(x, y), radius=r, start_angle=a, sweep_angle=s),
+        coordinate,
+        coordinate,
+        size,
+        st.floats(min_value=-360.0, max_value=360.0),
+        st.floats(min_value=0.01, max_value=359.99),
+    ),
+    st.builds(rectangle, coordinate, coordinate, size, size),
+)
+
+
+def outline_samples(entity: Entity, count: int = 720) -> list[Point2]:
+    """Points along an entity's outline, computed independently of the engine."""
+
+    def along(a: Point2, b: Point2) -> list[Point2]:
+        return [
+            P(a.x + (b.x - a.x) * i / count, a.y + (b.y - a.y) * i / count)
+            for i in range(count + 1)
+        ]
+
+    def around(c: Point2, r: float, start: float, sweep: float) -> list[Point2]:
+        angles = (math.radians(start + sweep * i / count) for i in range(count + 1))
+        return [P(c.x + r * math.cos(t), c.y + r * math.sin(t)) for t in angles]
+
+    match entity:
+        case Line(start=a, end=b):
+            return along(a, b)
+        case Circle(center=c, radius=r):
+            return around(c, r, 0.0, 360.0)
+        case Arc(center=c, radius=r, start_angle=start, sweep_angle=sweep):
+            return around(c, r, start, sweep)
+        case Rectangle(corner=c, width=w, height=h):
+            corners = [c, P(c.x + w, c.y), P(c.x + w, c.y + h), P(c.x, c.y + h), c]
+            return [q for a, b in itertools.pairwise(corners) for q in along(a, b)]
+    raise AssertionError(entity)
+
+
+def grown(box: BoundingBox, by: float) -> BoundingBox:
+    return B(box.x_min - by, box.y_min - by, box.x_max + by, box.y_max + by)
+
+
+def holds(box: BoundingBox, p: Point2) -> bool:
+    return box.x_min <= p.x <= box.x_max and box.y_min <= p.y <= box.y_max
+
+
+@given(command=geometry_commands, data=st.data())
+def test_box_selection_agrees_with_points_sampled_along_the_outline(
+    command: Command, data: st.DataObject
+) -> None:
+    bus = bus_with(command)
+    bounds = bus.queries.bounding_box()
+    assert isinstance(bounds, BoundingBox)
+    # Boxes around the entity, so they overlap it, cross it, and miss it about equally often.
+    reach = max(bounds.width, bounds.height, 1.0)
+    xs = st.floats(min_value=bounds.x_min - reach, max_value=bounds.x_max + reach)
+    ys = st.floats(min_value=bounds.y_min - reach, max_value=bounds.y_max + reach)
+    x0, x1 = sorted((data.draw(xs), data.draw(xs)))
+    y0, y1 = sorted((data.draw(ys), data.draw(ys)))
+    box = B(x0, y0, x1, y1)
+    window = bus.queries.entities_in_box(box, crossing=False)
+    crossing = bus.queries.entities_in_box(box, crossing=True)
+    assert set(window) <= set(crossing)
+
+    samples = outline_samples(bus.document.entities[E1])
+    scale = max(1.0, *(abs(v) for p in samples for v in (p.x, p.y)))
+    rounding = 1e-9 * scale
+    # Between neighbouring samples a curve bulges out by at most r*(1 - cos(0.25°)) < 1e-5·r.
+    sag = 1e-5 * scale
+    if any(holds(grown(box, -rounding), p) for p in samples):
+        assert crossing == (E1,), "a sampled outline point is in the box"
+    spacing = max(math.dist((p.x, p.y), (q.x, q.y)) for p, q in itertools.pairwise(samples))
+    if not any(holds(grown(box, sag + spacing), p) for p in samples):
+        assert crossing == (), "no sampled outline point comes near the box"
+    if all(holds(grown(box, -sag), p) for p in samples):
+        assert window == (E1,), "every sampled point is well inside the box"
+    if any(not holds(grown(box, rounding), p) for p in samples):
+        assert window == (), "a sampled point is outside the box"
+
+
+@given(commands=st.lists(geometry_commands, min_size=1, max_size=5))
+def test_a_window_around_the_whole_document_selects_every_entity(commands: list[Command]) -> None:
+    queries = bus_with(*commands).queries
+    box = queries.bounding_box()
+    assert isinstance(box, BoundingBox)
+    assert len(queries.entities_in_box(box, crossing=False)) == len(commands)
+    assert len(queries.entities_in_box(box, crossing=True)) == len(commands)
