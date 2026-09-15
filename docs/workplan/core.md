@@ -1,4 +1,4 @@
-Status: waiting on user check-in (step 8) before the first PR, next: fill CODEOWNERS usernames, push, open PR
+Status: doing Phase 0 step 8 (publish: email rewrite, gh, repo, protection, PR), next: Phase 0.5 spike after the PR merges
 
 # Core workplan — Stream A
 
@@ -42,8 +42,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] Reference solver, byte-exact snapshot comparison; expectations report "pending" until queries land (V1)
   - [x] `tests/test_bench.py` confirms wrong results and rejected solutions fail
 - [~] Step 8: Check in with the user, then open PR `phase-0/foundation` → `main`
-  - [ ] CODEOWNERS: real usernames (andrefongkc-cyber, lucassnam); waiting on which stream each owns
-  - [ ] User installs `gh`; create the public GitHub repo; push
+  - [x] CODEOWNERS: Stream A @andrefongkc-cyber, Stream B @lucassnam
+  - [x] `app (macOS)` runs on every PR and is a required check (public repo: macOS runners are free)
+  - [ ] Rewrite commit emails to the GitHub no-reply address; repo-local `user.email` set
+  - [ ] Install `gh` (official release binary) → user runs `gh auth login` → create public repo `andrefongkc-cyber/caliper` → push
   - [ ] Apply branch protection (CONTRIBUTING.md), then open the PR
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
