@@ -54,7 +54,6 @@ def test_hover_follows_the_pointer_in_select_mode_only(window, driver, shapes) -
     assert window.session.hover is None
 
 
-@pytest.mark.bus(stub_unbuilt=True)
 def test_drag_moves_the_selection_with_one_command_on_release(window, driver, bus, shapes) -> None:
     rect, _ = shapes
     driver.move(0, 20)
@@ -67,7 +66,6 @@ def test_drag_moves_the_selection_with_one_command_on_release(window, driver, bu
     assert bus.sent == [MoveEntities(ids=(rect,), dx=30.0, dy=10.0)]
 
 
-@pytest.mark.bus(stub_unbuilt=True)
 def test_escape_during_a_drag_moves_nothing(window, driver, bus, shapes) -> None:
     driver.move(0, 20)
     driver.press(0, 20)
@@ -78,21 +76,11 @@ def test_escape_during_a_drag_moves_nothing(window, driver, bus, shapes) -> None
     assert window.controller.active.name == "Select"
 
 
-@pytest.mark.bus(stub_unbuilt=True)
 def test_delete_sends_the_selection(window, driver, bus, shapes) -> None:
     rect, circle = shapes
     window.session.set_selection(frozenset({circle, rect}))
     window.delete_action.trigger()
     assert bus.sent == [DeleteEntities(ids=tuple(sorted((rect, circle))))]
-
-
-@pytest.mark.bus(missing=("DeleteEntities",))
-def test_delete_reports_the_missing_engine_piece_instead_of_crashing(window, shapes) -> None:
-    rect, _ = shapes
-    window.session.set_selection(frozenset({rect}))
-    window.delete_action.trigger()
-    assert window.statusBar().currentMessage() == "Delete isn't in the engine yet"
-    assert rect in window.session.document.entities
 
 
 def test_delete_is_disabled_with_nothing_selected(window, shapes) -> None:
@@ -101,15 +89,42 @@ def test_delete_is_disabled_with_nothing_selected(window, shapes) -> None:
     assert window.delete_action.isEnabled()
 
 
-@pytest.mark.bus(missing=("entities_in_box",))
-def test_box_select_reports_the_missing_engine_piece(window, driver, shapes) -> None:
-    driver.drag([(-20, -20), (60, 40), (120, 70)])
-    assert window.statusBar().currentMessage() == "Box selection isn't in the engine yet"
-    assert not window.controller.active.busy
-
-
 def test_undo_drops_deleted_ids_from_the_selection(window, shapes) -> None:
     _, circle = shapes
     window.session.set_selection(frozenset({circle}))
     window.undo_action.trigger()
     assert window.session.selection == set()
+
+
+def test_delete_removes_the_selection_and_undo_restores_it(window, shapes) -> None:
+    rect, circle = shapes
+    window.session.set_selection(frozenset({rect, circle}))
+    window.delete_action.trigger()
+    assert window.session.document.entities == {}
+    assert window.session.selection == set()
+    window.undo_action.trigger()
+    assert set(window.session.document.entities) == {rect, circle}
+
+
+def test_box_select_left_to_right_selects_only_whats_inside(window, driver, shapes) -> None:
+    rect, _ = shapes
+    driver.drag([(-20, -20), (60, 40), (130, 70)])  # covers the rectangle, not the circle
+    assert window.session.selection == {rect}
+    assert not window.controller.active.busy
+
+
+def test_box_select_right_to_left_also_selects_what_it_touches(window, driver, shapes) -> None:
+    rect, circle = shapes
+    driver.drag([(200, 30), (150, 30), (90, 30)])  # crosses the circle and the rectangle edge
+    assert window.session.selection == {rect, circle}
+
+
+def test_drag_moves_the_selection(window, driver, shapes) -> None:
+    rect, _ = shapes
+    driver.move(0, 20)
+    driver.press(0, 20)
+    driver.move(15, 25)
+    driver.move(30, 30)
+    driver.release(30, 30)
+    assert window.session.document.entities[rect].corner == Point2(x=30.0, y=10.0)
+    assert window.undo_action.text() == "Undo Move Rectangle"

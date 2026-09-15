@@ -24,7 +24,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
-from caliper.app.engine_gaps import Unavailable, attempt
 from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind
@@ -128,9 +127,9 @@ class Canvas(QWidget):
                 raw=raw, point=raw, snap=SnapKind.NONE, ref=None, tolerance=tolerance, shift=shift
             )
         queries = self.session.queries
-        ref = attempt("Point snapping", lambda: queries.nearest_feature(raw, tolerance))
-        if ref is not None and not isinstance(ref, Unavailable):
-            at = attempt("Feature points", lambda: queries.feature_point(ref))
+        ref = queries.nearest_feature(raw, tolerance)
+        if ref is not None:
+            at = queries.feature_point(ref)
             if isinstance(at, Point2):
                 return Pointer(
                     raw=raw,
@@ -442,5 +441,5 @@ class Canvas(QWidget):
         qp.setPen(theme.TEXT_DIM)
         qp.drawText(
             QPointF(10.0, self.height() - 10.0),
-            f"{self.hidden_dimensions} {noun} not drawn: feature points aren't in the engine yet",
+            f"{self.hidden_dimensions} {noun} not drawn: the points they measure can't be found",
         )

@@ -13,7 +13,6 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetricsF
 
 from caliper.app import theme
-from caliper.app.engine_gaps import Unavailable, attempt
 from caliper.app.session import DocumentSession
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.contracts.document import (
@@ -52,13 +51,13 @@ def paint_annotations(
 
 
 def _value_text(session: DocumentSession, id: EntityId) -> str:
-    value = attempt("Dimension values", lambda: session.queries.dimension_value(id))
-    return "?" if isinstance(value, Unavailable | Error) else f"{value:.2f}"
+    value = session.queries.dimension_value(id)
+    return "?" if isinstance(value, Error) else f"{value:.2f}"
 
 
 def _point(session: DocumentSession, ref: Ref) -> Point2 | None:
-    found = attempt("Feature points", lambda: session.queries.feature_point(ref))
-    return None if isinstance(found, Unavailable | Error) else found
+    found = session.queries.feature_point(ref)
+    return None if isinstance(found, Error) else found
 
 
 def _distance(

@@ -5,7 +5,6 @@ job runs them.
 """
 
 import importlib.util
-import math
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -16,11 +15,7 @@ QT_FREE = {"test_viewport_math.py", "test_tokens.py"}
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers",
-        "bus(stub_unbuilt=False, complete_queries=False, missing=()): configure the"
-        " RecordingBus fixture",
-    )
+    del config
 
 
 def pytest_ignore_collect(collection_path: Path) -> bool | None:
@@ -40,140 +35,24 @@ if HAVE_QT:
     from caliper.app.session import DocumentSession
     from caliper.app.viewport.canvas import Canvas
     from caliper.contracts.commands import (
-        Applied,
         Command,
         CommandResult,
-        DeleteEntities,
-        Delta,
-        MoveEntities,
     )
     from caliper.contracts.document import (
-        Arc,
-        Circle,
-        DistanceDimension,
-        EntityId,
-        Feature,
-        Line,
         Point2,
-        Rectangle,
-        Ref,
     )
-    from caliper.contracts.errors import Error, ErrorCode
-    from caliper.contracts.queries import Distance, Queries
     from caliper.engine.commands.bus import Bus
-    from caliper.engine.queries import DocumentQueries
 
     class RecordingBus(Bus):
-        """The real bus, plus a record of every command sent.
+        """The real bus, plus a record of every command sent."""
 
-        `stub_unbuilt=True` answers MoveEntities and DeleteEntities with an empty Applied,
-        so tests can check what the shell sends. `complete_queries=True` swaps in
-        `CompletedQueries`. `missing` names queries or command types to treat as not built
-        yet (they raise NotImplementedError), so tests of the "isn't in the engine yet"
-        path don't depend on how far the engine has got.
-        """
-
-        def __init__(
-            self,
-            *,
-            stub_unbuilt: bool = False,
-            complete_queries: bool = False,
-            missing: tuple[str, ...] = (),
-        ):
+        def __init__(self) -> None:
             super().__init__()
             self.sent: list[Command] = []
-            self._stub = stub_unbuilt
-            self._complete = complete_queries
-            self._missing = frozenset(missing)
 
         def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
             self.sent.append(command)
-            if type(command).__name__ in self._missing:
-                raise NotImplementedError(f"{type(command).__name__} (simulated)")
-            if self._stub and isinstance(command, MoveEntities | DeleteEntities):
-                label = type(command).__name__
-                return Applied(
-                    command=command,
-                    delta=Delta.empty(self.document.next_id),
-                    label=label,
-                    created_ids=(),
-                )
             return super().execute(command, merge_key=merge_key)
-
-        @property
-        def queries(self) -> Queries:
-            base = CompletedQueries(self.document) if self._complete else super().queries
-            return MissingQueries(base, self._missing) if self._missing else base
-
-    class MissingQueries:
-        """Delegates to real queries, except the named ones, which raise NotImplementedError."""
-
-        def __init__(self, base: Queries, missing: frozenset[str]) -> None:
-            self._base = base
-            self._missing = missing
-
-        def __getattr__(self, name: str) -> object:
-            if name in self._missing:
-
-                def unbuilt(*_args: object, **_kwargs: object) -> object:
-                    raise NotImplementedError(f"{name} (simulated)")
-
-                return unbuilt
-            return getattr(self._base, name)
-
-    class CompletedQueries(DocumentQueries):
-        """Test-only stand-ins for the point queries Stream A hasn't built yet."""
-
-        def feature_point(self, ref: Ref) -> Point2 | Error:
-            entity = self._document.entities.get(ref.entity)
-            points = _features(entity) if entity is not None else {}
-            if ref.feature not in points:
-                return Error(code=ErrorCode.REFERENCE_INVALID_FEATURE, message="no such feature")
-            return points[ref.feature]
-
-        def nearest_feature(self, point: Point2, tolerance: float) -> Ref | None:
-            best: tuple[float, EntityId, Feature] | None = None
-            for id, entity in sorted(self._document.entities.items()):
-                for feature, at in sorted(_features(entity).items()):
-                    distance = math.hypot(at.x - point.x, at.y - point.y)
-                    if distance <= tolerance and (best is None or distance < best[0]):
-                        best = (distance, id, feature)
-            return None if best is None else Ref(entity=best[1], feature=best[2])
-
-        def measure_distance(self, a: Ref, b: Ref) -> Distance | Error:
-            pa, pb = self.feature_point(a), self.feature_point(b)
-            if isinstance(pa, Error):
-                return pa
-            if isinstance(pb, Error):
-                return pb
-            dx, dy = pb.x - pa.x, pb.y - pa.y
-            return Distance(value=math.hypot(dx, dy), dx=dx, dy=dy)
-
-        def dimension_value(self, id: EntityId) -> float | Error:
-            entity = self._document.entities.get(id)
-            if not isinstance(entity, DistanceDimension):
-                return Error(code=ErrorCode.ENTITY_WRONG_KIND, message="not a distance")
-            a, b = self.feature_point(entity.a), self.feature_point(entity.b)
-            assert isinstance(a, Point2)
-            assert isinstance(b, Point2)
-            return math.hypot(b.x - a.x, b.y - a.y)
-
-    def _features(entity: object) -> dict[Feature, Point2]:
-        match entity:
-            case Line(start=s, end=e):
-                mid = Point2(x=(s.x + e.x) / 2, y=(s.y + e.y) / 2)
-                return {Feature.START: s, Feature.END: e, Feature.MID: mid}
-            case Circle(center=c) | Arc(center=c):
-                return {Feature.CENTER: c}
-            case Rectangle(corner=c, width=w, height=h):
-                return {
-                    Feature.BOTTOM_LEFT: c,
-                    Feature.BOTTOM_RIGHT: Point2(x=c.x + w, y=c.y),
-                    Feature.TOP_RIGHT: Point2(x=c.x + w, y=c.y + h),
-                    Feature.TOP_LEFT: Point2(x=c.x, y=c.y + h),
-                    Feature.CENTER: Point2(x=c.x + w / 2, y=c.y + h / 2),
-                }
-        return {}
 
     Modifier = Qt.KeyboardModifier
     NO_MODIFIER = Qt.KeyboardModifier.NoModifier
@@ -251,9 +130,8 @@ if HAVE_QT:
         return window
 
     @pytest.fixture
-    def bus(request: pytest.FixtureRequest) -> RecordingBus:
-        marker = request.node.get_closest_marker("bus")
-        return RecordingBus(**(marker.kwargs if marker else {}))
+    def bus() -> RecordingBus:
+        return RecordingBus()
 
     @pytest.fixture
     def window(qtbot: QtBot, bus: RecordingBus) -> MainWindow:
