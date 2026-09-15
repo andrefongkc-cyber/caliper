@@ -1,4 +1,4 @@
-Status: doing Phase 0 step 5 (FakeKernel + conformance suite), next: check in with the user
+Status: waiting on user check-in after step 5 (FakeKernel), next: step 6 headless vertical slice
 
 # Core workplan — Stream A
 
@@ -28,7 +28,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] ADRs 0001, 0003 (Proposed), 0004, 0006
   - [x] architecture.md, vision.md, CLAUDE.md (+ nested engine/app), README, CONTRIBUTING (incl. branch protection settings)
   - [ ] Apply branch protection on `main` once the remote exists (needs `gh`; private repos need a paid plan)
-- [~] Step 5: `FakeKernel` + shared kernel conformance suite (OCCT case skips until OCCTKernel exists)
+- [x] Step 5: `FakeKernel` + shared kernel conformance suite
+  - [x] `caliper/engine/geometry/fake_kernel.py`: analytic Rectangle/Circle faces; mypy strict clean
+  - [x] `tests/engine/geometry/test_kernel_conformance.py`: hypothesis property tests with size-scaled tolerances; OCCT cases skip until OCCTKernel exists. Verified it fails on a wrong formula and a 10 µm bbox error
+  - [x] `tests/conftest.py`: hypothesis `ci` profile (derandomized) when `CI` is set
 - [ ] Step 6: Headless vertical slice: `CreateRectangle` → Document → save → replay → byte-identical
 - [ ] Step 7: Bench stub: `bench/run.py` + two trivial cases
 - [ ] Step 8: Check in with the user; open PR `phase-0/foundation` → `main`
