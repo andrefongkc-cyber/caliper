@@ -1,4 +1,4 @@
-Status: waiting on Lucas's review of PR #2 (spike queries + planegcs result, CI green), next: `check` for bbox metrics, then ADR 0003 proposal
+Status: PR #2 merged (squashed); main has the milestone shell (#3), next: feature_point + nearest_feature, then dimension_value, per shell.md's gap order
 
 # Core workplan — Stream A
 
@@ -71,6 +71,13 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   3. "Ties broken by id" is string order, so `e10` sorts before `e2`. Say so explicitly
   4. `bounding_box` doesn't specify: a document with no geometry (engine: `SELECTION_EMPTY`), an annotation id (engine: `ENTITY_WRONG_KIND`), duplicate ids (engine: allowed). `Error.field` is `"ids"` with no index
   5. Bounds exclude annotations, so zoom-to-fit clips dimension text unless the shell adds label extents
+- [x] PR #2 merged 2026-09-15 (Lucas, squashed into `7ac0543`); PR #3 (milestone + V1 shell) rebase-merged the same day. Tests on `main` with the app extra: 293 passed
+- [ ] Engine pieces the shell already calls through `caliper/app/engine_gaps.py`, in its order (shell.md):
+  - [ ] `feature_point` + `nearest_feature` (snapping, dimension tool, drawing distance dimensions)
+  - [ ] `dimension_value` (dimension labels show "?")
+  - [ ] `MoveEntities`, `DeleteEntities` (cascade to dimensions)
+  - [ ] `entities_in_box` (box selection)
+  - [ ] `check` for bbox metrics, so the bench cases stop showing pending
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
