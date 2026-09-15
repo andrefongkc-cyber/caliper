@@ -1,4 +1,4 @@
-Status: doing Phase 0.5 Queries (entity_at_point, bounding_box), next: contract gap list, stream/core PR
+Status: Phase 0.5 Queries done on local stream/core, next: open the stream/core PR for Lucas, then `check` for bbox metrics
 
 # Core workplan — Stream A
 
@@ -60,8 +60,17 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Solve: 4 lines + 4 coincident + H/V + width/height distances + fixed corner → DOF 0, no conflicts/redundancy, exact (0,0)–(100,50); 5 re-solves and a fresh build are bit-identical; width 100→120 re-solves to (120,50). Unfixed (DOF 2) also converges, but a width change moves both sides, so V1.5 must pin what stays put. Over-constraint is reported as conflicting
   - Wheel: `MACOSX_DEPLOYMENT_TARGET=14.0 uv build --wheel` gives `macosx_14_0_arm64`, links only libc++/libSystem (self-contained). Default target is the host OS (26.0), so CI must set it. Step 4 (cibuildwheel in CI) not run: needs a `.github/` workflow, to propose on a `shared/` branch
 - [ ] Verify `pyside6-essentials` contains no GPL-only modules (ADR 0006)
-- [~] `Queries` for the spike: `entity_at_point` + `bounding_box` (all four geometry types), `bus.queries` wired, other methods `NotImplementedError`
-- [ ] Contract gaps the spike surfaces (list for the freeze PR)
+- [x] `Queries` for the spike: `caliper/engine/queries.py` (`DocumentQueries`), returned by `bus.queries`
+  - `bounding_box` and `entity_at_point` for line, circle, arc, rectangle; other methods `NotImplementedError`
+  - Hit-testing measures distance to the outline (a rectangle's interior misses); arcs use endpoints + axis crossings for tight bounds
+  - Bench marks each unimplemented `check` as pending; both cases still pass with 2 pending expectations each
+  - Tests: `tests/engine/test_queries.py` (unit + hypothesis: tight arc bounds, translation, edge hits); verified they fail on a dropped axis crossing and on interior hits
+- [~] Contract gaps the spike surfaces (engine side so far; Lucas adds the shell side). For the freeze PR:
+  1. `entity_at_point` / `nearest_feature` / `entities_in_box` can't return `Error`, so invalid input (NaN point, negative tolerance, inverted box) has no way to say so. Engine returns "no match" for now. Decide: add `| Error`, or document "invalid input matches nothing"
+  2. `entity_at_point` doesn't say outline vs interior. Engine uses the outline; the docstring should say so
+  3. "Ties broken by id" is string order, so `e10` sorts before `e2`. Say so explicitly
+  4. `bounding_box` doesn't specify: a document with no geometry (engine: `SELECTION_EMPTY`), an annotation id (engine: `ENTITY_WRONG_KIND`), duplicate ids (engine: allowed). `Error.field` is `"ids"` with no index
+  5. Bounds exclude annotations, so zoom-to-fit clips dimension text unless the shell adds label extents
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
