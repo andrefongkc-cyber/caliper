@@ -13,7 +13,6 @@ from enum import StrEnum
 from PySide6.QtCore import Qt
 
 from caliper.app import theme
-from caliper.app.engine_gaps import Unavailable, attempt
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, Tool
 from caliper.app.tools.shapes import clean
@@ -123,25 +122,17 @@ class DimensionTool(Tool):
                 )
             )
             return
-        # Report why nothing was picked: a missing engine piece, or nothing under the pointer.
-        self._pick(pointer)
+        self._pick(pointer)  # reports that nothing is under the pointer
 
     def _pick(self, pointer: Pointer, *, quiet: bool = False) -> Ref | None:
-        found = attempt(
-            "Point picking",
-            lambda: self.session.queries.nearest_feature(pointer.raw, pointer.tolerance),
-        )
-        if isinstance(found, Unavailable):
-            if not quiet:
-                self.session.message.emit(found.message)
-            return None
+        found = self.session.queries.nearest_feature(pointer.raw, pointer.tolerance)
         if found is None and not quiet:
             self.session.message.emit("No point under the pointer")
         return found
 
     def _feature_point(self, ref: Ref, *, quiet: bool = False) -> Point2 | None:
-        found = attempt("Feature points", lambda: self.session.queries.feature_point(ref))
-        if isinstance(found, Unavailable | Error):
+        found = self.session.queries.feature_point(ref)
+        if isinstance(found, Error):
             if not quiet:
                 self.session.message.emit(found.message)
             return None

@@ -289,8 +289,6 @@ class CommandPalette(QFrame):
             case Rejected(errors=errors):
                 error = errors[0]
                 self._show_error(error.message, error.field)
-            case _:
-                self._show_error(getattr(result, "message", "Couldn't run that"))
 
     def _show_error(self, message: str, field: str | None = None) -> None:
         for path, edit in self.form_fields.items():

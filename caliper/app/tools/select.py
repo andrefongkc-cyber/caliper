@@ -13,7 +13,6 @@ from enum import StrEnum
 from PySide6.QtCore import Qt
 
 from caliper.app import theme
-from caliper.app.engine_gaps import Unavailable, attempt
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, Tool
 from caliper.app.tools.shapes import clean
@@ -135,14 +134,9 @@ class SelectTool(Tool):
             x_min=min(a.x, b.x), y_min=min(a.y, b.y), x_max=max(a.x, b.x), y_max=max(a.y, b.y)
         )
         crossing = b.x < a.x
-        found = attempt(
-            "Box selection",
-            lambda: self.session.queries.entities_in_box(box, crossing=crossing),
+        ids: frozenset[EntityId] = frozenset(
+            self.session.queries.entities_in_box(box, crossing=crossing)
         )
-        if isinstance(found, Unavailable):
-            self.session.message.emit(found.message)
-            return
-        ids: frozenset[EntityId] = frozenset(found)
         self.session.set_selection(self.session.selection | ids if end.shift else ids)
 
 

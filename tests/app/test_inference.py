@@ -1,6 +1,5 @@
 """Alignment guides from acquired feature points."""
 
-import pytest
 from PySide6.QtCore import QPointF, Qt
 
 from caliper.app.tools.base import SnapKind
@@ -40,7 +39,6 @@ def test_acquire_is_most_recent_first_and_bounded() -> None:
     assert len(set(points)) == len(points)
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_hovering_a_corner_then_moving_in_line_snaps_and_guides(window, driver) -> None:
     # Off-grid sizes (the grid is 5 mm here), so only a guide can produce these values.
     window.session.execute(CreateRectangle(corner=P(x=0, y=0), width=101.3, height=51.3))
@@ -53,7 +51,6 @@ def test_hovering_a_corner_then_moving_in_line_snaps_and_guides(window, driver) 
     assert pointer.guides == ((P(x=101.3, y=51.3), pointer.point),)
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_drawing_uses_the_aligned_point(window, driver, bus) -> None:
     window.session.execute(CreateRectangle(corner=P(x=0, y=0), width=101.3, height=51.3))
     bus.sent.clear()
@@ -68,7 +65,6 @@ def test_drawing_uses_the_aligned_point(window, driver, bus) -> None:
     assert (line.start.x, line.end.x) == (101.3, 101.3)
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_option_suspends_guides_too(window, driver) -> None:
     window.session.execute(CreateRectangle(corner=P(x=0, y=0), width=100, height=50))
     driver.move(100, 50)
@@ -78,16 +74,8 @@ def test_option_suspends_guides_too(window, driver) -> None:
     assert pointer.guides == ()
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_acquired_points_are_forgotten_when_the_document_changes(window, driver) -> None:
     window.session.execute(CreateRectangle(corner=P(x=0, y=0), width=100, height=50))
     driver.move(100, 50)
     window.session.execute(CreateRectangle(corner=P(x=300, y=0), width=10, height=10))
-    assert window.canvas.acquired == []
-
-
-@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
-def test_without_point_queries_nothing_is_acquired(window, driver) -> None:
-    window.session.execute(CreateRectangle(corner=P(x=0, y=0), width=100, height=50))
-    driver.move(100, 50)
     assert window.canvas.acquired == []

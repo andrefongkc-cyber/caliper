@@ -10,7 +10,6 @@ from enum import StrEnum
 from PySide6.QtCore import Qt
 
 from caliper.app import theme
-from caliper.app.engine_gaps import Unavailable, attempt
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind, Tool
 from caliper.app.viewport.annotations import label
@@ -78,13 +77,7 @@ class MeasureTool(Tool):
     def _pick(self, pointer: Pointer) -> Ref | None:
         if pointer.snap is SnapKind.FEATURE and pointer.ref is not None:
             return pointer.ref
-        found = attempt(
-            "Point picking",
-            lambda: self.session.queries.nearest_feature(pointer.raw, pointer.tolerance),
-        )
-        if isinstance(found, Unavailable):
-            self.session.message.emit(found.message)
-            return None
+        found = self.session.queries.nearest_feature(pointer.raw, pointer.tolerance)
         if found is None:
             self.session.message.emit("Click on a point: a corner, center, end, or midpoint")
         return found
@@ -93,8 +86,8 @@ class MeasureTool(Tool):
         a, b = self.a, self.b
         if a is None or b is None:
             return
-        found = attempt("Measuring", lambda: self.session.queries.measure_distance(a, b))
-        if isinstance(found, Unavailable | Error):
+        found = self.session.queries.measure_distance(a, b)
+        if isinstance(found, Error):
             self.session.message.emit(found.message)
             self.cancel()
             return
@@ -103,8 +96,8 @@ class MeasureTool(Tool):
         self.session.message.emit(describe(found))
 
     def _point(self, ref: Ref) -> Point2 | None:
-        found = attempt("Feature points", lambda: self.session.queries.feature_point(ref))
-        return None if isinstance(found, Unavailable | Error) else found
+        found = self.session.queries.feature_point(ref)
+        return None if isinstance(found, Error) else found
 
     def paint(self, painter: ModelPainter) -> None:
         a = self._point(self.a) if self.a is not None else None

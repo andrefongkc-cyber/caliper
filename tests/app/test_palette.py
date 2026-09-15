@@ -157,7 +157,6 @@ def test_selection_commands_need_a_selection(window, qtbot) -> None:
     assert "select something first" in window.palette.error.text()
 
 
-@pytest.mark.bus(stub_unbuilt=True)
 def test_delete_command_with_no_fields_runs_immediately(window, bus, qtbot) -> None:
     (circle,) = window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5)).created_ids
     window.session.set_selection(frozenset({circle}))
@@ -165,16 +164,6 @@ def test_delete_command_with_no_fields_runs_immediately(window, bus, qtbot) -> N
     open_palette(window, qtbot)
     type_keys(qtbot, "delete entities\n")
     assert bus.sent == [DeleteEntities(ids=(circle,))]
-
-
-@pytest.mark.bus(missing=("MoveEntities",))
-def test_missing_engine_pieces_are_reported_in_the_palette(window, qtbot) -> None:
-    (circle,) = window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5)).created_ids
-    window.session.set_selection(frozenset({circle}))
-    open_palette(window, qtbot)
-    type_keys(qtbot, "move entities\n5\t0\n")
-    assert window.palette.isVisible()
-    assert "isn't in the engine yet" in window.palette.error.text()
 
 
 def test_titles_starting_with_the_query_rank_first(window, qtbot) -> None:
@@ -196,3 +185,13 @@ def test_list_shrinks_to_the_results(window, qtbot) -> None:
     assert window.palette.results.height() > one_row
     window.palette.search.setText("zzz")
     assert not window.palette.results.isVisible()
+
+
+def test_move_command_moves_the_selection(window, qtbot) -> None:
+    (circle,) = window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5)).created_ids
+    window.session.set_selection(frozenset({circle}))
+    open_palette(window, qtbot)
+    type_keys(qtbot, "move entities\n5\t-2\n")
+    assert not window.palette.isVisible()
+    assert window.session.document.entities[circle].center == Point2(x=5.0, y=-2.0)
+    assert window.undo_action.text() == "Undo Move Circle"

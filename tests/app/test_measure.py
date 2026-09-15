@@ -14,7 +14,6 @@ def plate(window) -> None:
     window.session.bus.sent.clear()
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_measuring_two_corners_shows_the_width(window, driver, bus, plate) -> None:
     driver.tool("Measure")
     driver.click(0, 0)
@@ -28,7 +27,6 @@ def test_measuring_two_corners_shows_the_width(window, driver, bus, plate) -> No
     assert bus.sent == []  # measuring never changes the document
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_diagonal_reports_dx_and_dy(window, driver, plate) -> None:
     driver.tool("Measure")
     driver.click(0, 0)
@@ -36,7 +34,6 @@ def test_diagonal_reports_dx_and_dy(window, driver, plate) -> None:
     assert window.statusBar().currentMessage() == "Distance 130.000 mm · dx 120.000 · dy 50.000"
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_the_result_is_painted_on_the_canvas(window, driver, plate) -> None:
     driver.tool("Measure")
     driver.click(0, 0)
@@ -53,7 +50,6 @@ def test_the_result_is_painted_on_the_canvas(window, driver, plate) -> None:
     assert theme.SNAP.name() in colours
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_escape_clears_the_measurement_then_leaves_the_tool(window, driver, plate) -> None:
     driver.tool("Measure")
     driver.click(0, 0)
@@ -65,7 +61,6 @@ def test_escape_clears_the_measurement_then_leaves_the_tool(window, driver, plat
     assert window.controller.active.name == "Select"
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_a_click_off_any_point_explains_what_to_click(window, driver, plate) -> None:
     driver.tool("Measure")
     driver.click(30, 40)  # inside the plate, away from corners, midpoints, and the center
@@ -73,7 +68,6 @@ def test_a_click_off_any_point_explains_what_to_click(window, driver, plate) -> 
     assert "corner, center, end, or midpoint" in window.statusBar().currentMessage()
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_a_new_click_after_a_result_starts_over(window, driver, plate) -> None:
     driver.tool("Measure")
     driver.click(0, 0)
@@ -82,13 +76,6 @@ def test_a_new_click_after_a_result_starts_over(window, driver, plate) -> None:
     tool = window.controller.active
     assert tool.phase is MeasurePhase.SECOND
     assert tool.result is None
-
-
-@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
-def test_without_point_queries_it_says_so(window, driver, plate) -> None:
-    driver.tool("Measure")
-    driver.click(0, 0)
-    assert window.statusBar().currentMessage() == "Point picking isn't in the engine yet"
 
 
 def test_measure_sits_in_its_own_tool_bar_group(window) -> None:

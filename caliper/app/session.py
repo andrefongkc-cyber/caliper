@@ -8,23 +8,17 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from caliper.app.engine_gaps import Unavailable, attempt
 from caliper.contracts.commands import (
-    Applied,
     Change,
     Command,
     CommandBus,
     CommandResult,
-    DeleteEntities,
-    MoveEntities,
     Rejected,
 )
 from caliper.contracts.document import Document, EntityId
 from caliper.contracts.queries import Queries
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
-
-_GAP_NAMES: dict[type, str] = {MoveEntities: "Move", DeleteEntities: "Delete"}
 
 
 class DocumentSession(QObject):
@@ -60,17 +54,11 @@ class DocumentSession(QObject):
     def queries(self) -> Queries:
         return self._bus.queries
 
-    def execute(self, command: Command) -> CommandResult | Unavailable:
-        """Send a command. Rejections and missing engine pieces are reported as messages."""
-        name = _GAP_NAMES.get(type(command), type(command).__name__)
-        result = attempt(name, lambda: self._bus.execute(command))
-        match result:
-            case Unavailable():
-                self.message.emit(result.message)
-            case Rejected(errors=errors):
-                self.message.emit("; ".join(e.message for e in errors))
-            case Applied():
-                pass
+    def execute(self, command: Command) -> CommandResult:
+        """Send a command. A rejection is also reported as a message."""
+        result = self._bus.execute(command)
+        if isinstance(result, Rejected):
+            self.message.emit("; ".join(e.message for e in result.errors))
         return result
 
     def undo(self) -> None:

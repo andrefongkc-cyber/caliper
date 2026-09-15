@@ -124,30 +124,18 @@ def test_zoom_to_fit_on_an_empty_document_resets(window) -> None:
     assert window.canvas.view.origin_x == window.canvas.width() / 2
 
 
-@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
-def test_paints_every_entity_kind(window) -> None:
-    draw_everything(window.session)
-    assert pixel(window, 50, 0) != theme.CANVAS  # rectangle bottom edge
-    assert pixel(window, 52, 27) == theme.CANVAS  # rectangle interior, between grid lines
-    # Distance dimensions need feature_point, which the engine doesn't have yet.
-    window.canvas.grab()
-    assert window.canvas.hidden_dimensions == 1
-
-
 def test_selection_is_painted_in_the_accent_color(window) -> None:
     rect, _ = draw_everything(window.session)
     window.session.set_selection(frozenset({rect}))
     assert pixel(window, 0, 25) == theme.SELECTED
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_dimensions_draw_once_feature_points_exist(window) -> None:
     draw_everything(window.session)
     window.canvas.grab()
     assert window.canvas.hidden_dimensions == 0
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_pointer_snaps_to_features_before_the_grid(window, driver) -> None:
     draw_everything(window.session)
     near_corner = window.canvas.pointer_at(
@@ -163,16 +151,6 @@ def test_pointer_snaps_to_features_before_the_grid(window, driver) -> None:
     assert open_space.snap is SnapKind.GRID
 
 
-@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
-def test_without_point_queries_the_pointer_snaps_to_the_grid(window, driver) -> None:
-    draw_everything(window.session)
-    pointer = window.canvas.pointer_at(
-        QPointF(driver.at(100.6, 0.4)), Qt.KeyboardModifier.NoModifier
-    )
-    assert pointer.snap is SnapKind.GRID
-
-
-@pytest.mark.bus(complete_queries=True)
 def test_dimension_tool_point_to_point(window, driver, bus) -> None:
     rect, _ = draw_everything(window.session)
     bus.sent.clear()
@@ -190,7 +168,6 @@ def test_dimension_tool_point_to_point(window, driver, bus) -> None:
     ]
 
 
-@pytest.mark.bus(complete_queries=True)
 def test_dimension_tool_on_a_circle_makes_a_diameter(window, driver, bus) -> None:
     _, circle = draw_everything(window.session)
     bus.sent.clear()
@@ -201,16 +178,23 @@ def test_dimension_tool_on_a_circle_makes_a_diameter(window, driver, bus) -> Non
     ]
 
 
-@pytest.mark.bus(missing=("nearest_feature", "feature_point"))
-def test_dimension_tool_reports_missing_point_picking(window, driver, bus) -> None:
-    draw_everything(window.session)
-    bus.sent.clear()
-    driver.tool("Dimension")
-    driver.click(0, 50)
-    assert bus.sent == []
-    assert window.statusBar().currentMessage() == "Point picking isn't in the engine yet"
-
-
 def test_cursor_position_is_shown_in_mm(window, driver) -> None:
     driver.move(25, 10)
     assert window.cursor_label.text().split() == ["X", "25.000", "Y", "10.000", "mm"]
+
+
+def test_paints_every_entity_kind_including_dimensions(window) -> None:
+    draw_everything(window.session)
+    assert pixel(window, 50, 0) != theme.CANVAS  # rectangle bottom edge
+    assert pixel(window, 52, 27) == theme.CANVAS  # rectangle interior, between grid lines
+    window.canvas.grab()
+    assert window.canvas.hidden_dimensions == 0
+
+
+def test_dimension_tool_reports_an_empty_click(window, driver, bus) -> None:
+    draw_everything(window.session)
+    bus.sent.clear()
+    driver.tool("Dimension")
+    driver.click(300, 300)
+    assert bus.sent == []
+    assert window.statusBar().currentMessage() == "No point under the pointer"
