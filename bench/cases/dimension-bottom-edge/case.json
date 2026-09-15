@@ -1,0 +1,9 @@
+{
+  "format": "caliper.bench_case",
+  "schema_version": 1,
+  "prompt": "Dimension the rectangle's width along its bottom edge, 10 mm below it.",
+  "expectations": [
+    {"metric": "dimension_value", "ids": ["e2"], "expected": 120.0, "tolerance": 1e-9},
+    {"metric": "bbox_width", "expected": 120.0, "tolerance": 1e-9}
+  ]
+}

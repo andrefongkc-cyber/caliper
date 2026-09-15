@@ -1,4 +1,4 @@
-Status: PR #8 open (waiting on issue #7 fix + review); doing the user's decisions on stream/core/* branches above properties (default kernel done), next: click-inside picking
+Status: PR #8 approved, blocked until PR #5 (Lucas's issue #7 fix) merges; default kernel and bench cases done on stream/core/*, next: open the stacked PRs in order
 
 # Core workplan — Stream A
 
@@ -124,4 +124,5 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 - [x] CLI: `python -m caliper.engine replay [--history] | inspect | export` (same branch). `export` = validate, migrate, write latest schema without history; stderr notes a removed history
 - [x] Property-based tests on geometry invariants (branch `stream/core/properties`, local). Alongside the per-feature ones, `tests/engine/test_invariants.py` runs random sketches of every kind (creates, dimensions, edits, moves, deletes) through: file + history round trip, replay of resolved commands, exact undo/redo, feature snap round trip, antisymmetric distances vs `check`, move keeps sizes/dimension values/areas. Each also passed at 1,000 examples
   - Found and fixed a bug: replaying resolved creates (which carry allocated ids) left `next_id` behind, so a file's history didn't rebuild it byte-for-byte. An explicit `e{n}` id now advances `next_id` past n
-- [ ] Bench cases as features land
+- [x] Bench cases as features land (branch `stream/core/bench-cases`): `dimension-bottom-edge`, `move-right-30`, `delete-circle-with-dimension`. All 5 cases pass
+  - Contract gap 10: `Metric` can't check an absolute position (e.g. a feature's x), so "moved 30 mm right" is only caught by the snapshot comparison, not by `check`. No `area` case yet: the bench would need the occt extra in CI

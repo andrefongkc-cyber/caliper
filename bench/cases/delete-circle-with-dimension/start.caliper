@@ -1,0 +1,36 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "corner": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "height": 50.0,
+        "kind": "rectangle",
+        "width": 120.0
+      },
+      "e2": {
+        "center": {
+          "x": 160.0,
+          "y": 25.0
+        },
+        "kind": "circle",
+        "radius": 10.0
+      },
+      "e3": {
+        "kind": "radial_dimension",
+        "label_angle": 45.0,
+        "measure": "diameter",
+        "target": "e2"
+      }
+    },
+    "next_id": 4
+  },
+  "format": "caliper.document",
+  "schema_version": 1,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}

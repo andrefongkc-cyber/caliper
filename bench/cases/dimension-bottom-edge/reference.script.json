@@ -1,0 +1,13 @@
+{
+  "format": "caliper.script",
+  "schema_version": 1,
+  "commands": [
+    {
+      "kind": "create_distance_dimension",
+      "a": {"entity": "e1", "feature": "bottom_left"},
+      "b": {"entity": "e1", "feature": "bottom_right"},
+      "orientation": "horizontal",
+      "offset": -10
+    }
+  ]
+}
