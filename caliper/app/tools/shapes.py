@@ -194,7 +194,7 @@ class ArcTool(Tool):
                         CreateArc(
                             center=self.center,
                             radius=clean(radius),
-                            start_angle=clean(start_angle),
+                            start_angle=clean(start_angle) % 360.0,
                             sweep_angle=sweep,
                         )
                     )
