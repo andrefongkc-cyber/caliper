@@ -30,6 +30,7 @@ UPDATE = os.environ.get("CALIPER_UPDATE_BASELINES") == "1"
 def render(window) -> QImage:
     canvas = window.canvas
     canvas.setFixedSize(SIZE)
+    canvas.empty_hint.hide()  # text renders differently across machines
     view = canvas.view
     view.scale, view.origin_x, view.origin_y = 1.5, 60.0, 260.0
     return canvas.grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
