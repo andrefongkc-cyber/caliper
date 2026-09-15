@@ -110,6 +110,25 @@ def test_caller_chosen_ids() -> None:
     assert applied(bus.execute(rectangle())).created_ids == (EntityId("e2"),)
 
 
+def test_an_explicit_allocated_style_id_reserves_the_counter() -> None:
+    bus = Bus()
+    applied(bus.execute(rectangle(id=EntityId("e5"))))
+    assert bus.document.next_id == 6
+    assert applied(bus.execute(rectangle())).created_ids == (EntityId("e6"),)
+    applied(bus.execute(rectangle(id=EntityId("e2"))))  # below the counter: no change
+    applied(bus.execute(rectangle(id=EntityId("e007"))))  # not the allocated form
+    assert bus.document.next_id == 7
+
+
+def test_replaying_resolved_creates_reproduces_the_document() -> None:
+    first = Bus()
+    resolved = [applied(first.execute(rectangle())).command for _ in range(3)]
+    second = Bus()
+    for command in resolved:
+        applied(second.execute(command))
+    assert second.document == first.document
+
+
 def test_every_geometry_kind_can_be_created() -> None:
     bus = Bus()
     applied(bus.execute(CreateLine(start=ORIGIN, end=Point2(x=10.0, y=0.0))))

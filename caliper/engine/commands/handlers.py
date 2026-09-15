@@ -1,5 +1,6 @@
 """What each command does to a Document. Pure functions: a Document in, a Document out."""
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
@@ -57,6 +58,9 @@ _CREATES: Mapping[type[CreateCommand], type[Entity]] = {
 }
 
 
+_ALLOCATED_ID = re.compile(r"e([1-9][0-9]*)")
+
+
 @dataclass(frozen=True, slots=True)
 class Handled:
     document: Document
@@ -109,7 +113,11 @@ def _create(document: Document, command: CreateCommand) -> Handled | list[Error]
 def _resolve_id(
     document: Document, requested: EntityId | None, errors: list[Error]
 ) -> tuple[EntityId, int]:
-    """The id for a new entity and the document's next_id afterwards."""
+    """The id for a new entity and the document's next_id afterwards.
+
+    An explicit id in the `e{n}` form the bus allocates also moves next_id past n. Resolved
+    commands carry allocated ids, so this is what makes replaying them reproduce next_id.
+    """
     if requested is None:
         number = document.next_id
         while EntityId(f"e{number}") in document.entities:
@@ -117,10 +125,14 @@ def _resolve_id(
         return EntityId(f"e{number}"), number + 1
     before = len(errors)
     entity_id = normalize_id(requested, "id", errors)
-    if len(errors) == before and entity_id in document.entities:
+    if len(errors) > before:
+        return entity_id, document.next_id
+    if entity_id in document.entities:
         errors.append(
             Error(code=ErrorCode.ID_TAKEN, message=f"id {entity_id!r} is already used", field="id")
         )
+    if counter := _ALLOCATED_ID.fullmatch(entity_id):
+        return entity_id, max(document.next_id, int(counter[1]) + 1)
     return entity_id, document.next_id
 
 
