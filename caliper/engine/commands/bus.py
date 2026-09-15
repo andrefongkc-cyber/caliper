@@ -1,8 +1,7 @@
 """In-memory CommandBus (ADR 0002).
 
-Every create command, ModifyEntity, undo/redo, change notifications, and queries.
-MoveEntities, DeleteEntities, transactions, and merge keys raise NotImplementedError until
-they land in V1 (docs/workplan/core.md).
+Every command, undo/redo, change notifications, and queries. Transactions and merge keys
+raise NotImplementedError until they land in V1 (docs/workplan/core.md).
 """
 
 from collections import deque
