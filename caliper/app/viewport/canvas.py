@@ -36,7 +36,16 @@ from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
 from caliper.contracts.commands import Applied, ModifyEntity
-from caliper.contracts.document import Arc, Circle, EntityId, Line, Point2, Rectangle
+from caliper.contracts.document import (
+    Arc,
+    Circle,
+    DistanceDimension,
+    EntityId,
+    Line,
+    Point2,
+    RadialDimension,
+    Rectangle,
+)
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
 
@@ -102,6 +111,35 @@ class Canvas(QWidget):
         else:
             self.view.fit(box, self.width(), self.height())
         self.update()
+
+    def frame(self, ids: frozenset[EntityId]) -> None:
+        """Fit the given geometry in view; dimensions frame the geometry they measure."""
+        entities = self.session.document.entities
+        targets: set[EntityId] = set()
+        for id in ids:
+            match entities.get(id):
+                case DistanceDimension(a=a, b=b):
+                    targets |= {a.entity, b.entity}
+                case RadialDimension(target=target):
+                    targets.add(target)
+                case None:
+                    pass
+                case _:
+                    targets.add(id)
+        box = self.session.queries.bounding_box(sorted(targets))
+        if not isinstance(box, Error):
+            margin = max(box.width, box.height, 1.0) * 0.25
+            self.view.fit(
+                BoundingBox(
+                    x_min=box.x_min - margin,
+                    y_min=box.y_min - margin,
+                    x_max=box.x_max + margin,
+                    y_max=box.y_max + margin,
+                ),
+                self.width(),
+                self.height(),
+            )
+            self.update()
 
     def reset_view(self) -> None:
         self.view.scale = min(self.width(), self.height()) / DEFAULT_VIEW_MM
