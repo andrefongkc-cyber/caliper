@@ -178,7 +178,7 @@ def reference_errors(entity: Entity, document: Document) -> list[Error]:
     """Rules about what an annotation refers to."""
     match entity:
         case DistanceDimension(a=a, b=b):
-            errors = _feature_errors(a, "a", document) + _feature_errors(b, "b", document)
+            errors = feature_errors(a, "a", document) + feature_errors(b, "b", document)
             if a == b:
                 errors.append(
                     _error(
@@ -203,7 +203,8 @@ def reference_errors(entity: Entity, document: Document) -> list[Error]:
             return []
 
 
-def _feature_errors(ref: Ref, field: str, document: Document) -> list[Error]:
+def feature_errors(ref: Ref, field: str, document: Document) -> list[Error]:
+    """Whether `ref` names a feature that exists on a geometry entity in `document`."""
     target = document.entities.get(ref.entity)
     if target is None:
         return [_error(ErrorCode.ENTITY_NOT_FOUND, f"{field}.entity", f"no entity {ref.entity!r}")]
