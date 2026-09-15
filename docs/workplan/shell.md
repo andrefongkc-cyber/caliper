@@ -2,7 +2,7 @@ Status: not started, next: Phase 0.5 milestone spike (after the Phase 0 check-in
 
 # Shell workplan — Stream B
 
-Owns `caliper/app/`. Builds against `caliper.contracts` and the in-memory engine; never imports a kernel.
+Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contracts` and the in-memory engine; never imports a kernel.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 

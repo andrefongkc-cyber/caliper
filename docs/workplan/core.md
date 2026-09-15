@@ -1,29 +1,37 @@
-Status: waiting on user review of contracts/ (Phase 0.3), next: Phase 0.4 docs + ADRs 0001, 0003, 0004, 0006
+Status: doing Phase 0 step 5 (FakeKernel + conformance suite), next: check in with the user
 
 # Core workplan — Stream A
 
-Owns `caliper/engine/`, `bench/`, `tests/`. `caliper/contracts/` changes go through a joint PR once frozen (after Phase 0.5).
+Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` changes go through a joint PR once frozen (after Phase 0.5).
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Phase 0 — Foundation (single session, before the streams split)
 
-- [x] 0.1 Architecture review. Decisions agreed; being recorded as ADRs 0001–0006 in 0.4
-- [x] 0.2 Scaffold
+Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
+
+- [x] Step 1: Architecture review. Decisions agreed; recorded as ADRs 0001–0006 in step 4
+- [x] Step 2: Scaffold
   - [x] git repo, `main` + `phase-0/foundation` branch
   - [x] `pyproject.toml` (uv; extras `app` = pyside6-essentials, `occt`; groups `dev`, `app-test`), `.gitignore`, `.env.example`, `.python-version` 3.13
   - [x] ruff (incl. GPL-only Qt module ban), mypy strict on contracts + engine
   - [x] Import-boundary test (invariants 1 and 7, contracts stdlib-only); verified it fails on violations
   - [x] CI: `core.yml` (Linux, every PR) + `app.yml` (macOS, main + shell-affecting PRs). Not yet run on GitHub: no remote
-- [~] 0.3 `contracts/` — written; **awaiting user review** before building on it
+- [x] Step 3: `contracts/`. All ten decisions approved by the user (2026-09-14)
   - [x] `errors.py` (ErrorCode, Error), `document.py`, `queries.py`, `commands.py`, `kernel.py` (Provisional); mypy strict clean
   - [x] `tests/contracts/test_contracts.py`: frozen/slots/kw_only, unique kinds, create commands mirror entities, ModifyEntity covers every field
   - [x] ADR 0002 (command bus, deltas, undo) and ADR 0005 (file format)
-- [ ] 0.4 Docs: CLAUDE.md, architecture.md, ADRs 0001–0006, README, CONTRIBUTING, CODEOWNERS, vision.md
-- [ ] 0.5 `FakeKernel` + shared kernel conformance suite
-- [ ] 0.6 Headless vertical slice: `CreateRectangle` → Document → save → replay → byte-identical
-- [ ] 0.7 Bench stub: `bench/run.py` + two trivial cases
-- [ ] 0.8 Check in with the user; open PR `phase-0/foundation` → `main`
+- [x] Step 4: Collaboration setup + docs (branch protection waits for the remote)
+  - [x] CI boundary check: stream branches may only touch their own areas (`tests/app/` belongs to Stream B)
+  - [x] Dependency license test + `licenses` workflow (ADR 0006)
+  - [x] `.github/CODEOWNERS` with placeholder usernames (user fills in before the first PR)
+  - [x] ADRs 0001, 0003 (Proposed), 0004, 0006
+  - [x] architecture.md, vision.md, CLAUDE.md (+ nested engine/app), README, CONTRIBUTING (incl. branch protection settings)
+  - [ ] Apply branch protection on `main` once the remote exists (needs `gh`; private repos need a paid plan)
+- [~] Step 5: `FakeKernel` + shared kernel conformance suite (OCCT case skips until OCCTKernel exists)
+- [ ] Step 6: Headless vertical slice: `CreateRectangle` → Document → save → replay → byte-identical
+- [ ] Step 7: Bench stub: `bench/run.py` + two trivial cases
+- [ ] Step 8: Check in with the user; open PR `phase-0/foundation` → `main`
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
 
