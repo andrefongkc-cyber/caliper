@@ -1,16 +1,22 @@
-"""Project files: canonical JSON snapshots of a Document (ADR 0005)."""
+"""Project files: canonical JSON snapshots of a Document (ADR 0005).
+
+A file may carry an optional `history` section: the resolved commands, in order. It is off
+by default, and `export` never writes it.
+"""
 
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
+from caliper.contracts.commands import Command
 from caliper.contracts.document import Document, Entity, EntityId
 from caliper.contracts.errors import Error
 from caliper.engine.commands.validation import build_entity, field_types, normalize_id
 from caliper.engine.io import canonical
-from caliper.engine.io.canonical import LoadError
-from caliper.engine.io.codec import DecodeError, decode_document, encode
+from caliper.engine.io.canonical import JSON, LoadError
+from caliper.engine.io.codec import DecodeError, decode_command, decode_document, encode
 
 FORMAT = "caliper.document"
 SCHEMA_VERSION = 1
@@ -26,21 +32,37 @@ in, the expected upgraded data out.
 """
 
 _TOP_LEVEL_KEYS = {"document", "format", "schema_version", "units"}
-_OPTIONAL_TOP_LEVEL_KEYS = {"history"}  # defined by ADR 0005; not written or read yet
+_OPTIONAL_TOP_LEVEL_KEYS = {"history"}
 
 
-def dumps(document: Document) -> str:
-    return canonical.dumps(
-        {
-            "document": encode(document),
-            "format": FORMAT,
-            "schema_version": SCHEMA_VERSION,
-            "units": dict(UNITS),
-        }
-    )
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Snapshot:
+    """Everything a project file holds, as read."""
+
+    document: Document
+    history: tuple[Command, ...] | None
+    """None when the file has no history section."""
+    schema_version: int
+    """The version the file was written with, before any migration."""
+
+
+def dumps(document: Document, *, history: Sequence[Command] | None = None) -> str:
+    data: dict[str, JSON] = {
+        "document": encode(document),
+        "format": FORMAT,
+        "schema_version": SCHEMA_VERSION,
+        "units": dict(UNITS),
+    }
+    if history is not None:
+        data["history"] = encode(tuple(history))
+    return canonical.dumps(data)
 
 
 def loads(text: str) -> Document:
+    return read(text).document
+
+
+def read(text: str) -> Snapshot:
     data = canonical.parse(text)
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise LoadError("not a Caliper document")
@@ -59,9 +81,10 @@ def loads(text: str) -> Document:
         raise LoadError(f"units must be {dict(UNITS)}")
     try:
         document = decode_document(data.get("document"))
+        history = _history(data["history"]) if "history" in data else None
     except DecodeError as e:
         raise LoadError(str(e)) from e
-    return _validated(document)
+    return Snapshot(document=_validated(document), history=history, schema_version=version)
 
 
 def migrate(data: dict[str, object], version: int) -> dict[str, object]:
@@ -72,18 +95,29 @@ def migrate(data: dict[str, object], version: int) -> dict[str, object]:
     return data
 
 
-def save(document: Document, path: Path) -> None:
+def save(document: Document, path: Path, *, history: Sequence[Command] | None = None) -> None:
     """Write atomically, so an interrupted save never leaves a half-written project."""
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(dumps(document).encode("utf-8"))
+    temporary.write_bytes(dumps(document, history=history).encode("utf-8"))
     os.replace(temporary, path)
 
 
 def load(path: Path) -> Document:
+    return read_file(path).document
+
+
+def read_file(path: Path) -> Snapshot:
     try:
-        return loads(path.read_bytes().decode("utf-8"))
+        return read(path.read_bytes().decode("utf-8"))
     except UnicodeDecodeError as e:
         raise LoadError(f"{path} is not UTF-8") from e
+
+
+def _history(data: object) -> tuple[Command, ...]:
+    """Structure only: history records what ran, so its commands aren't re-validated."""
+    if not isinstance(data, list):
+        raise DecodeError("history", "must be a list of commands")
+    return tuple(decode_command(item, f"history[{i}]") for i, item in enumerate(data))
 
 
 def _validated(document: Document) -> Document:

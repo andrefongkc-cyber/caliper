@@ -5,8 +5,25 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from caliper.contracts.commands import CreateCircle, CreateRectangle
-from caliper.contracts.document import Document, EntityId, Point2, Rectangle
+from caliper.contracts.commands import (
+    Applied,
+    Command,
+    CreateCircle,
+    CreateDistanceDimension,
+    CreateRectangle,
+    DeleteEntities,
+    ModifyEntity,
+    MoveEntities,
+)
+from caliper.contracts.document import (
+    DistanceOrientation,
+    Document,
+    EntityId,
+    Feature,
+    Point2,
+    Rectangle,
+    Ref,
+)
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 from caliper.engine.io.canonical import LoadError
@@ -129,3 +146,86 @@ def test_migrations_run_in_order_on_load(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setitem(snapshot.MIGRATIONS, 1, to_v2)
     assert snapshot.loads((FIXTURES / "milestone.caliper").read_text()) == expected
     assert calls == [1]
+
+
+def test_every_schema_version_below_the_current_one_has_a_migration() -> None:
+    assert set(snapshot.MIGRATIONS) == set(range(1, snapshot.SCHEMA_VERSION))
+
+
+def test_read_reports_the_version_a_file_was_written_with(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(snapshot, "SCHEMA_VERSION", 2)
+    monkeypatch.setitem(snapshot.MIGRATIONS, 1, lambda data: data)
+    read = snapshot.read((FIXTURES / "milestone.caliper").read_text())
+    assert read.schema_version == 1
+    assert read.document == milestone_document()
+
+
+# --- History ----------------------------------------------------------------------------
+
+
+def resolved_history() -> tuple[Document, list[Command]]:
+    bus = Bus()
+    commands: list[Command] = [
+        CreateRectangle(corner=Point2(x=0, y=0), width=100, height=50),  # type: ignore[arg-type]
+        CreateCircle(center=Point2(x=150.0, y=25.0), radius=10.0),
+        CreateDistanceDimension(
+            a=Ref(entity=EntityId("e1"), feature=Feature.CENTER),
+            b=Ref(entity=EntityId("e2"), feature=Feature.CENTER),
+            orientation=DistanceOrientation.HORIZONTAL,
+            offset=4.0,
+        ),
+        ModifyEntity(id=EntityId("e1"), changes={"width": 120, "corner": Point2(x=1.0, y=2.0)}),
+        MoveEntities(ids=(EntityId("e1"), EntityId("e1")), dx=1, dy=2),  # type: ignore[arg-type]
+        DeleteEntities(ids=(EntityId("e2"),)),
+    ]
+    resolved = []
+    for command in commands:
+        result = bus.execute(command)
+        assert isinstance(result, Applied), result
+        resolved.append(result.command)
+    return bus.document, resolved
+
+
+def test_history_is_off_by_default() -> None:
+    document, _ = resolved_history()
+    text = snapshot.dumps(document)
+    assert "history" not in json.loads(text)
+    assert snapshot.read(text).history is None
+
+
+def test_history_round_trips_the_resolved_commands(tmp_path: Path) -> None:
+    document, history = resolved_history()
+    path = tmp_path / "with-history.caliper"
+    snapshot.save(document, path, history=history)
+    read = snapshot.read_file(path)
+    assert read.document == document
+    assert read.history == tuple(history)
+    assert snapshot.load(path) == document
+    assert snapshot.dumps(read.document, history=read.history) == path.read_text()
+    assert json.loads(path.read_text())["history"][4] == {
+        "dx": 1.0,
+        "dy": 2.0,
+        "ids": ["e1"],
+        "kind": "move_entities",
+    }
+
+
+@pytest.mark.parametrize(
+    ("history", "message"),
+    [
+        ({"kind": "create_circle"}, "history: must be a list of commands"),
+        (
+            [
+                {"kind": "create_circle", "center": {"x": 0.0, "y": 0.0}, "radius": 1.0},
+                {"kind": "paint"},
+            ],
+            "history\\[1\\]: unknown kind 'paint'",
+        ),
+    ],
+    ids=["not a list", "unknown command"],
+)
+def test_malformed_history_is_refused(history: object, message: str) -> None:
+    data = json.loads((FIXTURES / "milestone.caliper").read_text())
+    data["history"] = history
+    with pytest.raises(LoadError, match=message):
+        snapshot.loads(json.dumps(data))
