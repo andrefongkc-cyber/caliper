@@ -1,4 +1,4 @@
-Status: doing Phase 0 step 8 (publish: email rewrite, gh, repo, protection, PR), next: Phase 0.5 spike after the PR merges
+Status: waiting on user to check the new GitHub repo before pushing (step 8), next: push, branch protection, open PR
 
 # Core workplan — Stream A
 
@@ -44,8 +44,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 - [~] Step 8: Check in with the user, then open PR `phase-0/foundation` → `main`
   - [x] CODEOWNERS: Stream A @andrefongkc-cyber, Stream B @lucassnam
   - [x] `app (macOS)` runs on every PR and is a required check (public repo: macOS runners are free)
-  - [ ] Rewrite commit emails to the GitHub no-reply address; repo-local `user.email` set
-  - [ ] Install `gh` (official release binary) → user runs `gh auth login` → create public repo `andrefongkc-cyber/caliper` → push
+  - [x] Rewrote all 31 commits to the GitHub no-reply address (trees and dates unchanged); repo-local `user.email` set
+  - [x] Installed `gh` 2.100.0 (checksum verified); user signed in via device flow (scopes repo, workflow)
+  - [x] Created empty public repo https://github.com/andrefongkc-cyber/caliper; `origin` set; invited @lucassnam (write)
+  - [ ] User checks the repo and gives the go-ahead → push `main` and `phase-0/foundation`
   - [ ] Apply branch protection (CONTRIBUTING.md), then open the PR
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
