@@ -1,4 +1,4 @@
-Status: FilletCorner on contracts/fillet-corner, stacked after bench-cases (joint: it adds a Command, so Lucas reviews it and adds it to the palette), next: open PRs down the stack as each merges
+Status: click-inside picking on stream/core/interior-picking (top of the stack); it changes 2 shell tests, so it should land as a joint change with Lucas's test updates, next: agree that with the user and Lucas
 
 # Core workplan — Stream A
 
@@ -75,7 +75,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   4. `bounding_box` doesn't specify: a document with no geometry (engine: `SELECTION_EMPTY`), an annotation id (engine: `ENTITY_WRONG_KIND`), duplicate ids (engine: allowed). `Error.field` is `"ids"` with no index
   5. Bounds exclude annotations, so zoom-to-fit clips dimension text unless the shell adds label extents
   6. `nearest_feature` doesn't say how ties break or what distance means. Engine: distance to feature points (not outlines), ties to the lower entity id (the shell's test fake agrees)
-  7. `entities_in_box` "touching" is unspecified for closed shapes. Engine: outline only, so a crossing box inside a rectangle misses
+  7. `entities_in_box` "touching" is unspecified for closed shapes. Engine (after interior-picking): the inside of a circle or rectangle counts, matching `entity_at_point`
   8. `area_properties` needs a kernel, but `CommandBus` has no say in which. Engine: optional `kernel=` on `Bus`, `kernel.unavailable` without one
 - [x] PR #2 merged 2026-09-15 (Lucas, squashed into `7ac0543`); PR #3 (milestone + V1 shell) rebase-merged the same day. Tests on `main` with the app extra: 293 passed
 - [x] PR #4 (PR summary template, "Rebase and merge" rule) rebase-merged 2026-09-15 as `88a23df`. Deleted the old `stream/core` branch (local and remote; its content is `7ac0543` on main). Stream A now works on `stream/core/<topic>` branches
@@ -95,7 +95,9 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
     - Flips one more shell test: `tests/app/test_selection.py::test_delete_reports_the_missing_engine_piece_instead_of_crashing` (5 in total; list below)
   - Shell tests pinned to engine gaps, all needing the `missing_*` treatment from issue #7 before the matching engine PR can go green: `test_canvas.py::test_paints_every_entity_kind`, `::test_without_point_queries_the_pointer_snaps_to_the_grid`, `::test_dimension_tool_reports_missing_point_picking` (feature-queries); `test_selection.py::test_box_select_reports_the_missing_engine_piece` (queries); `::test_delete_reports_the_missing_engine_piece_instead_of_crashing` (move-delete)
 - User decisions (2026-09-15):
-  - [~] Clicking inside a closed shape selects it (entity_at_point), not just its outline
+  - [x] Clicking inside a closed shape selects it (branch `stream/core/interior-picking`). Ranking: outline within tolerance first (nearest, then id), else the smallest enclosing circle/rectangle, then id. Crossing box selection includes insides too
+    - Contract gap 2 resolved this way; `queries.py` docstring ("Nearest ... ties broken by id") needs rewording in the freeze PR
+    - Shell impact (Stream B): `test_selection.py::test_click_selects_the_outline_and_empty_space_clears` and `::test_hover_follows_the_pointer_in_select_mode_only` assert inside-clicks miss, so they fail on this branch; a drag starting inside a shape now moves it instead of box-selecting
   - [x] Rectangle resize keeps the bottom-left corner fixed: already how ModifyEntity works (`test_changing_width_keeps_the_corner`). V1.5 solver default: pin that corner unless a constraint says otherwise
   - [~] Zoom-to-fit must not clip dimension labels. Engine `bounding_box` stays geometry-only, because `check`/bench BBOX metrics use it and text size is a rendering detail; see the recommendation for the shell
 - [~] `FilletCorner` (user request, 2026-09-15; branch `contracts/fillet-corner`, stacked after `bench-cases`; it does not depend on `interior-picking`)
