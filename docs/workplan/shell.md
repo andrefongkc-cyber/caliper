@@ -1,4 +1,4 @@
-Status: P2 + P3 goal done locally on `stream/shell` (not pushed); guides, Measure, Move, Delete, and dimension values light up when Stream A lands the point queries; next: push and open the PR
+Status: waiting on review of PR #5 (precision input, ⌘K palette, design system; CI green; Rebase and merge), next: P4 panels once `check` and the contract decisions land
 
 # Shell workplan — Stream B
 
