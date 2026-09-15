@@ -1,4 +1,4 @@
-Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries, move/delete, transactions done), next: history section + CLI inspect/export
+Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries, move/delete, transactions, files + CLI done), next: OCCTKernel
 
 # Core workplan — Stream A
 
@@ -107,8 +107,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Contract gap 9: committing a transaction changes `undo_label` but sends no `Change` (no COMMIT reason), so a shell undo menu can go stale until the next change
 - [x] Undo/redo: bounded stack (count + bytes: `undo_bytes`, compact JSON size of each delta, newest entry always kept), display labels
 - [ ] `OCCTKernel` behind the `occt` extra; passes the shared conformance suite
-- [ ] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export
+- [x] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export (branch `stream/core/files-cli`, local)
+  - The migration framework already existed (chain, newer-file refusal, ordering test). Added a guard that every version below `SCHEMA_VERSION` has a migration
+  - `snapshot.read` / `read_file` → `Snapshot(document, history, schema_version)`; `dumps`/`save` take `history=`; history is structure-checked only
 - [x] Query API: every `Queries` method (the contract calls it `area_properties`, not `mass_properties`)
-- [ ] CLI: `python -m caliper.engine replay | inspect | export`
+- [x] CLI: `python -m caliper.engine replay [--history] | inspect | export` (same branch). `export` = validate, migrate, write latest schema without history; stderr notes a removed history
 - [ ] Property-based tests on geometry invariants
 - [ ] Bench cases as features land
