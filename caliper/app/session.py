@@ -4,21 +4,43 @@ The bus owns the document. The session owns what the document is not allowed to 
 selection, hover, the file path, and whether there are unsaved changes.
 """
 
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
 from caliper.contracts.commands import (
+    Applied,
     Change,
     Command,
     CommandBus,
     CommandResult,
     Rejected,
+    Transaction,
 )
-from caliper.contracts.document import Document, EntityId
-from caliper.contracts.queries import Queries
+from caliper.contracts.document import Document, EntityId, Ref
+from caliper.contracts.queries import CheckResult, Expectation, Queries
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
+
+
+class Author(StrEnum):
+    """Who made a change. The contract's `Change` doesn't say, so the shell records it."""
+
+    YOU = "You"
+    AGENT = "Agent"
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryEntry:
+    label: str
+    author: Author
+    at: float
+    """Seconds since the epoch."""
 
 
 class DocumentSession(QObject):
@@ -30,6 +52,8 @@ class DocumentSession(QObject):
     """The path or the unsaved-changes state changed."""
     message = Signal(str)
     """Something worth a line in the status bar."""
+    history_changed = Signal()
+    checks_changed = Signal()
 
     def __init__(self, bus: CommandBus | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -39,6 +63,12 @@ class DocumentSession(QObject):
         self._path: Path | None = None
         self._selection: frozenset[EntityId] = frozenset()
         self._hover: EntityId | None = None
+        self._history: list[HistoryEntry] = []
+        self._history_position = 0
+        self._transaction_depth = 0
+        self._checks: list[Expectation] = []
+        self.last_measurement: tuple[Ref, Ref] | None = None
+        """The two points the Measure tool last measured, for turning into a check."""
 
     # --- Engine ---------------------------------------------------------------------------
 
@@ -54,20 +84,82 @@ class DocumentSession(QObject):
     def queries(self) -> Queries:
         return self._bus.queries
 
-    def execute(self, command: Command) -> CommandResult:
+    def execute(self, command: Command, *, author: Author = Author.YOU) -> CommandResult:
         """Send a command. A rejection is also reported as a message."""
         result = self._bus.execute(command)
         if isinstance(result, Rejected):
             self.message.emit("; ".join(e.message for e in result.errors))
+        elif (
+            isinstance(result, Applied)
+            and self._transaction_depth == 0
+            and (result.delta.before or result.delta.after)
+        ):
+            self._record(result.label, author)
         return result
+
+    @contextmanager
+    def transaction(self, label: str, *, author: Author = Author.YOU) -> Iterator[Transaction]:
+        """Group commands into one undo step, recorded once in the history."""
+        before = self._bus.document
+        self._transaction_depth += 1
+        committed = False
+        try:
+            with self._bus.transaction(label) as tx:
+                yield tx
+            committed = True
+        finally:
+            self._transaction_depth -= 1
+        if committed and self._transaction_depth == 0 and self._bus.document != before:
+            self._record(label, author)
 
     def undo(self) -> None:
         if (change := self._bus.undo()) is not None:
+            self._history_position = max(0, self._history_position - 1)
+            self.history_changed.emit()
             self.message.emit(f"Undid {change.label}")
 
     def redo(self) -> None:
         if (change := self._bus.redo()) is not None:
+            self._history_position = min(len(self._history), self._history_position + 1)
+            self.history_changed.emit()
             self.message.emit(f"Redid {change.label}")
+
+    # --- History --------------------------------------------------------------------------
+
+    @property
+    def history(self) -> tuple[HistoryEntry, ...]:
+        """Every recorded change, oldest first, including undone ones that can be redone."""
+        return tuple(self._history)
+
+    @property
+    def history_position(self) -> int:
+        """How many history entries are currently applied; later ones are undone."""
+        return self._history_position
+
+    def _record(self, label: str, author: Author) -> None:
+        del self._history[self._history_position :]  # a new change discards the redo stack
+        self._history.append(HistoryEntry(label=label, author=author, at=time.time()))
+        self._history_position = len(self._history)
+        self.history_changed.emit()
+
+    # --- Checks ---------------------------------------------------------------------------
+
+    @property
+    def checks(self) -> tuple[Expectation, ...]:
+        """Requirements for this session. Not saved yet: where they live is undecided."""
+        return tuple(self._checks)
+
+    def add_check(self, expectation: Expectation) -> None:
+        self._checks.append(expectation)
+        self.checks_changed.emit()
+
+    def remove_check(self, index: int) -> None:
+        del self._checks[index]
+        self.checks_changed.emit()
+
+    def check_results(self) -> list[CheckResult]:
+        queries = self.queries
+        return [queries.check(e) for e in self._checks]
 
     def _on_change(self, change: Change) -> None:
         live = self._bus.document.entities
@@ -99,6 +191,12 @@ class DocumentSession(QObject):
         self._path = path
         self._selection = frozenset()
         self._hover = None
+        self._history = []
+        self._history_position = 0
+        self._checks = []
+        self.last_measurement = None
+        self.history_changed.emit()
+        self.checks_changed.emit()
         self.selection_changed.emit()
         self.hover_changed.emit()
         self.document_changed.emit()

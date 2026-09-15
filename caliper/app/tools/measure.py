@@ -47,7 +47,7 @@ class MeasureTool(Tool):
         return {
             MeasurePhase.FIRST: "Measure: click a point (corners, centers, ends, midpoints)",
             MeasurePhase.SECOND: "Measure: click the second point (Esc cancels)",
-            MeasurePhase.SHOWN: "Measure: click to start a new measurement (Esc clears)",
+            MeasurePhase.SHOWN: "Measure: click to measure again · add it as a check in Checks",
         }[self.phase]
 
     @property
@@ -92,6 +92,7 @@ class MeasureTool(Tool):
             self.cancel()
             return
         self.result = found
+        self.session.last_measurement = (a, b)
         self.phase = MeasurePhase.SHOWN
         self.session.message.emit(describe(found))
 

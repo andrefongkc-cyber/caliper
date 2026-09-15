@@ -80,6 +80,24 @@ QLineEdit[invalid="true"] {{ border-color: {P.failed}; }}
 QLabel[role="section"] {{ color: {P.ink_dim}; font-weight: {TYPE.heading_weight};
     padding-top: {s.s}px; }}
 QLabel[role="error"] {{ color: {P.failed}; }}
+QTabWidget#browser-tabs::pane {{ border: none; }}
+QTabWidget#browser-tabs, QTabWidget#browser-tabs QTabBar {{ background: {P.window}; }}
+QTabWidget#browser-tabs QTabBar {{ border-bottom: 1px solid {P.border}; }}
+QWidget#checks {{ background: {P.panel}; }}
+QTabBar::tab {{ background: {P.window}; color: {P.ink_dim}; padding: {s.s}px {s.l}px;
+    border: none; border-bottom: 2px solid transparent; }}
+QTabBar::tab:selected {{ color: {P.ink}; border-bottom-color: {P.accent}; }}
+QTabBar::tab:hover {{ color: {P.ink}; }}
+QTreeWidget, QListWidget {{ background: {P.panel}; border: none; outline: none; }}
+QTreeWidget::item, QListWidget::item {{ padding: {s.xxs}px 0; }}
+QTreeWidget::item:selected {{ background: {P.field}; color: {P.ink}; }}
+QTreeWidget::item:hover {{ background: {P.field}; }}
+QTreeWidget::item:selected:!has-children {{ color: {P.accent}; }}
+QPushButton {{ background: {P.field}; color: {P.ink}; border: 1px solid {P.border};
+    border-radius: {r.control}px; padding: {s.xs}px {s.l}px; }}
+QPushButton:hover {{ border-color: {P.ink_dim}; }}
+QPushButton:default {{ border-color: {P.accent}; }}
+QPushButton:pressed {{ background: {P.panel}; }}
 QToolTip {{ background: {P.panel}; color: {P.ink}; border: 1px solid {P.border};
     padding: {s.xs}px {s.s}px; }}
 """

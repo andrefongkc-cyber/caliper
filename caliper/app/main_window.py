@@ -11,12 +11,16 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QTabWidget,
     QToolBar,
     QWidget,
 )
 
 from caliper.app import icons
 from caliper.app.palette import CommandPalette
+from caliper.app.panels.browser import SketchBrowser
+from caliper.app.panels.checks import ChecksPanel
+from caliper.app.panels.history import HistoryList
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
 from caliper.app.shortcuts import ShortcutSheet
@@ -30,6 +34,7 @@ FILE_FILTER = "Caliper documents (*.caliper)"
 SUFFIX = ".caliper"
 MESSAGE_MS = 5000
 DOCK_WIDTH = 260
+BROWSER_WIDTH = 250
 TOOL_ICON_SIZE = 18
 COMPACT_TOOLBAR_BELOW = 980
 """Window width in logical pixels below which the tool bar drops its labels."""
@@ -57,6 +62,8 @@ class MainWindow(QMainWindow):
         self.session.file_changed.connect(self._update_title)
         self.session.document_changed.connect(self._update_edit_actions)
         self.session.selection_changed.connect(self._update_edit_actions)
+        # A committed transaction sends no Change, so refresh labels when history moves too.
+        self.session.history_changed.connect(self._update_edit_actions)
         self.session.message.connect(self.show_message)
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
@@ -202,14 +209,46 @@ class MainWindow(QMainWindow):
         self.tool_bar = bar
 
     def _build_dock(self) -> None:
+        features = QDockWidget.DockWidgetFeature.DockWidgetMovable
+
+        self.browser = SketchBrowser(self.session)
+        self.browser.frame_requested.connect(lambda id: self.canvas.frame(frozenset({id})))
+        self.history = HistoryList(self.session)
+        tabs = QTabWidget()
+        tabs.setObjectName("browser-tabs")
+        tabs.setDocumentMode(True)
+        tabs.addTab(self.browser, "Sketch")
+        tabs.addTab(self.history, "History")
+        self.browser_tabs = tabs
+        browser = QDockWidget("Browser", self)
+        browser.setObjectName("browser")
+        browser.setFeatures(features)
+        browser.setTitleBarWidget(QWidget())  # the tabs are the title
+        browser.setWidget(tabs)
+        browser.setMinimumWidth(BROWSER_WIDTH)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, browser)
+        self.browser_dock = browser
+
         dock = QDockWidget("Properties", self)
         dock.setObjectName("properties")
-        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        dock.setFeatures(features)
         dock.setWidget(self.properties)
         dock.setMinimumWidth(DOCK_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-        self.resizeDocks([dock], [DOCK_WIDTH], Qt.Orientation.Horizontal)
         self.properties_dock = dock
+
+        self.checks = ChecksPanel(self.session)
+        checks = QDockWidget("Checks", self)
+        checks.setObjectName("checks-dock")
+        checks.setFeatures(features)
+        checks.setWidget(self.checks)
+        checks.setMinimumWidth(DOCK_WIDTH)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, checks)
+        self.splitDockWidget(dock, checks, Qt.Orientation.Vertical)
+        self.checks_dock = checks
+
+        self.resizeDocks([browser, dock], [BROWSER_WIDTH, DOCK_WIDTH], Qt.Orientation.Horizontal)
+        self.resizeDocks([dock, checks], [320, 380], Qt.Orientation.Vertical)
 
     def _build_status_bar(self) -> None:
         status = self.statusBar()
