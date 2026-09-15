@@ -1,0 +1,82 @@
+[project]
+name = "caliper-cad"
+version = "0.0.0"
+description = "AI-native engineering platform built around a geometry core that can verify its own work."
+readme = "README.md"
+requires-python = "==3.13.*"
+classifiers = ["Private :: Do Not Upload"]
+# The engine and contracts have no third-party runtime dependencies.
+dependencies = []
+
+[project.optional-dependencies]
+# Desktop shell. "essentials" deliberately excludes pyside6-addons, which is
+# where the GPL-only Qt modules live (ADR 0006).
+app = ["pyside6-essentials>=6.11"]
+# OpenCascade B-rep kernel. Large download; only needed for OCCTKernel.
+occt = ["cadquery-ocp>=8.0"]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.168",
+    "mypy>=2.3",
+    "pytest>=9.1",
+    "ruff>=0.16",
+]
+# pytest-qt refuses to start without Qt, so it installs only alongside the app extra:
+#   uv sync --extra app --group app-test
+app-test = ["pytest-qt>=4.5"]
+
+[build-system]
+requires = ["uv_build>=0.12.14,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = ">=0.12"
+
+[tool.uv.build-backend]
+module-name = "caliper"
+module-root = ""
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # import sorting
+    "B",       # bugbear
+    "UP",      # pyupgrade
+    "SIM",     # simplify
+    "N",       # naming
+    "PT",      # pytest style
+    "RUF",     # ruff-specific
+    "TID",     # banned imports
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"PySide6.QtCharts".msg = "GPL-only in open-source Qt (ADR 0006)."
+"PySide6.QtDataVisualization".msg = "GPL-only in open-source Qt (ADR 0006)."
+"PySide6.QtGraphs".msg = "GPL-only in open-source Qt (ADR 0006)."
+"PySide6.QtGraphsWidgets".msg = "GPL-only in open-source Qt (ADR 0006)."
+"PySide6.QtQuick3D".msg = "GPL-only in open-source Qt (ADR 0006)."
+"PySide6.QtVirtualKeyboard".msg = "GPL-only in open-source Qt (ADR 0006)."
+"py_slvs".msg = "GPL-3 (ADR 0006). Use planegcs."
+"slvs".msg = "GPL-3 (ADR 0006). Use planegcs."
+
+[tool.ruff.lint.isort]
+known-first-party = ["caliper"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+# Strict typing applies to the core only. The shell is checked separately, more loosely.
+files = ["caliper/contracts", "caliper/engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+filterwarnings = ["error"]
