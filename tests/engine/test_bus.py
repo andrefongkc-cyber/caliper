@@ -323,14 +323,3 @@ def test_undoing_everything_returns_to_empty_and_redo_restores(
     while bus.redo():
         pass
     assert bus.document == final
-
-
-# --- Not in the Phase 0 slice -----------------------------------------------------------
-
-
-def test_features_landing_in_v1_say_so() -> None:
-    bus = Bus()
-    with pytest.raises(NotImplementedError):
-        bus.execute(rectangle(), merge_key="drag")
-    with pytest.raises(NotImplementedError):
-        bus.transaction("Batch")
