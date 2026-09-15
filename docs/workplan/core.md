@@ -1,4 +1,4 @@
-Status: V1 engine backlog pushed as 8 stacked stream/core/* branches (no PRs yet; 5 shell tests pinned to engine gaps fail on them), next: open PRs in order once the shell tests simulate the gaps
+Status: PR #8 open (waiting on issue #7 fix + review); doing the user's decisions on stream/core/* branches above properties (default kernel done), next: click-inside picking
 
 # Core workplan — Stream A
 
@@ -94,6 +94,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
     - Property tests: moving everything shifts bounds and keeps dimension values; any delete reloads cleanly and undoes exactly. New golden replay fixture `tests/engine/fixtures/edits.*`
     - Flips one more shell test: `tests/app/test_selection.py::test_delete_reports_the_missing_engine_piece_instead_of_crashing` (5 in total; list below)
   - Shell tests pinned to engine gaps, all needing the `missing_*` treatment from issue #7 before the matching engine PR can go green: `test_canvas.py::test_paints_every_entity_kind`, `::test_without_point_queries_the_pointer_snaps_to_the_grid`, `::test_dimension_tool_reports_missing_point_picking` (feature-queries); `test_selection.py::test_box_select_reports_the_missing_engine_piece` (queries); `::test_delete_reports_the_missing_engine_piece_instead_of_crashing` (move-delete)
+- User decisions (2026-09-15):
+  - [~] Clicking inside a closed shape selects it (entity_at_point), not just its outline
+  - [x] Rectangle resize keeps the bottom-left corner fixed: already how ModifyEntity works (`test_changing_width_keeps_the_corner`). V1.5 solver default: pin that corner unless a constraint says otherwise
+  - [~] Zoom-to-fit must not clip dimension labels. Engine `bounding_box` stays geometry-only, because `check`/bench BBOX metrics use it and text size is a rendering detail; see the recommendation for the shell
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
@@ -112,7 +116,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Conformance property tests also pass at 3,000 examples each (verified 3,000 faces built). A test runs `area_properties` through `Bus(kernel=OCCTKernel())`
   - OCP has no type information; one `from OCP import (...)  # type: ignore[import-not-found, import-untyped, unused-ignore]` keeps mypy clean with and without the extra (checked both)
   - **For maintainers:** no CI job installs the `occt` extra and runs tests, so OCCT conformance only runs locally. Proposal: add `--extra occt` to `core.yml` or a small `occt` job running `tests/engine/geometry`
-  - **Open decision:** nothing picks a kernel by default. `Bus()` has none, so `area_properties` (and `check` on `area`) return `kernel.unavailable` in the app, CLI, and bench. The shell may not import kernels, so the engine needs to expose a choice (e.g. use OCCTKernel when the extra is installed)
+  - [x] Default kernel (user decision, 2026-09-15; branch `stream/core/default-kernel`): `caliper.engine.geometry.default_kernel()` returns OCCTKernel when the extra is installed, else None; cached, and only looked up by queries that need a kernel. `Bus(kernel=...)` / `DocumentQueries` default to it; `kernel=None` means none
 - [x] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export (branch `stream/core/files-cli`, local)
   - The migration framework already existed (chain, newer-file refusal, ordering test). Added a guard that every version below `SCHEMA_VERSION` has a migration
   - `snapshot.read` / `read_file` → `Snapshot(document, history, schema_version)`; `dumps`/`save` take `history=`; history is structure-checked only
