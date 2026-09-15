@@ -6,4 +6,5 @@ Human-edited index. Agents update their stream's file, not this one.
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)
 - **Decisions:** [docs/adr/](docs/adr/) · **Architecture:** [docs/architecture.md](docs/architecture.md)
+- **Starting a stream session:** [docs/kickoff/](docs/kickoff/)
 - **Long-term vision:** [docs/vision.md](docs/vision.md) (don't load every session)

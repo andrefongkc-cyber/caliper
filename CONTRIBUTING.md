@@ -32,6 +32,9 @@ git worktree add ../caliper-shell -b stream/shell
 
 Either stream may add ADRs under `docs/adr/`.
 
+To start an agent session for a stream, paste [docs/kickoff/stream-a-core.md](docs/kickoff/stream-a-core.md)
+or [docs/kickoff/stream-b-shell.md](docs/kickoff/stream-b-shell.md) into a fresh Claude Code session in that worktree.
+
 **Other branches:**
 
 | Branch | For | Restrictions |
