@@ -15,6 +15,8 @@ from caliper.contracts.commands import (
     ModifyEntity,
 )
 from caliper.contracts.document import (
+    POINT_FEATURES,
+    Arc,
     DistanceOrientation,
     Document,
     EntityId,
@@ -23,7 +25,7 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.contracts.queries import BoundingBox, Expectation, Metric
+from caliper.contracts.queries import BoundingBox, Expectation, Metric, Queries
 from caliper.engine.commands.bus import Bus
 from caliper.engine.queries import DocumentQueries
 
@@ -232,20 +234,6 @@ def test_annotations_are_never_hit() -> None:
     assert queries.entity_at_point(P(50.0, 0.0), 1.0) is None
 
 
-@pytest.mark.parametrize(
-    ("point", "tolerance"),
-    [
-        (P(50.0, 0.0), -1.0),
-        (P(50.0, 0.0), math.nan),
-        (P(50.0, 0.0), math.inf),
-        (P(math.nan, 0.0), 1.0),
-        (P(50.0, math.inf), 1.0),
-    ],
-)
-def test_invalid_hit_test_input_matches_nothing(point: Point2, tolerance: float) -> None:
-    assert bus_with(rectangle()).queries.entity_at_point(point, tolerance) is None
-
-
 @given(
     rect=st.tuples(coordinate, coordinate, size, size),
     t=st.floats(min_value=0.0, max_value=1.0),
@@ -258,6 +246,170 @@ def test_any_point_on_a_rectangle_edge_hits_it(
     point = [P(x + t * w, y), P(x + w, y + t * h), P(x + t * w, y + h), P(x, y + t * h)][edge]
     tolerance = 1e-9 * max(1.0, abs(x), abs(y), w, h)
     assert bus_with(rectangle(x, y, w, h)).queries.entity_at_point(point, tolerance) == E1
+
+
+# --- feature_point ----------------------------------------------------------------------
+
+
+def at(queries: Queries, entity: EntityId, feature: Feature) -> tuple[float, float]:
+    result = queries.feature_point(Ref(entity=entity, feature=feature))
+    assert isinstance(result, Point2), result
+    return (result.x, result.y)
+
+
+def test_feature_points_of_each_geometry_type() -> None:
+    queries = bus_with(
+        CreateLine(start=P(0.0, 0.0), end=P(10.0, 4.0)),
+        CreateCircle(center=P(1.0, 2.0), radius=3.0),
+        CreateArc(center=P(0.0, 0.0), radius=10.0, start_angle=0.0, sweep_angle=90.0),
+        rectangle(10.0, 20.0, 100.0, 50.0),
+    ).queries
+    assert at(queries, E1, Feature.START) == (0.0, 0.0)
+    assert at(queries, E1, Feature.END) == (10.0, 4.0)
+    assert at(queries, E1, Feature.MID) == (5.0, 2.0)
+    assert at(queries, E2, Feature.CENTER) == (1.0, 2.0)
+    assert at(queries, E3, Feature.CENTER) == (0.0, 0.0)
+    assert at(queries, E3, Feature.START) == (10.0, 0.0)
+    assert at(queries, E3, Feature.END) == (0.0, 10.0)  # exact at multiples of 90°
+    assert at(queries, E3, Feature.MID) == pytest.approx((10.0 * C45, 10.0 * C45))
+    e4 = EntityId("e4")
+    assert at(queries, e4, Feature.BOTTOM_LEFT) == (10.0, 20.0)
+    assert at(queries, e4, Feature.BOTTOM_RIGHT) == (110.0, 20.0)
+    assert at(queries, e4, Feature.TOP_RIGHT) == (110.0, 70.0)
+    assert at(queries, e4, Feature.TOP_LEFT) == (10.0, 70.0)
+    assert at(queries, e4, Feature.CENTER) == (60.0, 45.0)
+
+
+def test_every_type_exposes_exactly_its_contract_features() -> None:
+    bus = bus_with(
+        CreateLine(start=P(0.0, 0.0), end=P(10.0, 4.0)),
+        CreateCircle(center=P(1.0, 2.0), radius=3.0),
+        CreateArc(center=P(0.0, 0.0), radius=10.0, start_angle=30.0, sweep_angle=200.0),
+        rectangle(),
+    )
+    for id, entity in bus.document.entities.items():
+        for feature in Feature:
+            result = bus.queries.feature_point(Ref(entity=id, feature=feature))
+            if feature in POINT_FEATURES[type(entity)]:
+                assert isinstance(result, Point2), (entity.kind, feature, result)
+            else:
+                assert error_code(result) == ErrorCode.REFERENCE_INVALID_FEATURE
+
+
+def test_feature_point_follows_a_width_edit() -> None:
+    bus = bus_with(rectangle())
+    bus.execute(ModifyEntity(id=E1, changes={"width": 120.0}))
+    assert at(bus.queries, E1, Feature.TOP_RIGHT) == (120.0, 50.0)
+
+
+@pytest.mark.parametrize(
+    ("ref", "code", "field"),
+    [
+        (
+            Ref(entity=EntityId("nope"), feature=Feature.CENTER),
+            ErrorCode.ENTITY_NOT_FOUND,
+            "ref.entity",
+        ),
+        (Ref(entity=E2, feature=Feature.CENTER), ErrorCode.ENTITY_WRONG_KIND, "ref.entity"),
+        (Ref(entity=E1, feature=Feature.START), ErrorCode.REFERENCE_INVALID_FEATURE, "ref.feature"),
+        (
+            Ref(entity=EntityId("Not An Id"), feature=Feature.CENTER),
+            ErrorCode.ID_INVALID,
+            "ref.entity",
+        ),
+        (Ref(entity=E1, feature="nope"), ErrorCode.REFERENCE_INVALID_FEATURE, "ref.feature"),
+        ("e1.center", ErrorCode.VALUE_WRONG_TYPE, "ref"),
+    ],
+    ids=[
+        "unknown entity",
+        "annotation",
+        "feature not on a rectangle",
+        "malformed id",
+        "unknown feature",
+        "not a ref",
+    ],
+)
+def test_feature_point_reports_bad_references_as_errors(
+    ref: object, code: ErrorCode, field: str
+) -> None:
+    queries = bus_with(
+        rectangle(),
+        CreateDistanceDimension(
+            a=Ref(entity=E1, feature=Feature.BOTTOM_LEFT),
+            b=Ref(entity=E1, feature=Feature.TOP_RIGHT),
+            orientation=DistanceOrientation.ALIGNED,
+            offset=5.0,
+        ),
+    ).queries
+    result = queries.feature_point(ref)  # type: ignore[arg-type]
+    assert isinstance(result, Error), result
+    assert (result.code, result.field) == (code, field)
+
+
+# --- nearest_feature --------------------------------------------------------------------
+
+
+def test_nearest_feature_snaps_to_a_nearby_corner() -> None:
+    queries = bus_with(rectangle()).queries
+    assert queries.nearest_feature(P(100.6, 0.4), 1.0) == Ref(
+        entity=E1, feature=Feature.BOTTOM_RIGHT
+    )
+    assert queries.nearest_feature(P(50.0, 25.3), 0.5) == Ref(entity=E1, feature=Feature.CENTER)
+    assert queries.nearest_feature(P(50.0, 0.0), 1.0) is None  # on an edge, but far from features
+
+
+def test_nearest_feature_measures_to_features_not_outlines() -> None:
+    queries = bus_with(
+        CreateLine(start=P(0.0, 1.0), end=P(200.0, 1.0)),  # outline 1 away, mid at 100
+        CreateCircle(center=P(52.0, 0.0), radius=30.0),  # center 2 away
+    ).queries
+    assert queries.nearest_feature(P(50.0, 0.0), 5.0) == Ref(entity=E2, feature=Feature.CENTER)
+
+
+def test_coincident_features_go_to_the_lower_id() -> None:
+    queries = bus_with(
+        CreateLine(start=P(100.0, 0.0), end=P(200.0, 0.0)),
+        rectangle(),  # bottom-right corner at the line's start
+    ).queries
+    assert queries.nearest_feature(P(100.0, 0.1), 1.0) == Ref(entity=E1, feature=Feature.START)
+
+
+@given(
+    center=st.tuples(coordinate, coordinate),
+    radius=size,
+    start=st.floats(min_value=-720.0, max_value=720.0),
+    sweep=st.floats(min_value=0.01, max_value=359.99),
+)
+def test_arc_features_lie_on_the_arc_and_snap_back_to_themselves(
+    center: tuple[float, float], radius: float, start: float, sweep: float
+) -> None:
+    arc = CreateArc(center=P(*center), radius=radius, start_angle=start, sweep_angle=sweep)
+    queries = bus_with(arc).queries
+    scale = 1e-9 * max(1.0, radius, abs(center[0]), abs(center[1]))
+    for feature in POINT_FEATURES[Arc]:
+        point = queries.feature_point(Ref(entity=E1, feature=feature))
+        assert isinstance(point, Point2)
+        snapped = queries.nearest_feature(point, 0.0)
+        assert snapped is not None
+        assert queries.feature_point(snapped) == point
+        if feature is not Feature.CENTER:
+            assert queries.entity_at_point(point, scale * 10) == E1
+
+
+@pytest.mark.parametrize("method", ["entity_at_point", "nearest_feature"])
+@pytest.mark.parametrize(
+    ("point", "tolerance"),
+    [
+        (P(100.0, 0.0), -1.0),
+        (P(100.0, 0.0), math.nan),
+        (P(100.0, 0.0), math.inf),
+        (P(math.nan, 0.0), 1.0),
+        (P(100.0, math.inf), 1.0),
+    ],
+)
+def test_invalid_pick_input_matches_nothing(method: str, point: Point2, tolerance: float) -> None:
+    queries = bus_with(rectangle()).queries
+    assert getattr(queries, method)(point, tolerance) is None
 
 
 # --- Snapshot binding and the rest of the protocol --------------------------------------
@@ -276,13 +428,9 @@ def test_queries_landing_in_v1_say_so() -> None:
     ref = Ref(entity=E1, feature=Feature.CENTER)
     everything = BoundingBox(x_min=0.0, y_min=0.0, x_max=1.0, y_max=1.0)
     with pytest.raises(NotImplementedError):
-        queries.feature_point(ref)
-    with pytest.raises(NotImplementedError):
         queries.measure_distance(ref, ref)
     with pytest.raises(NotImplementedError):
         queries.entities_in_box(everything, crossing=False)
-    with pytest.raises(NotImplementedError):
-        queries.nearest_feature(P(0.0, 0.0), 1.0)
     with pytest.raises(NotImplementedError):
         queries.dimension_value(E1)
     with pytest.raises(NotImplementedError):
