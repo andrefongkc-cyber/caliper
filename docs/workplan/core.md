@@ -1,4 +1,4 @@
-Status: waiting on Lucas's review of PR #1 (Phase 0), next: merge, then the Phase 0.5 spike
+Status: doing Phase 0.5 Queries (entity_at_point, bounding_box), next: contract gap list, stream/core PR
 
 # Core workplan — Stream A
 
@@ -41,7 +41,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 - [x] Step 7: Bench stub: `bench/run.py` + cases `rectangle-100x50`, `resize-width-120`
   - [x] Reference solver, byte-exact snapshot comparison; expectations report "pending" until queries land (V1)
   - [x] `tests/test_bench.py` confirms wrong results and rejected solutions fail
-- [~] Step 8: Check in with the user, then open PR `phase-0/foundation` → `main`
+- [x] Step 8: Check in with the user, then open PR `phase-0/foundation` → `main`
   - [x] CODEOWNERS: Stream A @andrefongkc-cyber, Stream B @lucassnam
   - [x] `app (macOS)` runs on every PR and is a required check (public repo: macOS runners are free)
   - [x] Rewrote all 31 commits to the GitHub no-reply address (trees and dates unchanged); repo-local `user.email` set
@@ -50,12 +50,18 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] Pushed `main` and `phase-0/foundation`
   - [x] Branch protection on `main`: 1 approval + code owners, stale approvals dismissed, required checks `core (Linux)` / `app (macOS)` / `boundaries` (strict), linear history, admins included
   - [x] Opened https://github.com/andrefongkc-cyber/caliper/pull/1; fixed CI setup (pinned setup-uv to a commit, disabled pytest-qt in the licenses job). All four checks green
-  - [ ] Lucas (collaborator, invite accepted) reviews and approves → merge
+  - [x] Lucas approved and merged PR #1 (2026-09-15) as a squash: one commit `9c7b5ee`, tree identical to `phase-0/foundation`. Future PRs use "Rebase and merge"
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
 
-- [ ] planegcs build test on Apple Silicon (Xcode + eigen + boost). Result reshapes ADR 0003
+- [x] planegcs build test on Apple Silicon (2026-09-15). ADR 0003 steps 1–3 pass; proposing Accepted (maintainers edit the ADR)
+  - Setup: Xcode 26.6 / Apple clang 21, Homebrew `eigen@3` 3.4.1 + `boost` 1.92.0 (header-only use). CMake 4.4.3 and pybind11 3.1.0 come from PyPI via scikit-build-core
+  - Build: `CMAKE_PREFIX_PATH="/opt/homebrew/opt/eigen@3;/opt/homebrew/opt/boost" uv pip install --no-binary planegcs planegcs==0.8.0` on Python 3.13: 15 s, no errors. Upstream suite: 227 passed, 1 skipped
+  - Solve: 4 lines + 4 coincident + H/V + width/height distances + fixed corner → DOF 0, no conflicts/redundancy, exact (0,0)–(100,50); 5 re-solves and a fresh build are bit-identical; width 100→120 re-solves to (120,50). Unfixed (DOF 2) also converges, but a width change moves both sides, so V1.5 must pin what stays put. Over-constraint is reported as conflicting
+  - Wheel: `MACOSX_DEPLOYMENT_TARGET=14.0 uv build --wheel` gives `macosx_14_0_arm64`, links only libc++/libSystem (self-contained). Default target is the host OS (26.0), so CI must set it. Step 4 (cibuildwheel in CI) not run: needs a `.github/` workflow, to propose on a `shared/` branch
 - [ ] Verify `pyside6-essentials` contains no GPL-only modules (ADR 0006)
+- [~] `Queries` for the spike: `entity_at_point` + `bounding_box` (all four geometry types), `bus.queries` wired, other methods `NotImplementedError`
+- [ ] Contract gaps the spike surfaces (list for the freeze PR)
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
