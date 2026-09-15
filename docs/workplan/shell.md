@@ -114,3 +114,64 @@ Contract wording to settle before freezing:
 - [x] File menu: new, open, save, save as
 - [x] pytest-qt coverage for tool-mode transitions and input handling
 - [ ] Profile paint time with ~2,000 entities at 120 Hz
+
+## Next: an interface that shows the verification loop (plan, 2026-09-15)
+
+Proposed, awaiting the user's approval. Nothing below is built.
+
+### What the research says
+
+| Tool | What to take | What to avoid |
+|---|---|---|
+| SolveSpace | Double-click a dimension on the canvas to type a new value; a "type the value right after placing a dimension" option. Constraints drawn on the geometry, not in a list | A text-window property browser that feels like a terminal |
+| Dune 3D | Non-modal sketching (no separate "sketch mode" to enter and leave); one interactive tool system for every operation | Reusing EDA chrome that isn't tuned for mechanical work |
+| FreeCAD | Its own community names the pain: steep learning curve, inconsistent workflows across workbenches, a task panel that changes shape per tool | Modal workbenches; long constraint lists as the main way to understand a sketch |
+| Plasticity (commercial) | Keyboard-first: a command palette on one key that finds every tool and setting by name | Hotkey-only discoverability |
+| Zoo Design Studio (open source) | Every click edits the same underlying model a program (their KCL code) or the AI can edit; the AI result stays editable parametric geometry, not a frozen mesh | Making code the thing users must read to understand the model |
+| Onshape AI Advisor, Fusion Assistant | Proof incumbents are adding assistants: Onshape's is a help chatbot; Fusion's runs simple commands from text and "gets confused by anything ambiguous" | A chat box bolted beside the model with no way to check what the AI did |
+
+**The opening:** incumbent AI in CAD is a chat panel next to the model. Nobody shows the *verification loop*: what the agent changed, what it measured, whether requirements pass. That's Caliper's wedge, and it's a UI problem as much as an engine one.
+
+### Design principles for the shell
+
+1. **Requirements are visible.** A Checks panel lists expectations ("width = 120 ± 0.001") with live pass/fail and the measured value, re-evaluated on every change. Measuring something should be one click away from turning it into a check.
+2. **Every change has an author.** The history shows each command with who made it (you, a script, the agent), because commands are the only door.
+3. **The agent proposes; the user disposes.** Agent work arrives as a reviewable proposal: ghost geometry (added, changed, removed), the commands it will run, and the checks before and after. Accept applies it; reject leaves no trace. No chat bubbles: a prompt bar and a proposal card.
+4. **The palette is the tool schema.** Cmd+K searches the same command set the AI uses, with typed parameter entry. Humans and the agent learn one vocabulary.
+5. **Precision without dialogs.** Type dimensions while drawing (Tab between fields), double-click any dimension on the canvas to edit it, and show errors next to the geometry with their error code, never as a modal.
+6. **Non-modal and calm.** No sketch mode to enter. One accent colour for selection and one for agent proposals; state is shown by shape and badge, not only colour.
+
+### Phases (Stream B)
+
+| Phase | Goal | Depends on Stream A / contract |
+|---|---|---|
+| **P1: Land and unblock** | PR #3 merged; freeze-PR gaps settled; engine pieces wired as they land; `engine_gaps.py` and the test stand-ins deleted | Point queries, move/delete, `dimension_value` |
+| **P2: Design system** | Tokens module (colour, type, spacing, motion), monoline SVG icon set via QtSvg (functional, not decorative), SF Pro/system type scale, screenshot baselines for regressions | None |
+| **P3: Precision input** | Heads-up numeric entry, on-canvas dimension editing, inference guides (horizontal/vertical alignment to nearby points), measure tool, Cmd+K palette, full keyboard map | `nearest_feature`, `feature_point`, `measure_distance` |
+| **P4: Structure panels** | Model browser (entity list synced with selection), History timeline with author, Checks panel | `check`; **contract decisions:** where expectations are stored, and an author/source on `Change` |
+| **P5: Performance** | Paint time measured at 2,000 and 10,000 entities; move the canvas onto QOpenGLWidget or cached layers only if the numbers say so; 120 Hz on ProMotion | Spatial index if hit-testing shows up in the profile |
+| **P6: AI-native surfaces** | Prompt bar, proposal review (ghost diff, accept/reject), the agent's attempts shown against checks ("✗ 100.0 → ✓ 120.0"), all driven first by a scripted stand-in agent so the UI doesn't wait for V3 | Transactions (one undo step per accepted proposal); an owner for `caliper/ai/` |
+| **P7: Constraints (V1.5)** | Constraint glyphs on geometry, degrees-of-freedom colouring (under/fully/over-constrained), conflicts highlighted where they occur | planegcs (ADR 0003) and the constraint contract |
+
+### The next goal, step by step: P2 + P3, "CAD-grade and keyboard-fast"
+
+Chosen because it needs almost nothing new from Stream A and every later phase builds on it.
+
+1. **Tokens and theme module.** Replace colour literals in `theme.py` with named tokens (surface, ink, accent, agent, pass, fail); a type scale using the system font; spacing steps. *Done when* no widget or painter uses a hex literal (grep-enforced in a test).
+2. **Icon set.** About 20 monoline SVG icons at 16/20 px for tools and panels, loaded through QtSvg and tinted from tokens; the tool bar shows icon plus label, collapsing to icon-only when narrow. *Done when* icons are sharp at 1x and 2x (screenshot check on Cocoa).
+3. **Screenshot baselines.** A pytest-qt harness renders the window in fixed states (empty, drawing, selection, error) and compares against stored images with a tolerance. *Done when* a deliberate 1 px layout shift fails the test.
+4. **Heads-up numeric entry.** While drawing, typing a number opens small fields next to the cursor (Rectangle: width, Tab, height; Circle: radius; Line: length, Tab, angle). Enter commits one command. *Done when* R → 120 Tab 50 Enter creates exactly one `CreateRectangle` of 120 × 50 at the clicked corner.
+5. **On-canvas dimension editing.** Double-click a dimension label or a rectangle edge to edit its value in place; Enter sends `ModifyEntity`; `Rejected` shows the message under the field. *Done when* double-click → 120 → Enter matches today's properties-panel path, including the undo label.
+6. **Inference guides.** Dashed horizontal/vertical guides when the pointer lines up with a nearby feature point, snapping on that axis. *Done when* the pointer snaps to x of a corner within tolerance and the guide is drawn (needs `feature_point`; built against the stand-ins until it lands).
+7. **Command palette.** Cmd+K lists every tool and action by name with its shortcut; typing filters; commands with parameters open typed fields generated from the command dataclass (the same fields an AI tool call would fill). *Done when* Cmd+K → "rect" → 120, 50 → Enter creates the rectangle, and the palette's list is derived from the `Command` union, not hand-maintained.
+8. **Measure tool.** Click two points to see distance, dx, and dy in a small overlay; a "Keep as check" button is visible but disabled until P4. *Done when* measuring two corners shows 120.000 (needs `measure_distance`).
+9. **Keyboard map and discoverability.** Every action has a shortcut shown in menus, tooltips, and the palette; a Help → Keyboard Shortcuts sheet is generated from the actions. *Done when* a test asserts no two actions share a shortcut.
+10. **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
+
+### Contract and repo items to raise (not Stream B's to change)
+
+- **Author on changes:** `Change`/`Applied` carry no source (user, script, agent). Needed for the History panel and proposal review.
+- **Where expectations live:** in the document (travels with the part, like drawing requirements) or in a sidecar. It's an ADR-sized decision.
+- **Previewing without committing:** the shell can preview a proposal on a scratch `Bus(document)` and replay the commands on the real bus to accept, using only public API. Transactions would make an accepted proposal one undo step.
+- **Who owns `caliper/ai/`:** neither stream does today, but P6 needs an agent to drive.
+- **Branch naming:** git can't create `stream/shell/<topic>` while a `stream/shell` branch exists, so the documented topic-branch convention doesn't work as written. Proposal: topic branches as `stream/shell-<topic>`, with the boundaries script updated on a `shared/` branch.
