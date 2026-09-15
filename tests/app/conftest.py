@@ -113,7 +113,8 @@ if HAVE_QT:
     def make_window(qtbot: QtBot, bus: Bus | None = None) -> MainWindow:
         app = QApplication.instance()
         assert isinstance(app, QApplication)
-        theme.apply(app)
+        if app.styleSheet() != theme.STYLESHEET:  # restyling every live widget is slow
+            theme.apply(app)
         session = DocumentSession(bus)
         window = MainWindow(session)
         session.setParent(window)
