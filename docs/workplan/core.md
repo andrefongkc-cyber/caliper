@@ -1,4 +1,4 @@
-Status: V1 engine backlog done locally in 8 stacked stream/core/* branches; waiting on Lucas's shell-test fix (issue #7) to start opening PRs, next: kernel default decision, CI job for OCCT
+Status: V1 engine backlog pushed as 8 stacked stream/core/* branches (no PRs yet; 5 shell tests pinned to engine gaps fail on them), next: open PRs in order once the shell tests simulate the gaps
 
 # Core workplan — Stream A
 
