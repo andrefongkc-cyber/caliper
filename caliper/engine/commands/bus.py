@@ -23,12 +23,12 @@ from caliper.contracts.commands import (
     Unsubscribe,
 )
 from caliper.contracts.document import Document
-from caliper.contracts.kernel import Kernel
 from caliper.contracts.queries import Queries
 from caliper.engine.commands.handlers import handle
 from caliper.engine.document.delta import apply, diff, is_empty
+from caliper.engine.geometry import default_kernel
 from caliper.engine.io.codec import encode
-from caliper.engine.queries import DocumentQueries
+from caliper.engine.queries import DocumentQueries, KernelSource
 
 if TYPE_CHECKING:
     from caliper.contracts.commands import CommandBus, Transaction
@@ -49,11 +49,13 @@ class Bus:
         *,
         undo_limit: int = 1000,
         undo_bytes: int = 64 * 1024 * 1024,
-        kernel: Kernel | None = None,
+        kernel: KernelSource = default_kernel,
     ) -> None:
-        """`undo_limit` caps undo entries and `undo_bytes` their total approximate size.
+        """`undo_limit` caps undo entries and `undo_bytes` their total approximate size; the
+        newest entry is always kept, however large.
 
-        The newest entry is always kept, however large.
+        `kernel` serves B-rep queries. The default uses OCCTKernel when the `occt` extra is
+        installed, loaded on the first query that needs it; pass None for no kernel.
         """
         self._document = document if document is not None else Document.empty()
         self._undo_limit = undo_limit
