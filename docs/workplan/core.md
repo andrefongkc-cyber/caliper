@@ -1,4 +1,4 @@
-Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries done), next: MoveEntities + DeleteEntities
+Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries, move/delete done), next: transactions, unrecorded mode, merge_key, size-bounded undo
 
 # Core workplan — Stream A
 
@@ -89,13 +89,17 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
     - `entities_in_box`: window = bounds inside the box; crossing = any outline point in the box (consistent with `entity_at_point`)
     - `check`: every Metric; bad expectations and unmeasurable metrics fail with the `Error` (`refs[1].entity`, `ids`, `tolerance`, ...). Bench now evaluates expectations (2 passed per case)
     - Flips one more shell test: `tests/app/test_selection.py::test_box_select_reports_the_missing_engine_piece`
-  - [ ] `MoveEntities`, `DeleteEntities` (cascade to dimensions)
+  - [x] `MoveEntities`, `DeleteEntities` (branch `stream/core/move-delete`, stacked on `queries`, local)
+    - Move skips annotations; delete cascades to distance and radial dimensions in the same delta. Ids deduplicated, labels "Move Rectangle" / "Delete 3 Entities", overflow and collapsed lines rejected
+    - Property tests: moving everything shifts bounds and keeps dimension values; any delete reloads cleanly and undoes exactly. New golden replay fixture `tests/engine/fixtures/edits.*`
+    - Flips one more shell test: `tests/app/test_selection.py::test_delete_reports_the_missing_engine_piece_instead_of_crashing` (5 in total; list below)
+  - Shell tests pinned to engine gaps, all needing the `missing_*` treatment from issue #7 before the matching engine PR can go green: `test_canvas.py::test_paints_every_entity_kind`, `::test_without_point_queries_the_pointer_snaps_to_the_grid`, `::test_dimension_tool_reports_missing_point_picking` (feature-queries); `test_selection.py::test_box_select_reports_the_missing_engine_piece` (queries); `::test_delete_reports_the_missing_engine_piece_instead_of_crashing` (move-delete)
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
 
 - [ ] Document model: entities, IDs, dirty tracking (no spatial index; revisit at >2,000 entities or hit-testing in a profile)
-- [ ] Commands: create/move/delete line, circle, rectangle, arc; modify dimension; compound
+- [~] Commands: create/move/delete line, circle, rectangle, arc; modify dimension (done). "Compound" is transactions, below
 - [ ] Command bus: validation, execution, automatic deltas, batch transactions, unrecorded mode
 - [ ] Undo/redo: bounded stack (count + bytes), display labels
 - [ ] `OCCTKernel` behind the `occt` extra; passes the shared conformance suite
