@@ -1,4 +1,4 @@
-Status: next goal (P2 + P3) in progress, steps 1-5 done locally on `stream/shell`, not pushed; next: step 6, inference guides
+Status: P2 + P3 goal built (steps 1-9) locally on `stream/shell`, not pushed; guides, Measure, Move, Delete, and dimension values light up when Stream A lands the point queries; next: review pass and PR
 
 # Shell workplan — Stream B
 
@@ -155,7 +155,13 @@ Proposed, awaiting the user's approval. Nothing below is built.
 
 ### The next goal, step by step: P2 + P3, "CAD-grade and keyboard-fast"
 
-Progress (2026-09-15): steps 1-5 done. Step 1 found `ink_dim` below 4.5:1 contrast (4.26) and raised it to 5.14. Step 5 edits rectangle width/height and circle/arc radius; editing dimension labels waits on `dimension_value` and `feature_point`.
+Progress (2026-09-15): steps 1-9 done; step 10 (review pass) in progress. Step 1 found `ink_dim` below 4.5:1 contrast (4.26) and raised it to 5.14. Step 5 edits rectangle width/height and circle/arc radius; editing dimension labels waits on `dimension_value` and `feature_point`.
+
+Deviations from the plan, and why:
+- Step 6 guides use points the pointer has *hovered* (acquired, up to 4), because queries can't list every feature on screen. This matches Fusion/SketchUp and needs no contract change.
+- Step 7 lists every command whose fields are numbers, points, or the selection. `CreateDistanceDimension`, `CreateRadialDimension` (need feature references) and `ModifyEntity` are left out on purpose; a test pins that list.
+- Step 8 has no "Keep as check" button yet: `check` isn't in the engine and where expectations live is undecided (P4).
+- Steps 6 and 8 only work in the real app once `nearest_feature`, `feature_point`, and `measure_distance` land; they're tested against the stand-ins in `tests/app/conftest.py`.
 
 Chosen because it needs almost nothing new from Stream A and every later phase builds on it.
 
@@ -164,11 +170,11 @@ Chosen because it needs almost nothing new from Stream A and every later phase b
 3. [x] **Screenshot baselines.** A pytest-qt harness renders the window in fixed states (empty, drawing, selection, error) and compares against stored images with a tolerance. *Done when* a deliberate 1 px layout shift fails the test.
 4. [x] **Heads-up numeric entry.** While drawing, typing a number opens small fields next to the cursor (Rectangle: width, Tab, height; Circle: radius; Line: length, Tab, angle). Enter commits one command. *Done when* R → 120 Tab 50 Enter creates exactly one `CreateRectangle` of 120 × 50 at the clicked corner.
 5. [x] **On-canvas dimension editing.** Double-click a dimension label or a rectangle edge to edit its value in place; Enter sends `ModifyEntity`; `Rejected` shows the message under the field. *Done when* double-click → 120 → Enter matches today's properties-panel path, including the undo label.
-6. [ ] **Inference guides.** Dashed horizontal/vertical guides when the pointer lines up with a nearby feature point, snapping on that axis. *Done when* the pointer snaps to x of a corner within tolerance and the guide is drawn (needs `feature_point`; built against the stand-ins until it lands).
-7. [ ] **Command palette.** Cmd+K lists every tool and action by name with its shortcut; typing filters; commands with parameters open typed fields generated from the command dataclass (the same fields an AI tool call would fill). *Done when* Cmd+K → "rect" → 120, 50 → Enter creates the rectangle, and the palette's list is derived from the `Command` union, not hand-maintained.
-8. [ ] **Measure tool.** Click two points to see distance, dx, and dy in a small overlay; a "Keep as check" button is visible but disabled until P4. *Done when* measuring two corners shows 120.000 (needs `measure_distance`).
-9. [ ] **Keyboard map and discoverability.** Every action has a shortcut shown in menus, tooltips, and the palette; a Help → Keyboard Shortcuts sheet is generated from the actions. *Done when* a test asserts no two actions share a shortcut.
-10. [ ] **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
+6. [x] **Inference guides.** Dashed horizontal/vertical guides when the pointer lines up with a nearby feature point, snapping on that axis. *Done when* the pointer snaps to x of a corner within tolerance and the guide is drawn (needs `feature_point`; built against the stand-ins until it lands).
+7. [x] **Command palette.** Cmd+K lists every tool and action by name with its shortcut; typing filters; commands with parameters open typed fields generated from the command dataclass (the same fields an AI tool call would fill). *Done when* Cmd+K → "rect" → 120, 50 → Enter creates the rectangle, and the palette's list is derived from the `Command` union, not hand-maintained.
+8. [x] **Measure tool.** Click two points to see distance, dx, and dy in a small overlay; a "Keep as check" button is visible but disabled until P4. *Done when* measuring two corners shows 120.000 (needs `measure_distance`).
+9. [x] **Keyboard map and discoverability.** Every action has a shortcut shown in menus, tooltips, and the palette; a Help → Keyboard Shortcuts sheet is generated from the actions. *Done when* a test asserts no two actions share a shortcut.
+10. [~] **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
 
 ### Contract and repo items to raise (not Stream B's to change)
 
