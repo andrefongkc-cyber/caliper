@@ -86,6 +86,7 @@ def test_delete_sends_the_selection(window, driver, bus, shapes) -> None:
     assert bus.sent == [DeleteEntities(ids=tuple(sorted((rect, circle))))]
 
 
+@pytest.mark.bus(missing=("DeleteEntities",))
 def test_delete_reports_the_missing_engine_piece_instead_of_crashing(window, shapes) -> None:
     rect, _ = shapes
     window.session.set_selection(frozenset({rect}))
@@ -100,6 +101,7 @@ def test_delete_is_disabled_with_nothing_selected(window, shapes) -> None:
     assert window.delete_action.isEnabled()
 
 
+@pytest.mark.bus(missing=("entities_in_box",))
 def test_box_select_reports_the_missing_engine_piece(window, driver, shapes) -> None:
     driver.drag([(-20, -20), (60, 40), (120, 70)])
     assert window.statusBar().currentMessage() == "Box selection isn't in the engine yet"

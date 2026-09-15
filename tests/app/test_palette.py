@@ -167,6 +167,7 @@ def test_delete_command_with_no_fields_runs_immediately(window, bus, qtbot) -> N
     assert bus.sent == [DeleteEntities(ids=(circle,))]
 
 
+@pytest.mark.bus(missing=("MoveEntities",))
 def test_missing_engine_pieces_are_reported_in_the_palette(window, qtbot) -> None:
     (circle,) = window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5)).created_ids
     window.session.set_selection(frozenset({circle}))
