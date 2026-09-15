@@ -3,8 +3,8 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence
+from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from caliper.app import icons
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
 from caliper.app.tools.controller import ToolController
@@ -27,6 +28,9 @@ FILE_FILTER = "Caliper documents (*.caliper)"
 SUFFIX = ".caliper"
 MESSAGE_MS = 5000
 DOCK_WIDTH = 260
+TOOL_ICON_SIZE = 18
+COMPACT_TOOLBAR_BELOW = 980
+"""Window width in logical pixels below which the tool bar drops its labels."""
 
 
 class MainWindow(QMainWindow):
@@ -94,6 +98,13 @@ class MainWindow(QMainWindow):
         self.snap_action = self._action("Snap to Grid", self._toggle_snap)
         self.snap_action.setCheckable(True)
         self.snap_action.setChecked(True)
+        for action, name in (
+            (self.undo_action, "undo"),
+            (self.redo_action, "redo"),
+            (self.fit_action, "fit"),
+            (self.grid_action, "grid"),
+        ):
+            action.setIcon(icons.icon(name))
 
         group = QActionGroup(self)
         group.setExclusive(True)
@@ -103,6 +114,7 @@ class MainWindow(QMainWindow):
             )
             action.setCheckable(True)
             action.setToolTip(f"{name} ({tool.shortcut})")
+            action.setIcon(icons.icon(name.lower()))
             group.addAction(action)
             self.tool_actions[name] = action
 
@@ -139,7 +151,8 @@ class MainWindow(QMainWindow):
         bar.setObjectName("sketch-tools")
         bar.setMovable(False)
         bar.setFloatable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        bar.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
         # Groups by category, so later categories (constrain, inspect) add a group, not a redesign.
         select, *create = self.tool_actions.values()
         bar.addAction(select)
@@ -261,6 +274,17 @@ class MainWindow(QMainWindow):
         if lines:
             box.setDetailedText("\n".join(lines))
         box.exec()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        compact = event.size().width() < COMPACT_TOOLBAR_BELOW
+        style = (
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+            if compact
+            else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        if self.tool_bar.toolButtonStyle() != style:
+            self.tool_bar.setToolButtonStyle(style)
+        super().resizeEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if self.confirm_discard():
