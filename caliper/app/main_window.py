@@ -19,6 +19,7 @@ from caliper.app import icons
 from caliper.app.palette import CommandPalette
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
+from caliper.app.shortcuts import ShortcutSheet
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
 from caliper.contracts.commands import DeleteEntities
@@ -126,6 +127,16 @@ class MainWindow(QMainWindow):
             action.setIcon(icons.icon(name))
 
         self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
+        self.shortcuts_action = self._action("Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
+        for action, tip in (
+            (self.fit_action, "Zoom to Fit"),
+            (self.grid_action, "Show Grid"),
+            (self.undo_action, "Undo"),
+            (self.redo_action, "Redo"),
+        ):
+            action.setToolTip(
+                f"{tip} ({action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)})"
+            )
 
         group = QActionGroup(self)
         group.setExclusive(True)
@@ -168,6 +179,10 @@ class MainWindow(QMainWindow):
         sketch_menu = bar.addMenu("Sketch")
         for action in self.tool_actions.values():
             sketch_menu.addAction(action)
+
+        help_menu = bar.addMenu("Help")
+        help_menu.addAction(self.shortcuts_action)
+        self.menus = [file_menu, edit_menu, view_menu, sketch_menu, help_menu]
 
     def _build_tool_bar(self) -> None:
         bar = QToolBar("Sketch")
@@ -297,6 +312,9 @@ class MainWindow(QMainWindow):
         if lines:
             box.setDetailedText("\n".join(lines))
         box.exec()
+
+    def show_shortcuts(self) -> None:
+        ShortcutSheet(self.menus, self).exec()
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         compact = event.size().width() < COMPACT_TOOLBAR_BELOW
