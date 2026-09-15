@@ -1,4 +1,4 @@
-Status: doing the V1 engine backlog locally in stacked stream/core/* branches (all but property tests done), next: property tests on geometry invariants
+Status: V1 engine backlog done locally in 8 stacked stream/core/* branches; waiting on Lucas's shell-test fix (issue #7) to start opening PRs, next: kernel default decision, CI job for OCCT
 
 # Core workplan — Stream A
 
@@ -118,5 +118,6 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - `snapshot.read` / `read_file` → `Snapshot(document, history, schema_version)`; `dumps`/`save` take `history=`; history is structure-checked only
 - [x] Query API: every `Queries` method (the contract calls it `area_properties`, not `mass_properties`)
 - [x] CLI: `python -m caliper.engine replay [--history] | inspect | export` (same branch). `export` = validate, migrate, write latest schema without history; stderr notes a removed history
-- [ ] Property-based tests on geometry invariants
+- [x] Property-based tests on geometry invariants (branch `stream/core/properties`, local). Alongside the per-feature ones, `tests/engine/test_invariants.py` runs random sketches of every kind (creates, dimensions, edits, moves, deletes) through: file + history round trip, replay of resolved commands, exact undo/redo, feature snap round trip, antisymmetric distances vs `check`, move keeps sizes/dimension values/areas. Each also passed at 1,000 examples
+  - Found and fixed a bug: replaying resolved creates (which carry allocated ids) left `next_id` behind, so a file's history didn't rebuild it byte-for-byte. An explicit `e{n}` id now advances `next_id` past n
 - [ ] Bench cases as features land
