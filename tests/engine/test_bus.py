@@ -340,5 +340,3 @@ def test_features_landing_in_v1_say_so() -> None:
         bus.execute(rectangle(), merge_key="drag")
     with pytest.raises(NotImplementedError):
         bus.transaction("Batch")
-    with pytest.raises(NotImplementedError):
-        _ = bus.queries

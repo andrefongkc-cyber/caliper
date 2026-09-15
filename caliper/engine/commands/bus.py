@@ -1,7 +1,7 @@
 """In-memory CommandBus (ADR 0002).
 
-Phase 0 slice: every create command, ModifyEntity, undo/redo, and change notifications.
-MoveEntities, DeleteEntities, transactions, merge keys, and queries raise
+Phase 0 slice: every create command, ModifyEntity, undo/redo, change notifications, and
+the Phase 0.5 queries. MoveEntities, DeleteEntities, transactions, and merge keys raise
 NotImplementedError until they land in V1 (docs/workplan/core.md).
 """
 
@@ -25,6 +25,7 @@ from caliper.contracts.document import Document
 from caliper.contracts.queries import Queries
 from caliper.engine.commands.handlers import handle
 from caliper.engine.document.delta import apply, diff, is_empty
+from caliper.engine.queries import DocumentQueries
 
 if TYPE_CHECKING:
     from caliper.contracts.commands import CommandBus
@@ -49,7 +50,7 @@ class Bus:
 
     @property
     def queries(self) -> Queries:
-        raise NotImplementedError("queries land in V1 (docs/workplan/core.md)")
+        return DocumentQueries(self._document)
 
     def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
         """Validate and apply. A command that changes nothing is Applied but not recorded."""
