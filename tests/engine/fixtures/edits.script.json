@@ -1,0 +1,19 @@
+{
+  "commands": [
+    {"corner": {"x": 0.0, "y": 0.0}, "height": 50.0, "kind": "create_rectangle", "width": 100.0},
+    {"center": {"x": 150.0, "y": 25.0}, "kind": "create_circle", "radius": 10.0},
+    {
+      "a": {"entity": "e1", "feature": "bottom_right"},
+      "b": {"entity": "e2", "feature": "center"},
+      "kind": "create_distance_dimension",
+      "offset": 12.5,
+      "orientation": "horizontal"
+    },
+    {"kind": "create_radial_dimension", "label_angle": 45.0, "measure": "diameter", "target": "e2"},
+    {"dx": 2.5, "dy": -0.25, "ids": ["e1", "e3"], "kind": "move_entities"},
+    {"kind": "delete_entities", "ids": ["e2"]},
+    {"end": {"x": 30.0, "y": 60.0}, "kind": "create_line", "start": {"x": -10.0, "y": 60.0}}
+  ],
+  "format": "caliper.script",
+  "schema_version": 1
+}
