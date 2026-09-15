@@ -1,0 +1,7 @@
+{
+  "format": "caliper.script",
+  "schema_version": 1,
+  "commands": [
+    {"kind": "modify_entity", "id": "e1", "changes": {"width": 120}}
+  ]
+}
