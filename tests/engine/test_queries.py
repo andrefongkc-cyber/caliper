@@ -521,6 +521,26 @@ def test_area_properties_of_a_rectangle_and_a_circle() -> None:
     assert circle.centroid == P(1.0, 2.0)
 
 
+def test_area_properties_through_the_occt_kernel() -> None:
+    occt = pytest.importorskip(
+        "caliper.engine.geometry.occt_kernel", reason="the occt extra isn't installed"
+    )
+    bus = Bus(kernel=occt.OCCTKernel())
+    bus.execute(rectangle(10.0, 20.0, 6.0, 3.0))
+    bus.execute(CreateCircle(center=P(1.0, 2.0), radius=2.0))
+    fake = bus_with(rectangle(10.0, 20.0, 6.0, 3.0), CreateCircle(center=P(1.0, 2.0), radius=2.0))
+    for id in (E1, E2):
+        real, expected = bus.queries.area_properties([id]), fake.queries.area_properties([id])
+        assert isinstance(real, AreaProperties)
+        assert isinstance(expected, AreaProperties)
+        assert real.area == pytest.approx(expected.area, rel=1e-9)
+        assert real.centroid.x == pytest.approx(expected.centroid.x, abs=1e-9)
+        assert real.ixx == pytest.approx(expected.ixx, rel=1e-9)
+    line = bus.execute(CreateLine(start=P(0.0, 0.0), end=P(1.0, 1.0)))
+    assert isinstance(line, Applied)
+    assert error_code(bus.queries.area_properties([E3])) == ErrorCode.PROFILE_NOT_CLOSED
+
+
 def test_area_properties_errors() -> None:
     queries = bus_with(
         rectangle(),

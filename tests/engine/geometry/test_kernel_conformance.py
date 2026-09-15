@@ -1,7 +1,7 @@
 """Kernel conformance suite (ADR 0001).
 
 Every Kernel implementation must pass this file. It runs against FakeKernel always, and
-against OCCTKernel once it exists and the `occt` extra is installed, so a test can't be
+against OCCTKernel whenever the `occt` extra is installed, so a test can't be
 green on the fake and red on the real kernel.
 
 Expected values are the textbook formulas. Tolerances are the contract: relative 1e-9, or
@@ -31,7 +31,7 @@ def kernel(request: pytest.FixtureRequest) -> Kernel:
         return FakeKernel()
     occt = pytest.importorskip(
         "caliper.engine.geometry.occt_kernel",
-        reason="OCCTKernel not implemented yet, or the occt extra isn't installed",
+        reason="the occt extra isn't installed",
     )
     kernel: Kernel = occt.OCCTKernel()
     return kernel
