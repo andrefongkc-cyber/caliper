@@ -7,24 +7,24 @@
 # the second is its reviewer. Stream boundaries are enforced separately by the
 # `boundaries` CI check (.github/scripts/check_boundaries.py).
 #
-# Later lines win. Replace the placeholders with real GitHub usernames before the first PR.
+# Later lines win. Stream A (core): @andrefongkc-cyber. Stream B (shell): @lucassnam.
 
 # Default: shared files (pyproject.toml, uv.lock, CLAUDE.md, WORKPLAN.md, docs)
-*                         @STREAM_A_USERNAME @STREAM_B_USERNAME
+*                         @andrefongkc-cyber @lucassnam
 
 # Stream A: core
-/caliper/engine/          @STREAM_A_USERNAME @STREAM_B_USERNAME
-/bench/                   @STREAM_A_USERNAME @STREAM_B_USERNAME
-/tests/                   @STREAM_A_USERNAME @STREAM_B_USERNAME
-/docs/workplan/core.md    @STREAM_A_USERNAME @STREAM_B_USERNAME
+/caliper/engine/          @andrefongkc-cyber @lucassnam
+/bench/                   @andrefongkc-cyber @lucassnam
+/tests/                   @andrefongkc-cyber @lucassnam
+/docs/workplan/core.md    @andrefongkc-cyber @lucassnam
 
 # Stream B: shell
-/caliper/app/             @STREAM_B_USERNAME @STREAM_A_USERNAME
-/tests/app/               @STREAM_B_USERNAME @STREAM_A_USERNAME
-/docs/workplan/shell.md   @STREAM_B_USERNAME @STREAM_A_USERNAME
+/caliper/app/             @lucassnam @andrefongkc-cyber
+/tests/app/               @lucassnam @andrefongkc-cyber
+/docs/workplan/shell.md   @lucassnam @andrefongkc-cyber
 
 # Joint: contract changes pause the other stream and need both people involved
-/caliper/contracts/       @STREAM_A_USERNAME @STREAM_B_USERNAME
+/caliper/contracts/       @andrefongkc-cyber @lucassnam
 
 # Repository settings and CI, including this file
-/.github/                 @STREAM_A_USERNAME @STREAM_B_USERNAME
+/.github/                 @andrefongkc-cyber @lucassnam
