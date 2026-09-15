@@ -297,14 +297,14 @@ class Canvas(QWidget):
                 continue
             y = round(self.view.to_widget(Point2(x=0.0, y=k * spacing))[1]) + 0.5
             (major if k % every == 0 else minor).append(QLineF(0.0, y, w, y))
-        qp.setPen(cosmetic_pen(theme.GRID_MINOR, 1.0))
+        qp.setPen(cosmetic_pen(theme.GRID_MINOR, theme.GUIDE_WIDTH))
         qp.drawLines(minor)
-        qp.setPen(cosmetic_pen(theme.GRID_MAJOR, 1.0))
+        qp.setPen(cosmetic_pen(theme.GRID_MAJOR, theme.GUIDE_WIDTH))
         qp.drawLines(major)
         ox, oy = self.view.to_widget(Point2(x=0.0, y=0.0))
-        qp.setPen(cosmetic_pen(theme.AXIS_X, 1.0))
+        qp.setPen(cosmetic_pen(theme.AXIS_X, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(0.0, round(oy) + 0.5, w, round(oy) + 0.5))
-        qp.setPen(cosmetic_pen(theme.AXIS_Y, 1.0))
+        qp.setPen(cosmetic_pen(theme.AXIS_Y, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(round(ox) + 0.5, 0.0, round(ox) + 0.5, h))
 
     def _paint_geometry(self, painter: ModelPainter) -> None:
@@ -330,7 +330,7 @@ class Canvas(QWidget):
         pointer = self._pointer
         if pointer is None or pointer.snap is not SnapKind.FEATURE:
             return
-        painter.set_pen(cosmetic_pen(theme.SNAP, 1.5))
+        painter.set_pen(cosmetic_pen(theme.SNAP, theme.GEOMETRY_WIDTH))
         painter.marker(pointer.point, 5.0)
 
     def _paint_overlay(self, qp: QPainter) -> None:

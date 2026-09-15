@@ -80,7 +80,7 @@ def _distance(
     overshoot = math.copysign(painter.view.length_to_model(EXTENSION_OVERSHOOT_PX), dim.offset)
     da = Point2(x=a.x + nx * dim.offset, y=a.y + ny * dim.offset)
     db = Point2(x=b.x + nx * dim.offset, y=b.y + ny * dim.offset)
-    painter.set_pen(cosmetic_pen(color, 1.0))
+    painter.set_pen(cosmetic_pen(color, theme.GUIDE_WIDTH))
     painter.line(a, Point2(x=da.x + nx * overshoot, y=da.y + ny * overshoot))
     painter.line(b, Point2(x=db.x + nx * overshoot, y=db.y + ny * overshoot))
     painter.line(da, db)
@@ -107,7 +107,7 @@ def _radial(
     rim = Point2(x=c.x + ux * r, y=c.y + uy * r)
     beyond = painter.view.length_to_model(24.0)
     label_at = Point2(x=rim.x + ux * beyond, y=rim.y + uy * beyond)
-    painter.set_pen(cosmetic_pen(color, 1.0))
+    painter.set_pen(cosmetic_pen(color, theme.GUIDE_WIDTH))
     if dim.measure is RadialMeasure.DIAMETER:
         far = Point2(x=c.x - ux * r, y=c.y - uy * r)
         painter.line(far, label_at)
@@ -138,5 +138,5 @@ def _label(painter: ModelPainter, at: Point2, text: str, color: QColor) -> None:
     width, height = metrics.horizontalAdvance(text) + 8, metrics.height() + 2
     box = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
     qp.fillRect(box, theme.CANVAS)
-    qp.setPen(cosmetic_pen(color, 1.0))
+    qp.setPen(cosmetic_pen(color, theme.GUIDE_WIDTH))
     qp.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
