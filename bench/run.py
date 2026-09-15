@@ -11,7 +11,7 @@ V1 has one solver: the reference script, which proves the harness and the engine
 end. The AI layer (V3) adds a solver that reads the prompt instead, and this harness is how
 it gets measured.
 
-Expectations are evaluated through the query API. Until queries land (V1, Stream A) they
+Expectations are evaluated through the query API. Until `check` lands (V1, Stream A) they
 are reported as pending rather than faked.
 
 Usage:
@@ -109,12 +109,11 @@ def evaluate(case: Case, commands: tuple[Command, ...]) -> Outcome:
     if expected.exists():
         outcome.snapshot_matches = snapshot.dumps(bus.document) == expected.read_text("utf-8")
 
-    try:
-        queries = bus.queries
-    except NotImplementedError:
-        outcome.pending = len(case.expectations)
-    else:
-        outcome.checks = [queries.check(e) for e in case.expectations]
+    for expectation in case.expectations:
+        try:
+            outcome.checks.append(bus.queries.check(expectation))
+        except NotImplementedError:
+            outcome.pending += 1
     return outcome
 
 
@@ -137,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         failed = sum(not c.passed for c in o.checks)
         expectations = f"{len(o.checks) - failed} passed, {failed} failed"
         if o.pending:
-            expectations += f", {o.pending} pending (queries land in V1)"
+            expectations += f", {o.pending} pending (check lands in V1)"
         result = "pass" if o.passed else "FAIL"
         print(f"{o.case:<{width}}  {result:<6}  {snapshot_cell:<8}  {expectations}")
         if o.rejected:
