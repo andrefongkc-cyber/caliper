@@ -1,4 +1,4 @@
-Status: waiting on review of PR #3 (CI green; merge with Rebase and merge) and on approval of the next-goal plan (P2 + P3: design system and precision input), next: step 1, design tokens
+Status: next goal (P2 + P3) in progress, steps 1-5 done locally on `stream/shell`, not pushed; next: step 6, inference guides
 
 # Shell workplan — Stream B
 
@@ -155,18 +155,20 @@ Proposed, awaiting the user's approval. Nothing below is built.
 
 ### The next goal, step by step: P2 + P3, "CAD-grade and keyboard-fast"
 
+Progress (2026-09-15): steps 1-5 done. Step 1 found `ink_dim` below 4.5:1 contrast (4.26) and raised it to 5.14. Step 5 edits rectangle width/height and circle/arc radius; editing dimension labels waits on `dimension_value` and `feature_point`.
+
 Chosen because it needs almost nothing new from Stream A and every later phase builds on it.
 
-1. **Tokens and theme module.** Replace colour literals in `theme.py` with named tokens (surface, ink, accent, agent, pass, fail); a type scale using the system font; spacing steps. *Done when* no widget or painter uses a hex literal (grep-enforced in a test).
-2. **Icon set.** About 20 monoline SVG icons at 16/20 px for tools and panels, loaded through QtSvg and tinted from tokens; the tool bar shows icon plus label, collapsing to icon-only when narrow. *Done when* icons are sharp at 1x and 2x (screenshot check on Cocoa).
-3. **Screenshot baselines.** A pytest-qt harness renders the window in fixed states (empty, drawing, selection, error) and compares against stored images with a tolerance. *Done when* a deliberate 1 px layout shift fails the test.
-4. **Heads-up numeric entry.** While drawing, typing a number opens small fields next to the cursor (Rectangle: width, Tab, height; Circle: radius; Line: length, Tab, angle). Enter commits one command. *Done when* R → 120 Tab 50 Enter creates exactly one `CreateRectangle` of 120 × 50 at the clicked corner.
-5. **On-canvas dimension editing.** Double-click a dimension label or a rectangle edge to edit its value in place; Enter sends `ModifyEntity`; `Rejected` shows the message under the field. *Done when* double-click → 120 → Enter matches today's properties-panel path, including the undo label.
-6. **Inference guides.** Dashed horizontal/vertical guides when the pointer lines up with a nearby feature point, snapping on that axis. *Done when* the pointer snaps to x of a corner within tolerance and the guide is drawn (needs `feature_point`; built against the stand-ins until it lands).
-7. **Command palette.** Cmd+K lists every tool and action by name with its shortcut; typing filters; commands with parameters open typed fields generated from the command dataclass (the same fields an AI tool call would fill). *Done when* Cmd+K → "rect" → 120, 50 → Enter creates the rectangle, and the palette's list is derived from the `Command` union, not hand-maintained.
-8. **Measure tool.** Click two points to see distance, dx, and dy in a small overlay; a "Keep as check" button is visible but disabled until P4. *Done when* measuring two corners shows 120.000 (needs `measure_distance`).
-9. **Keyboard map and discoverability.** Every action has a shortcut shown in menus, tooltips, and the palette; a Help → Keyboard Shortcuts sheet is generated from the actions. *Done when* a test asserts no two actions share a shortcut.
-10. **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
+1. [x] **Tokens and theme module.** Replace colour literals in `theme.py` with named tokens (surface, ink, accent, agent, pass, fail); a type scale using the system font; spacing steps. *Done when* no widget or painter uses a hex literal (grep-enforced in a test).
+2. [x] **Icon set.** About 20 monoline SVG icons at 16/20 px for tools and panels, loaded through QtSvg and tinted from tokens; the tool bar shows icon plus label, collapsing to icon-only when narrow. *Done when* icons are sharp at 1x and 2x (screenshot check on Cocoa).
+3. [x] **Screenshot baselines.** A pytest-qt harness renders the window in fixed states (empty, drawing, selection, error) and compares against stored images with a tolerance. *Done when* a deliberate 1 px layout shift fails the test.
+4. [x] **Heads-up numeric entry.** While drawing, typing a number opens small fields next to the cursor (Rectangle: width, Tab, height; Circle: radius; Line: length, Tab, angle). Enter commits one command. *Done when* R → 120 Tab 50 Enter creates exactly one `CreateRectangle` of 120 × 50 at the clicked corner.
+5. [x] **On-canvas dimension editing.** Double-click a dimension label or a rectangle edge to edit its value in place; Enter sends `ModifyEntity`; `Rejected` shows the message under the field. *Done when* double-click → 120 → Enter matches today's properties-panel path, including the undo label.
+6. [ ] **Inference guides.** Dashed horizontal/vertical guides when the pointer lines up with a nearby feature point, snapping on that axis. *Done when* the pointer snaps to x of a corner within tolerance and the guide is drawn (needs `feature_point`; built against the stand-ins until it lands).
+7. [ ] **Command palette.** Cmd+K lists every tool and action by name with its shortcut; typing filters; commands with parameters open typed fields generated from the command dataclass (the same fields an AI tool call would fill). *Done when* Cmd+K → "rect" → 120, 50 → Enter creates the rectangle, and the palette's list is derived from the `Command` union, not hand-maintained.
+8. [ ] **Measure tool.** Click two points to see distance, dx, and dy in a small overlay; a "Keep as check" button is visible but disabled until P4. *Done when* measuring two corners shows 120.000 (needs `measure_distance`).
+9. [ ] **Keyboard map and discoverability.** Every action has a shortcut shown in menus, tooltips, and the palette; a Help → Keyboard Shortcuts sheet is generated from the actions. *Done when* a test asserts no two actions share a shortcut.
+10. [ ] **Review pass.** Real-window screenshots at 1x and 2x, both themes if a light theme is in scope; update this workplan; open the PR with a summary.
 
 ### Contract and repo items to raise (not Stream B's to change)
 
