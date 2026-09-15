@@ -1,4 +1,4 @@
-Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries, move/delete done), next: transactions, unrecorded mode, merge_key, size-bounded undo
+Status: doing the V1 engine backlog locally in stacked stream/core/* branches (queries, move/delete, transactions done), next: history section + CLI inspect/export
 
 # Core workplan — Stream A
 
@@ -100,8 +100,12 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 
 - [ ] Document model: entities, IDs, dirty tracking (no spatial index; revisit at >2,000 entities or hit-testing in a profile)
 - [~] Commands: create/move/delete line, circle, rectangle, arc; modify dimension (done). "Compound" is transactions, below
-- [ ] Command bus: validation, execution, automatic deltas, batch transactions, unrecorded mode
-- [ ] Undo/redo: bounded stack (count + bytes), display labels
+- [x] Command bus: validation, execution, automatic deltas, batch transactions, unrecorded mode (branch `stream/core/transactions`, local)
+  - Net-delta commit, rollback (immediate, and never commits afterwards), exceptions roll back, nesting folds into the outermost (inner rollback reverts only its block), undo/redo inside a transaction raise
+  - `merge_key`: one entry per run of same-key executes; dragging back to the start leaves none
+  - Stateful hypothesis test over commands/undo/redo/merge keys/nested transactions; 1,000 extra histories run locally. No new shell test flips
+  - Contract gap 9: committing a transaction changes `undo_label` but sends no `Change` (no COMMIT reason), so a shell undo menu can go stale until the next change
+- [x] Undo/redo: bounded stack (count + bytes: `undo_bytes`, compact JSON size of each delta, newest entry always kept), display labels
 - [ ] `OCCTKernel` behind the `occt` extra; passes the shared conformance suite
 - [ ] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export
 - [x] Query API: every `Queries` method (the contract calls it `area_properties`, not `mass_properties`)
