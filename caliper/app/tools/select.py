@@ -121,7 +121,7 @@ class SelectTool(Tool):
             crossing = b.x < a.x
             painter.filled_box(a, b, theme.RUBBER_BAND)
             style = Qt.PenStyle.DashLine if crossing else Qt.PenStyle.SolidLine
-            painter.set_pen(cosmetic_pen(theme.ACCENT, 1.0, style))
+            painter.set_pen(cosmetic_pen(theme.ACCENT, theme.GUIDE_WIDTH, style))
             painter.rectangle(a, b.x - a.x, b.y - a.y)
 
     @staticmethod

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 HAVE_QT = all(importlib.util.find_spec(name) for name in ("PySide6", "pytestqt"))
-QT_FREE = {"test_viewport_math.py"}
+QT_FREE = {"test_viewport_math.py", "test_tokens.py"}
 
 
 def pytest_configure(config: pytest.Config) -> None:

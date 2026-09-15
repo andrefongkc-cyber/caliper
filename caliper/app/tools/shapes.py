@@ -207,7 +207,7 @@ class ArcTool(Tool):
     def paint(self, painter: ModelPainter) -> None:
         if self.center is None or self.current is None:
             return
-        painter.set_pen(cosmetic_pen(theme.PREVIEW, 1.0, Qt.PenStyle.DashLine))
+        painter.set_pen(cosmetic_pen(theme.PREVIEW, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
         painter.marker(self.center, 2.0)
         if self.start is None:
             painter.line(self.center, self.current)
