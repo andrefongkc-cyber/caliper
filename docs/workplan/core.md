@@ -1,4 +1,4 @@
-Status: PR #2 merged (squashed); main has the milestone shell (#3), next: feature_point + nearest_feature, then dimension_value, per shell.md's gap order
+Status: feature_point + nearest_feature done locally on stream/core/feature-queries; 3 shell tests assert they're missing, next: agree the test change with Lucas, then dimension_value
 
 # Core workplan — Stream A
 
@@ -71,9 +71,13 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   3. "Ties broken by id" is string order, so `e10` sorts before `e2`. Say so explicitly
   4. `bounding_box` doesn't specify: a document with no geometry (engine: `SELECTION_EMPTY`), an annotation id (engine: `ENTITY_WRONG_KIND`), duplicate ids (engine: allowed). `Error.field` is `"ids"` with no index
   5. Bounds exclude annotations, so zoom-to-fit clips dimension text unless the shell adds label extents
+  6. `nearest_feature` doesn't say how ties break or what distance means. Engine: distance to feature points (not outlines), ties to the lower entity id (the shell's test fake agrees)
 - [x] PR #2 merged 2026-09-15 (Lucas, squashed into `7ac0543`); PR #3 (milestone + V1 shell) rebase-merged the same day. Tests on `main` with the app extra: 293 passed
+- [x] PR #4 (PR summary template, "Rebase and merge" rule) rebase-merged 2026-09-15 as `88a23df`. Deleted the old `stream/core` branch (local and remote; its content is `7ac0543` on main). Stream A now works on `stream/core/<topic>` branches
 - [ ] Engine pieces the shell already calls through `caliper/app/engine_gaps.py`, in its order (shell.md):
-  - [ ] `feature_point` + `nearest_feature` (snapping, dimension tool, drawing distance dimensions)
+  - [~] `feature_point` + `nearest_feature` (snapping, dimension tool, drawing distance dimensions). Branch `stream/core/feature-queries`, not pushed
+    - Engine side done: every POINT_FEATURES entry for all four types (arc points exact at multiples of 90°); bad refs reuse the command validator's errors (`ref.entity` / `ref.feature`); tests include a hypothesis round-trip (arc feature → snap → same point, on the arc), verified to fail on a wrong arc mid, a reversed tie-break, and a wrong rectangle center
+    - Blocked on Stream B: `tests/app/test_canvas.py` has 3 tests that assert these queries are missing (`test_paints_every_entity_kind` expects 1 hidden dimension, `test_without_point_queries_the_pointer_snaps_to_the_grid`, `test_dimension_tool_reports_missing_point_picking`). They fail on this branch, and `app (macOS)` is required. `CompletedQueries` in `tests/app/conftest.py` can drop its two stand-ins once this lands
   - [ ] `dimension_value` (dimension labels show "?")
   - [ ] `MoveEntities`, `DeleteEntities` (cascade to dimensions)
   - [ ] `entities_in_box` (box selection)
