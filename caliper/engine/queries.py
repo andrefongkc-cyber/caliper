@@ -5,7 +5,7 @@ a face for `area_properties`.
 """
 
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from caliper.contracts.document import (
@@ -42,18 +42,26 @@ from caliper.engine.commands.validation import (
     normalize_id,
     normalize_ref,
 )
+from caliper.engine.geometry import default_kernel
 
 if TYPE_CHECKING:
     from caliper.contracts.queries import Queries
 
 _GEOMETRY = (Line, Circle, Arc, Rectangle)
 
+type KernelSource = Kernel | Callable[[], Kernel | None] | None
+"""A kernel, no kernel, or a function that returns one when first needed."""
+
 
 class DocumentQueries:
-    def __init__(self, document: Document, kernel: Kernel | None = None) -> None:
-        """Without a kernel, `area_properties` reports KERNEL_UNAVAILABLE."""
+    def __init__(self, document: Document, kernel: KernelSource = default_kernel) -> None:
+        """`kernel` is a Kernel, None, or a function returning one, called only when needed.
+
+        The default picks OCCTKernel when the `occt` extra is installed. Without a kernel,
+        `area_properties` reports KERNEL_UNAVAILABLE.
+        """
         self._document = document
-        self._kernel = kernel
+        self._kernel_source = kernel
 
     def bounding_box(self, ids: Sequence[EntityId] = ()) -> BoundingBox | Error:
         if ids:
@@ -176,13 +184,14 @@ class DocumentQueries:
         found = self._geometry(ids, "area needs a closed profile")
         if isinstance(found, Error):
             return found
-        if self._kernel is None:
+        kernel = self._kernel_source() if callable(self._kernel_source) else self._kernel_source
+        if kernel is None:
             return Error(
                 code=ErrorCode.KERNEL_UNAVAILABLE,
-                message="area properties need a geometry kernel, and none is configured",
+                message="area properties need a geometry kernel: install the occt extra",
             )
         try:
-            return self._kernel.area_properties(self._kernel.make_face(found))
+            return kernel.area_properties(kernel.make_face(found))
         except KernelError as e:
             return Error(code=e.code, message=str(e), field="ids")
 

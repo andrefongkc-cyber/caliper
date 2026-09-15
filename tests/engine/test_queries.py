@@ -555,7 +555,7 @@ def test_area_properties_errors() -> None:
 
 
 def test_area_properties_without_a_kernel_says_so() -> None:
-    bus = Bus()
+    bus = Bus(kernel=None)
     bus.execute(rectangle())
     assert error_code(bus.queries.area_properties([E1])) == ErrorCode.KERNEL_UNAVAILABLE
     assert error_code(bus.queries.area_properties([E2])) == ErrorCode.ENTITY_NOT_FOUND
