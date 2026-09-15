@@ -1,4 +1,4 @@
-Status: waiting on review of PR #5 (precision input, ⌘K palette, design system; CI green; Rebase and merge), next: P4 panels once `check` and the contract decisions land
+Status: P1, P4, P5, P6 built on top of Stream A's engine stack (local branch integ/shell-on-engine, not pushed; lands after PR #5 and the engine PRs merge); P7 blocked on the solver and a contract change; next: rebase onto main once the engine merges, then open the shell PR
 
 # Shell workplan — Stream B
 
@@ -184,3 +184,35 @@ Chosen because it needs almost nothing new from Stream A and every later phase b
 - **Engine finding for Stream A: replaying resolved commands desyncs `next_id`.** `commands.py` says the resolved command in `Applied` "is what replay and the transcript record". But a create command with an explicit id doesn't advance `Document.next_id`: a live session saves `next_id: 2` after one rectangle, while replaying its resolved command saves `next_id: 1`. The files differ, so a recorded transcript doesn't replay byte-identically. Allocation skips taken ids, so nothing collides. Repro: `Bus().execute(r.command)` where `r` is the `Applied` from a fresh bus, then compare `document.next_id`. Either explicit `e<n>` ids should bump `next_id`, or transcripts should record the submitted command.
 - **Who owns `caliper/ai/`:** neither stream does today, but P6 needs an agent to drive.
 - **Branch naming:** git can't create `stream/shell/<topic>` while a `stream/shell` branch exists, so the documented topic-branch convention doesn't work as written. Proposal: topic branches as `stream/shell-<topic>`, with the boundaries script updated on a `shared/` branch.
+
+## Phases P1–P7 on the complete engine (2026-09-15)
+
+Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + `origin/stream/core/properties` (the top of Stream A's stack). Shell commits touch only `caliper/app/`, `tests/app/`, and this file, so they rebase onto `main` once the engine merges. Full suite on that branch: 602 passed, 15 skipped.
+
+- [x] **Issue #7** (on `stream/shell`, PR #5): tests that pinned engine gaps now simulate them with `@pytest.mark.bus(missing=...)`. Verified: 533 pass on the engine stack.
+- [x] **P1 Land and unblock:** `engine_gaps.py` and every test stand-in deleted; move, delete, box select, point snapping, measure, and dimension values run on the real engine. Horizontal and vertical dimensions render with the one-CCW-rule convention (`caliper/app/dimension_layout.py`), and the Dimension tool picks orientation from placement.
+- [x] **P4 Structure panels:** Sketch browser (grouped, natural id order, selection sync, double-click frames), History (author chips, undone entries dimmed, click to go back), Checks (live pass/fail via `queries.check`, add from the selection or the last Measure, Delete removes). Area is offered only when the engine can evaluate it (it needs a kernel the shell may not load).
+- [x] **P5 Performance** (offscreen, median): the canvas caches grid, geometry, and dimensions in a pixmap; hover, selection, and previews paint on top. The browser updates from each `Change` instead of rebuilding.
+
+  | Entities | Repaint | Pointer move | One edit |
+  |---|---|---|---|
+  | 2,000 | 9.4 → 0.2 ms | 3.8 ms | 43 → 34 ms |
+  | 10,000 | 42 → 0.2 ms | 19 ms | 154 → 75 ms |
+
+  Pointer move at 10,000 is the engine's linear `nearest_feature` + `entity_at_point` (profiled: 0.53 s of 20 moves inside `engine/queries.py`). A spatial index is Stream A's call.
+- [x] **P6 AI-native surfaces:** prompt bar (⌘L), proposal card (plan, commands, checks before and after, broken user checks), ghost geometry, Accept (⌘Return) as one transaction credited to Agent, Reject (Esc). Proposals run on a scratch `Bus(document)` and replay the submitted commands; accepting a stale proposal is refused. Driven by `caliper/app/agent/scripted.py`, a labelled stand-in that understands the phrasings in `EXAMPLES`; the review flow is what a V3 model would use.
+- [ ] **P7 Constraints:** blocked. Needs planegcs (ADR 0003, Proposed) and constraint types in the contract.
+
+### Gaps found (for Stream A / the contract)
+
+1. **`Change` has no author.** The shell stamps You/Agent itself in `DocumentSession`; a script calling the bus directly isn't attributed.
+2. **A committed transaction sends no notification with its label.** Views only see each inner command; the shell refreshes undo labels on its own history signal.
+3. **Where checks live** is still undecided; they're session state, cleared by New/Open.
+4. **Spatial index** for hit-testing and snapping past about 5,000 entities (numbers above).
+5. **Dimension offset rule** is implemented in the shell as proposed on PR #5 and not yet in the contract docstring.
+
+### Found and fixed along the way
+
+- `ChecksPanel.metric` shadowed `QWidget.metric()`, crashing any render of the panel.
+- After a transaction the Edit menu kept the previous undo label.
+- The app-test fixture re-applied the stylesheet per test (61 s → 11 s suite).
