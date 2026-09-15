@@ -13,10 +13,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QTabWidget,
     QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
 from caliper.app import icons
+from caliper.app.agent.proposal import Proposal
+from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
 from caliper.app.palette import CommandPalette
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
@@ -24,10 +27,13 @@ from caliper.app.panels.history import HistoryList
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
 from caliper.app.shortcuts import ShortcutSheet
+from caliper.app.tokens import SPACE
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
 from caliper.contracts.commands import DeleteEntities
 from caliper.contracts.document import Point2
+from caliper.contracts.errors import Error
+from caliper.engine.commands.bus import Bus
 from caliper.engine.io.canonical import LoadError
 
 FILE_FILTER = "Caliper documents (*.caliper)"
@@ -51,7 +57,20 @@ class MainWindow(QMainWindow):
         self.palette = CommandPalette(self.session, self)
         self.palette.return_focus = self.canvas
 
-        self.setCentralWidget(self.canvas)
+        self.prompt_bar = PromptBar()
+        self.proposal_card = ProposalCard(self.canvas)
+        self.agent = AgentController(self.session, self.prompt_bar, self.proposal_card, self)
+        self.canvas.proposal = lambda: self.agent.proposal
+        self.canvas.reject_proposal = self.agent.reject
+        self.agent.proposal_changed.connect(self.canvas.update)
+        self.agent.proposal_shown.connect(self._frame_proposal)
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.canvas, 1)
+        central_layout.addWidget(self.prompt_bar)
+        self.setCentralWidget(central)
         self.setUnifiedTitleAndToolBarOnMac(True)
         self._build_actions()
         self._build_menus()
@@ -134,6 +153,9 @@ class MainWindow(QMainWindow):
             action.setIcon(icons.icon(name))
 
         self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
+        self.ask_action = self._action("Ask the Agent…", self._focus_prompt, "Ctrl+L")
+        self.accept_action = self._action("Accept Proposal", self.agent.accept, "Ctrl+Return")
+        self.reject_action = self._action("Reject Proposal", self.agent.reject)
         self.shortcuts_action = self._action("Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
         for action, tip in (
             (self.fit_action, "Zoom to Fit"),
@@ -187,9 +209,13 @@ class MainWindow(QMainWindow):
         for action in self.tool_actions.values():
             sketch_menu.addAction(action)
 
+        agent_menu = bar.addMenu("Agent")
+        for action in (self.ask_action, self.accept_action, self.reject_action):
+            agent_menu.addAction(action)
+
         help_menu = bar.addMenu("Help")
         help_menu.addAction(self.shortcuts_action)
-        self.menus = [file_menu, edit_menu, view_menu, sketch_menu, help_menu]
+        self.menus = [file_menu, edit_menu, view_menu, sketch_menu, agent_menu, help_menu]
 
     def _build_tool_bar(self) -> None:
         bar = QToolBar("Sketch")
@@ -351,6 +377,17 @@ class MainWindow(QMainWindow):
             box.setDetailedText("\n".join(lines))
         box.exec()
 
+    def _frame_proposal(self, proposal: Proposal) -> None:
+        """Keep both the change and the card in view: frame it in the space left of the card."""
+        box = Bus(proposal.result).queries.bounding_box()
+        if not isinstance(box, Error):
+            inset = self.proposal_card.width() + 2 * SPACE.l
+            self.canvas.frame_box(box, right_inset=inset)
+
+    def _focus_prompt(self) -> None:
+        self.prompt_bar.input.setFocus()
+        self.prompt_bar.input.selectAll()
+
     def show_shortcuts(self) -> None:
         ShortcutSheet(self.menus, self).exec()
 
@@ -363,6 +400,8 @@ class MainWindow(QMainWindow):
         )
         if self.tool_bar.toolButtonStyle() != style:
             self.tool_bar.setToolButtonStyle(style)
+        if self.proposal_card.isVisible():
+            self.proposal_card.reposition()
         super().resizeEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

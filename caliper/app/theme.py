@@ -98,6 +98,20 @@ QPushButton {{ background: {P.field}; color: {P.ink}; border: 1px solid {P.borde
 QPushButton:hover {{ border-color: {P.ink_dim}; }}
 QPushButton:default {{ border-color: {P.accent}; }}
 QPushButton:pressed {{ background: {P.panel}; }}
+QFrame#prompt-bar {{ background: {P.window}; border-top: 1px solid {P.border}; }}
+QLineEdit#prompt {{ padding: {s.s}px {s.m}px; font-size: 13px; }}
+QLabel#agent-chip {{ color: {P.agent}; border: 1px solid {P.agent}; border-radius: {r.control}px;
+    padding: {s.xxs}px {s.s}px; font-size: 11px; }}
+QFrame#proposal-card {{ background: {P.panel}; border: 1px solid {P.agent};
+    border-radius: 4px; }}
+QLabel#proposal-eyebrow {{ color: {P.agent}; font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; }}
+QLabel#proposal-commands {{ color: {P.ink_dim}; background: {P.field};
+    padding: {s.s}px; border-radius: {r.field}px; }}
+QPushButton#accept {{ background: {P.agent}; color: {P.field}; border-color: {P.agent};
+    font-weight: 600; }}
+QPushButton#accept:disabled {{ background: {P.field}; color: {P.ink_dim};
+    border-color: {P.border}; }}
 QToolTip {{ background: {P.panel}; color: {P.ink}; border: 1px solid {P.border};
     padding: {s.xs}px {s.s}px; }}
 """
