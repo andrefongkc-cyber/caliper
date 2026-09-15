@@ -1,0 +1,30 @@
+# Code owners. GitHub requests these people as reviewers automatically, and branch
+# protection on main requires a code owner's approval before merging.
+#
+# Every area lists both people. A pull request author can't approve their own PR, so
+# with one owner per directory, that owner's own PRs could never merge. With both listed,
+# the other person is always the required reviewer. The first name is the area's owner;
+# the second is its reviewer. Stream boundaries are enforced separately by the
+# `boundaries` CI check (.github/scripts/check_boundaries.py).
+#
+# Later lines win. Replace the placeholders with real GitHub usernames before the first PR.
+
+# Default: shared files (pyproject.toml, uv.lock, CLAUDE.md, WORKPLAN.md, docs)
+*                         @STREAM_A_USERNAME @STREAM_B_USERNAME
+
+# Stream A: core
+/caliper/engine/          @STREAM_A_USERNAME @STREAM_B_USERNAME
+/bench/                   @STREAM_A_USERNAME @STREAM_B_USERNAME
+/tests/                   @STREAM_A_USERNAME @STREAM_B_USERNAME
+/docs/workplan/core.md    @STREAM_A_USERNAME @STREAM_B_USERNAME
+
+# Stream B: shell
+/caliper/app/             @STREAM_B_USERNAME @STREAM_A_USERNAME
+/tests/app/               @STREAM_B_USERNAME @STREAM_A_USERNAME
+/docs/workplan/shell.md   @STREAM_B_USERNAME @STREAM_A_USERNAME
+
+# Joint: contract changes pause the other stream and need both people involved
+/caliper/contracts/       @STREAM_A_USERNAME @STREAM_B_USERNAME
+
+# Repository settings and CI, including this file
+/.github/                 @STREAM_A_USERNAME @STREAM_B_USERNAME
