@@ -1,0 +1,26 @@
+# License risk only changes when dependencies change, so install every extra
+# (Qt, OCCT) and check licenses whenever the lockfile moves (ADR 0006).
+name: licenses
+
+on:
+  push:
+    branches: [main]
+    paths: ["uv.lock", "pyproject.toml", ".github/workflows/licenses.yml"]
+  pull_request:
+    paths: ["uv.lock", "pyproject.toml", ".github/workflows/licenses.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    name: licenses (all extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: Install everything
+        run: uv sync --locked --all-extras --all-groups
+      - name: Check licenses
+        run: uv run pytest tests/test_licenses.py
