@@ -1,0 +1,35 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "corner": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "height": 50.0,
+        "kind": "rectangle",
+        "width": 120.0
+      },
+      "e2": {
+        "a": {
+          "entity": "e1",
+          "feature": "bottom_left"
+        },
+        "b": {
+          "entity": "e1",
+          "feature": "bottom_right"
+        },
+        "kind": "distance_dimension",
+        "offset": -10.0,
+        "orientation": "horizontal"
+      }
+    },
+    "next_id": 3
+  },
+  "format": "caliper.document",
+  "schema_version": 1,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}

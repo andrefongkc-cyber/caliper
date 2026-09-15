@@ -1,0 +1,7 @@
+{
+  "format": "caliper.script",
+  "schema_version": 1,
+  "commands": [
+    {"kind": "move_entities", "ids": ["e1"], "dx": 30, "dy": 0}
+  ]
+}

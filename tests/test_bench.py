@@ -1,6 +1,7 @@
 """The bench harness runs its cases and reports failures honestly."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,8 +19,17 @@ def run_bench(*args: str | Path) -> subprocess.CompletedProcess[str]:
 def test_all_cases_pass() -> None:
     result = run_bench()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "rectangle-100x50  pass    match     2 passed, 0 failed" in result.stdout
-    assert "resize-width-120  pass    match     2 passed, 0 failed" in result.stdout
+    for case in (
+        "rectangle-100x50",
+        "resize-width-120",
+        "dimension-bottom-edge",
+        "move-right-30",
+        "delete-circle-with-dimension",
+    ):
+        assert re.search(rf"^{case}\s+pass\s+match\s+2 passed, 0 failed$", result.stdout, re.M), (
+            case
+        )
+    assert "5 case(s): 5 passed, 0 failed" in result.stdout
 
 
 def test_a_failed_expectation_fails(tmp_path: Path) -> None:
