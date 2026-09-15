@@ -29,7 +29,8 @@ def pytest_ignore_collect(collection_path: Path) -> bool | None:
 
 
 if HAVE_QT:
-    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QApplication
     from pytestqt.qtbot import QtBot
 
@@ -148,19 +149,32 @@ if HAVE_QT:
             self.qtbot = qtbot
             self.window = window
             self.canvas: Canvas = window.canvas
+            self.buttons = Qt.MouseButton.NoButton
 
         def at(self, x: float, y: float) -> QPoint:
             wx, wy = self.canvas.view.to_widget(Point2(x=x, y=y))
             return QPoint(round(wx), round(wy))
 
         def press(self, x: float, y: float, modifier: Modifier = NO_MODIFIER) -> None:
+            self.buttons = Qt.MouseButton.LeftButton
             self.qtbot.mousePress(self.canvas, Qt.MouseButton.LeftButton, modifier, self.at(x, y))
 
         def release(self, x: float, y: float, modifier: Modifier = NO_MODIFIER) -> None:
+            self.buttons = Qt.MouseButton.NoButton
             self.qtbot.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, modifier, self.at(x, y))
 
-        def move(self, x: float, y: float) -> None:
-            self.qtbot.mouseMove(self.canvas, self.at(x, y))
+        def move(self, x: float, y: float, modifier: Modifier = NO_MODIFIER) -> None:
+            # Sent directly: QTest drops a move to the position it believes the cursor is at.
+            position = QPointF(self.at(x, y))
+            event = QMouseEvent(
+                QEvent.Type.MouseMove,
+                position,
+                self.canvas.mapToGlobal(position),
+                Qt.MouseButton.NoButton,
+                self.buttons,
+                modifier,
+            )
+            QApplication.sendEvent(self.canvas, event)
 
         def click(self, x: float, y: float, modifier: Modifier = NO_MODIFIER) -> None:
             self.move(x, y)
