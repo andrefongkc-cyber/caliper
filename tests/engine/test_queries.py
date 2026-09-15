@@ -195,14 +195,45 @@ def test_bounds_translate_with_the_geometry(
 # --- entity_at_point --------------------------------------------------------------------
 
 
-def test_rectangle_is_hit_on_its_outline_not_its_interior() -> None:
+def test_a_rectangle_is_hit_on_its_outline_and_anywhere_inside() -> None:
     queries = bus_with(rectangle()).queries
     assert queries.entity_at_point(P(50.0, 0.0), 0.0) == E1  # bottom edge
     assert queries.entity_at_point(P(100.5, 25.0), 1.0) == E1  # just outside the right edge
-    assert queries.entity_at_point(P(99.5, 25.0), 1.0) == E1  # just inside the right edge
     assert queries.entity_at_point(P(101.0, 51.0), 1.5) == E1  # off the corner: √2 away
     assert queries.entity_at_point(P(101.0, 51.0), 1.4) is None
-    assert queries.entity_at_point(P(50.0, 25.0), 1.0) is None  # middle of the interior
+    assert queries.entity_at_point(P(50.0, 25.0), 0.0) == E1  # middle of the inside
+    assert queries.entity_at_point(P(50.0, 60.0), 1.0) is None  # outside, far from an edge
+
+
+def test_the_smallest_shape_around_a_click_wins() -> None:
+    queries = bus_with(
+        rectangle(0.0, 0.0, 100.0, 100.0),
+        CreateCircle(center=P(50.0, 50.0), radius=10.0),
+        rectangle(40.0, 40.0, 2.0, 2.0),
+    ).queries
+    assert queries.entity_at_point(P(20.0, 20.0), 1.0) == E1
+    assert queries.entity_at_point(P(55.0, 55.0), 1.0) == E2  # inside the circle too
+    assert queries.entity_at_point(P(41.0, 41.0), 0.1) == E3  # inside all three
+
+
+def test_an_outline_under_the_pointer_beats_a_shape_around_it() -> None:
+    queries = bus_with(
+        rectangle(0.0, 0.0, 100.0, 100.0),
+        CreateLine(start=P(10.0, 50.0), end=P(90.0, 50.0)),
+        CreateArc(center=P(50.0, 50.0), radius=30.0, start_angle=0.0, sweep_angle=90.0),
+    ).queries
+    assert queries.entity_at_point(P(30.0, 50.4), 0.5) == E2  # near the line, inside e1
+    assert queries.entity_at_point(P(30.0, 51.0), 0.5) == E1  # too far from the line
+    assert queries.entity_at_point(P(50.0, 80.2), 0.5) == E3  # near the arc
+    assert queries.entity_at_point(P(99.8, 30.0), 0.5) == E1  # its own edge
+
+
+def test_identical_shapes_around_a_click_go_to_the_lower_id() -> None:
+    queries = bus_with(
+        rectangle(),
+        CreateRectangle(id=EntityId("a1"), corner=P(0.0, 0.0), width=100.0, height=50.0),
+    ).queries
+    assert queries.entity_at_point(P(50.0, 25.0), 1.0) == EntityId("a1")
 
 
 def test_the_nearest_entity_wins_and_ties_go_to_the_lower_id() -> None:
@@ -220,7 +251,7 @@ def test_each_geometry_type_is_hit_on_its_curve() -> None:
     assert queries.entity_at_point(P(5.0, 0.5), 1.0) == E1
     assert queries.entity_at_point(P(11.0, 0.0), 0.5) is None  # past the line's end
     assert queries.entity_at_point(P(100.0, 10.2), 0.5) == E2
-    assert queries.entity_at_point(P(100.0, 0.0), 0.5) is None  # circle center
+    assert queries.entity_at_point(P(100.0, 0.0), 0.5) == E2  # inside the circle
     assert queries.entity_at_point(P(200.0 + 7.07, 7.07), 0.1) == E3  # 45°, on the arc
     assert queries.entity_at_point(P(190.0, 0.0), 0.5) is None  # 180°, outside the sweep
     assert queries.entity_at_point(P(210.0, -0.3), 0.5) == E3  # near the start point
@@ -585,14 +616,16 @@ def test_crossing_selection_takes_anything_the_box_touches() -> None:
         CreateCircle(center=P(50.0, 50.0), radius=10.0),
         CreateLine(start=P(-50.0, 50.0), end=P(150.0, 50.0)),
     ).queries
-    # A box inside the rectangle, clear of the circle and the line, touches nothing.
-    assert queries.entities_in_box(B(20.0, 70.0, 30.0, 80.0), crossing=True) == ()
-    # Inside the circle, clear of its outline, but across the line.
-    assert queries.entities_in_box(B(45.0, 45.0, 55.0, 55.0), crossing=True) == (E3,)
+    # Inside the rectangle, clear of the circle and the line.
+    assert queries.entities_in_box(B(20.0, 70.0, 30.0, 80.0), crossing=True) == (E1,)
+    # Inside the circle, and across the line.
+    assert queries.entities_in_box(B(45.0, 45.0, 55.0, 55.0), crossing=True) == (E1, E2, E3)
     # Across the rectangle's left edge and the line's left part.
     assert queries.entities_in_box(B(-5.0, 40.0, 5.0, 60.0), crossing=True) == (E1, E3)
-    # Just touching the circle's top.
-    assert queries.entities_in_box(B(49.0, 60.0, 51.0, 65.0), crossing=True) == (E2,)
+    # Just touching the circle's top, inside the rectangle.
+    assert queries.entities_in_box(B(49.0, 60.0, 51.0, 65.0), crossing=True) == (E1, E2)
+    # Outside everything.
+    assert queries.entities_in_box(B(200.0, 200.0, 210.0, 210.0), crossing=True) == ()
 
 
 def test_crossing_an_arc_only_counts_the_drawn_part() -> None:
@@ -702,7 +735,17 @@ def test_box_selection_agrees_with_points_sampled_along_the_outline(
         assert crossing == (E1,), "a sampled outline point is in the box"
     spacing = max(math.dist((p.x, p.y), (q.x, q.y)) for p, q in itertools.pairwise(samples))
     if not any(holds(grown(box, sag + spacing), p) for p in samples):
-        assert crossing == (), "no sampled outline point comes near the box"
+        # Clear of the outline, the box is either wholly inside a closed shape or misses it.
+        corner = P(box.x_min, box.y_min)
+        match bus.document.entities[E1]:
+            case Circle(center=c, radius=r) if math.dist((c.x, c.y), (corner.x, corner.y)) < r:
+                assert crossing == (E1,), "the box is inside the circle"
+            case Rectangle(corner=c, width=w, height=h) if (
+                c.x < corner.x < c.x + w and c.y < corner.y < c.y + h
+            ):
+                assert crossing == (E1,), "the box is inside the rectangle"
+            case _:
+                assert crossing == (), "the box misses the entity"
     if all(holds(grown(box, -sag), p) for p in samples):
         assert window == (E1,), "every sampled point is well inside the box"
     if any(not holds(grown(box, rounding), p) for p in samples):
