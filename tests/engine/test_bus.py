@@ -16,9 +16,7 @@ from caliper.contracts.commands import (
     CreateLine,
     CreateRadialDimension,
     CreateRectangle,
-    DeleteEntities,
     ModifyEntity,
-    MoveEntities,
     Rejected,
 )
 from caliper.contracts.document import (
@@ -332,10 +330,6 @@ def test_undoing_everything_returns_to_empty_and_redo_restores(
 
 def test_features_landing_in_v1_say_so() -> None:
     bus = Bus()
-    with pytest.raises(NotImplementedError):
-        bus.execute(MoveEntities(ids=(E1,), dx=1.0, dy=0.0))
-    with pytest.raises(NotImplementedError):
-        bus.execute(DeleteEntities(ids=(E1,)))
     with pytest.raises(NotImplementedError):
         bus.execute(rectangle(), merge_key="drag")
     with pytest.raises(NotImplementedError):
