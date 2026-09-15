@@ -41,6 +41,7 @@ class SelectTool(Tool):
         self.phase = SelectPhase.IDLE
         self.start: Pointer | None = None
         self.current: Pointer | None = None
+        self.hit: EntityId | None = None
 
     @property
     def hint(self) -> str:
@@ -56,6 +57,7 @@ class SelectTool(Tool):
     def press(self, pointer: Pointer) -> None:
         hit = self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
         self.start = self.current = pointer
+        self.hit = hit
         if hit is None:
             self.phase = SelectPhase.PRESSED_EMPTY
             return
@@ -90,6 +92,9 @@ class SelectTool(Tool):
                     self.session.execute(MoveEntities(ids=ids, dx=dx, dy=dy))
             case SelectPhase.BOXING if start is not None:
                 self._select_box(start, pointer)
+            case SelectPhase.PRESSED_ENTITY if self.hit is not None:
+                # A plain click inside a multi-selection narrows it to the clicked entity.
+                self.session.set_selection(frozenset({self.hit}))
             case SelectPhase.PRESSED_EMPTY if not pointer.shift:
                 self.session.set_selection(frozenset())
         self.cancel()
@@ -97,6 +102,7 @@ class SelectTool(Tool):
     def cancel(self) -> None:
         self.phase = SelectPhase.IDLE
         self.start = self.current = None
+        self.hit = None
 
     def paint(self, painter: ModelPainter) -> None:
         if self.start is None or self.current is None:
