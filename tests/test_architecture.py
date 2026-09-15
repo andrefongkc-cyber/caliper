@@ -19,15 +19,11 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "caliper"
 CORE_PACKAGES = ("contracts", "engine")
 OCCT_KERNEL = PACKAGE_ROOT / "engine" / "geometry" / "occt_kernel.py"
 
-FORBIDDEN_IN_CORE = frozenset(
+FORBIDDEN_LAYERS_AND_TOOLKITS = frozenset(
+    {"caliper.app", "caliper.ai", "PySide6", "shiboken6", "PyQt5", "PyQt6"}
+)
+FORBIDDEN_IN_CORE = FORBIDDEN_LAYERS_AND_TOOLKITS | frozenset(
     {
-        "caliper.app",
-        "caliper.ai",
-        # UI toolkits
-        "PySide6",
-        "shiboken6",
-        "PyQt5",
-        "PyQt6",
         # OS-specific
         "AppKit",
         "Cocoa",
@@ -107,10 +103,12 @@ def test_contracts_depend_only_on_stdlib(path: Path) -> None:
 
 
 def test_importing_core_does_not_load_forbidden_modules() -> None:
-    """Catch forbidden modules pulled in indirectly, e.g. through a third-party library.
+    """Catch Qt, OCCT, or the app layer pulled in indirectly, e.g. through a third-party library.
 
     Runs in a fresh interpreter so pytest's own imports don't pollute sys.modules.
-    Most meaningful on the macOS CI job, where PySide6 is actually installed.
+    Most meaningful on the macOS CI job, where PySide6 is actually installed. OS-specific
+    modules are only checked statically: the standard library itself loads some (pathlib
+    loads pwd and grp on POSIX), and that's fine.
     """
     script = """
 import importlib, json, pkgutil, sys
@@ -125,6 +123,6 @@ print(json.dumps(sorted(sys.modules)))
         [sys.executable, "-c", script], capture_output=True, text=True, check=True
     )
     loaded = json.loads(result.stdout)
-    forbidden = FORBIDDEN_IN_CORE | {"OCP"}
+    forbidden = FORBIDDEN_LAYERS_AND_TOOLKITS | {"OCP"}
     violations = sorted({m for m in loaded for f in forbidden if _matches(m, f)})
     assert not violations, f"importing the core loaded {violations}"
