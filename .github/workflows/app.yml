@@ -1,0 +1,31 @@
+# Full test suite on macOS with the Qt shell installed. Runs on every PR and is a required
+# check: macOS runners are free for public repositories. With PySide6 present, the
+# import-boundary test becomes a real check that the engine never loads Qt.
+name: app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: app (macOS)
+    runs-on: macos-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: Install engine + Qt shell + test tools
+        run: uv sync --locked --extra app --group app-test
+      - name: Tests
+        run: uv run pytest

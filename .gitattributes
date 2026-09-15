@@ -1,0 +1,3 @@
+# Caliper files are compared byte-for-byte (ADR 0005); never convert their line endings.
+*.caliper text eol=lf
+*.json    text eol=lf

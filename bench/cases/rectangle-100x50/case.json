@@ -1,0 +1,9 @@
+{
+  "format": "caliper.bench_case",
+  "schema_version": 1,
+  "prompt": "Create a 100 × 50 mm rectangle.",
+  "expectations": [
+    {"metric": "bbox_width", "expected": 100.0, "tolerance": 1e-9},
+    {"metric": "bbox_height", "expected": 50.0, "tolerance": 1e-9}
+  ]
+}
