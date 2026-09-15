@@ -1,21 +1,23 @@
 """Queries over one Document snapshot (contracts/queries.py).
 
-Phase 0.5 slice: `bounding_box` and `entity_at_point` for every geometry type, which is
-what the milestone shell needs. The other methods raise NotImplementedError until they
-land in V1 (docs/workplan/core.md).
+So far: `bounding_box`, `entity_at_point`, `feature_point`, and `nearest_feature` for every
+geometry type. The other methods raise NotImplementedError until they land in V1
+(docs/workplan/core.md).
 
 2D geometry is analytic; the kernel is only for B-rep work.
 """
 
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from caliper.contracts.document import (
     Arc,
     Circle,
     Document,
+    Entity,
     EntityId,
+    Feature,
     Geometry,
     Line,
     Point2,
@@ -30,6 +32,7 @@ from caliper.contracts.queries import (
     Distance,
     Expectation,
 )
+from caliper.engine.commands.validation import feature_errors, normalize_ref
 
 if TYPE_CHECKING:
     from caliper.contracts.queries import Queries
@@ -87,19 +90,38 @@ class DocumentQueries:
         nearest = min((hit for hit in hits if hit[0] <= tolerance), default=None)
         return None if nearest is None else nearest[1]
 
-    # --- Not in the Phase 0.5 slice -----------------------------------------------------
-
     def feature_point(self, ref: Ref) -> Point2 | Error:
-        raise NotImplementedError("feature_point lands in V1 (docs/workplan/core.md)")
+        errors: list[Error] = []
+        ref = normalize_ref(ref, "ref", errors)
+        errors = errors or feature_errors(ref, "ref", self._document)
+        if errors:
+            return errors[0]
+        return _features(self._document.entities[ref.entity])[ref.feature]
+
+    def nearest_feature(self, point: Point2, tolerance: float) -> Ref | None:
+        """Distance is measured to feature points, not outlines. Ties go to the lower entity id.
+
+        Like `entity_at_point`, invalid input matches nothing.
+        """
+        if not (math.isfinite(point.x) and math.isfinite(point.y)):
+            return None
+        if not (math.isfinite(tolerance) and tolerance >= 0):
+            return None
+        candidates = (
+            (math.hypot(at.x - point.x, at.y - point.y), id, feature)
+            for id, entity in self._document.entities.items()
+            for feature, at in _features(entity).items()
+        )
+        nearest = min((c for c in candidates if c[0] <= tolerance), default=None)
+        return None if nearest is None else Ref(entity=nearest[1], feature=nearest[2])
+
+    # --- Not built yet ------------------------------------------------------------------
 
     def measure_distance(self, a: Ref, b: Ref) -> Distance | Error:
         raise NotImplementedError("measure_distance lands in V1 (docs/workplan/core.md)")
 
     def entities_in_box(self, box: BoundingBox, *, crossing: bool) -> tuple[EntityId, ...]:
         raise NotImplementedError("entities_in_box lands in V1 (docs/workplan/core.md)")
-
-    def nearest_feature(self, point: Point2, tolerance: float) -> Ref | None:
-        raise NotImplementedError("nearest_feature lands in V1 (docs/workplan/core.md)")
 
     def dimension_value(self, id: EntityId) -> float | Error:
         raise NotImplementedError("dimension_value lands in V1 (docs/workplan/core.md)")
@@ -112,6 +134,38 @@ class DocumentQueries:
 
 
 # --- Geometry ---------------------------------------------------------------------------
+
+
+def _features(entity: Entity) -> Mapping[Feature, Point2]:
+    """Every point feature of an entity, keyed as in POINT_FEATURES. Annotations have none."""
+    match entity:
+        case Line(start=a, end=b):
+            mid = Point2(x=(a.x + b.x) / 2, y=(a.y + b.y) / 2)
+            return {Feature.START: a, Feature.END: b, Feature.MID: mid}
+        case Circle(center=c):
+            return {Feature.CENTER: c}
+        case Arc(center=c, radius=r, start_angle=start, sweep_angle=sweep):
+
+            def on_arc(degrees: float) -> Point2:
+                u, v = _unit(degrees)
+                return Point2(x=c.x + r * u, y=c.y + r * v)
+
+            return {
+                Feature.CENTER: c,
+                Feature.START: on_arc(start),
+                Feature.END: on_arc(start + sweep),
+                Feature.MID: on_arc(start + sweep / 2),
+            }
+        case Rectangle(corner=c, width=w, height=h):
+            return {
+                Feature.BOTTOM_LEFT: c,
+                Feature.BOTTOM_RIGHT: Point2(x=c.x + w, y=c.y),
+                Feature.TOP_RIGHT: Point2(x=c.x + w, y=c.y + h),
+                Feature.TOP_LEFT: Point2(x=c.x, y=c.y + h),
+                Feature.CENTER: Point2(x=c.x + w / 2, y=c.y + h / 2),
+            }
+        case _:
+            return {}
 
 
 def _bounds(entity: Geometry) -> BoundingBox:
