@@ -1,0 +1,35 @@
+# Engine, contracts, lint, and types on Linux.
+# Running the core on Linux is deliberate: if it passes here, it isn't
+# secretly depending on macOS (invariant 1). No Qt, no OCCT installed.
+name: core
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: core (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: Install engine + dev tools
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check
+      - name: Format
+        run: uv run ruff format --check
+      - name: Types (strict on contracts + engine)
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest
