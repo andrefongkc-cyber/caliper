@@ -1,4 +1,4 @@
-Status: spike milestone works end to end and the V1 shell is built against the full contract (local on `stream/shell`, not pushed), next: Stream A lands point queries + move/delete, then the contract-freeze PR
+Status: waiting on Andre's review of PR #3 (milestone + V1 shell, CI green; merge with Rebase and merge), next: Stream A lands point queries + move/delete, then the contract-freeze PR
 
 # Shell workplan — Stream B
 
