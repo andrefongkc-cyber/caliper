@@ -11,8 +11,7 @@ V1 has one solver: the reference script, which proves the harness and the engine
 end. The AI layer (V3) adds a solver that reads the prompt instead, and this harness is how
 it gets measured.
 
-Expectations are evaluated through the query API. Until `check` lands (V1, Stream A) they
-are reported as pending rather than faked.
+Expectations are evaluated through `queries.check`, the same call the AI layer will use.
 
 Usage:
     uv run python bench/run.py [--cases DIR] [CASE ...]
@@ -48,7 +47,6 @@ class Outcome:
     rejected: str | None = None
     snapshot_matches: bool | None = None
     checks: list[CheckResult] = field(default_factory=list)
-    pending: int = 0
 
     @property
     def passed(self) -> bool:
@@ -109,11 +107,7 @@ def evaluate(case: Case, commands: tuple[Command, ...]) -> Outcome:
     if expected.exists():
         outcome.snapshot_matches = snapshot.dumps(bus.document) == expected.read_text("utf-8")
 
-    for expectation in case.expectations:
-        try:
-            outcome.checks.append(bus.queries.check(expectation))
-        except NotImplementedError:
-            outcome.pending += 1
+    outcome.checks = [bus.queries.check(expectation) for expectation in case.expectations]
     return outcome
 
 
@@ -135,8 +129,6 @@ def main(argv: list[str] | None = None) -> int:
         snapshot_cell = {True: "match", False: "DIFFERS", None: "-"}[o.snapshot_matches]
         failed = sum(not c.passed for c in o.checks)
         expectations = f"{len(o.checks) - failed} passed, {failed} failed"
-        if o.pending:
-            expectations += f", {o.pending} pending (check lands in V1)"
         result = "pass" if o.passed else "FAIL"
         print(f"{o.case:<{width}}  {result:<6}  {snapshot_cell:<8}  {expectations}")
         if o.rejected:

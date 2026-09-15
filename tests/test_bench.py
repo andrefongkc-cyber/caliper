@@ -18,8 +18,20 @@ def run_bench(*args: str | Path) -> subprocess.CompletedProcess[str]:
 def test_all_cases_pass() -> None:
     result = run_bench()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "rectangle-100x50  pass" in result.stdout
-    assert "resize-width-120  pass" in result.stdout
+    assert "rectangle-100x50  pass    match     2 passed, 0 failed" in result.stdout
+    assert "resize-width-120  pass    match     2 passed, 0 failed" in result.stdout
+
+
+def test_a_failed_expectation_fails(tmp_path: Path) -> None:
+    case = tmp_path / "resize-width-120"
+    shutil.copytree(BENCH / "cases" / "resize-width-120", case)
+    spec = case / "case.json"
+    data = json.loads(spec.read_text())
+    data["expectations"][0]["expected"] = 125.0
+    spec.write_text(json.dumps(data, indent=2) + "\n")
+    result = run_bench("--cases", tmp_path)
+    assert result.returncode == 1
+    assert "FAIL    match     1 passed, 1 failed" in result.stdout
 
 
 def test_a_wrong_result_fails(tmp_path: Path) -> None:
