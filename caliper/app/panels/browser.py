@@ -3,6 +3,8 @@
 Click selects (Cmd or Shift adds), double-click frames the entity on the canvas.
 """
 
+import bisect
+
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -15,7 +17,9 @@ from PySide6.QtWidgets import (
 from caliper.app import icons, theme
 from caliper.app.panels.describe import ICON, kind_title, summary
 from caliper.app.session import DocumentSession
+from caliper.contracts.commands import Change
 from caliper.contracts.document import DistanceDimension, EntityId, RadialDimension
+from caliper.contracts.queries import Queries
 
 GROUPS = ("Geometry", "Dimensions")
 ID_ROLE = Qt.ItemDataRole.UserRole
@@ -54,37 +58,68 @@ class SketchBrowser(QTreeWidget):
             self.groups[name] = group
         self.itemSelectionChanged.connect(self._push_selection)
         self.itemDoubleClicked.connect(self._frame)
-        session.document_changed.connect(self.rebuild)
+        session.changed.connect(self._apply)
+        session.document_replaced.connect(self.rebuild)
         session.selection_changed.connect(self._pull_selection)
-        session.hover_changed.connect(self.viewport().update)
         self.rebuild()
 
     def rebuild(self) -> None:
         blocker = QSignalBlocker(self)
-        document, queries = self.session.document, self.session.queries
         for group in self.groups.values():
             group.takeChildren()
         self.items = {}
+        document = self.session.document
         for id in sorted(document.entities, key=_natural):
-            entity = document.entities[id]
-            group = (
-                "Dimensions"
-                if isinstance(entity, DistanceDimension | RadialDimension)
-                else "Geometry"
-            )
-            item = QTreeWidgetItem([f"{kind_title(entity)}  {id}", summary(entity, id, queries)])
-            item.setData(0, ID_ROLE, id)
-            item.setIcon(0, icons.icon(ICON[entity.kind]))
-            item.setForeground(1, theme.TEXT_DIM)
-            item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self.groups[group].addChild(item)
-            self.items[id] = item
+            self._insert(id)
+        self._update_groups()
+        del blocker
+        self._pull_selection()
+
+    def _apply(self, change: Change) -> None:
+        """Update only what the change touched; dimension values can move with any geometry."""
+        blocker = QSignalBlocker(self)
+        delta, document = change.delta, self.session.document
+        for id in delta.removed | {i for i in delta.modified if i not in document.entities}:
+            item = self.items.pop(id, None)
+            if item is not None and item.parent() is not None:
+                item.parent().removeChild(item)
+        for id in sorted(delta.added & document.entities.keys(), key=_natural):
+            self._insert(id)
+        queries = self.session.queries
+        for id in delta.modified & document.entities.keys():
+            self._fill(self.items[id], id, queries)
+        if delta.modified or delta.removed:
+            for id, item in self.items.items():
+                if item.parent() is self.groups["Dimensions"]:
+                    self._fill(item, id, queries)
+        self._update_groups()
+        del blocker
+        self._pull_selection()
+
+    def _insert(self, id: EntityId) -> None:
+        entity = self.session.document.entities[id]
+        is_dimension = isinstance(entity, DistanceDimension | RadialDimension)
+        group = self.groups["Dimensions" if is_dimension else "Geometry"]
+        item = QTreeWidgetItem()
+        item.setData(0, ID_ROLE, id)
+        item.setForeground(1, theme.TEXT_DIM)
+        item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._fill(item, id, self.session.queries)
+        keys = [_natural(group.child(i).data(0, ID_ROLE)) for i in range(group.childCount())]
+        group.insertChild(bisect.bisect(keys, _natural(id)), item)
+        self.items[id] = item
+
+    def _fill(self, item: QTreeWidgetItem, id: EntityId, queries: Queries) -> None:
+        entity = self.session.document.entities[id]
+        item.setText(0, f"{kind_title(entity)}  {id}")
+        item.setText(1, summary(entity, id, queries))
+        item.setIcon(0, icons.icon(ICON[entity.kind]))
+
+    def _update_groups(self) -> None:
         for group in self.groups.values():
             group.setText(1, str(group.childCount()) if group.childCount() else "")
             group.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             group.setHidden(group.childCount() == 0)
-        del blocker
-        self._pull_selection()
 
     def _pull_selection(self) -> None:
         blocker = QSignalBlocker(self)
