@@ -1,4 +1,4 @@
-Status: planning the Phase 0.5 spike + V1 shell, next: viewport transform and canvas
+Status: spike milestone works end to end and the V1 shell is built against the full contract (local on `stream/shell`, not pushed), next: Stream A lands point queries + move/delete, then the contract-freeze PR
 
 # Shell workplan — Stream B
 
@@ -58,20 +58,59 @@ Numeric input while drawing, box selection (needs `entities_in_box`; gap seam on
 
 Built in `caliper/app/`, not a throwaway directory. Stream B inherits and rewrites it.
 
-- [ ] Window with a QPainter canvas
-- [ ] Rectangle tool → `CreateRectangle` through the bus
-- [ ] Select → properties field → width edit command
-- [ ] Save → quit → reopen → width still 120
-- [ ] Record contract gaps found (feeds the freeze)
-- [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
+- [x] Window with a QPainter canvas (`python -m caliper.app [file]`)
+- [x] Rectangle tool → `CreateRectangle` through the bus (drag or click-click; one command on completion)
+- [x] Select → properties field → `ModifyEntity(width=120)` ("Undo Change Width")
+- [x] Save → quit → reopen → width still 120. `tests/app/test_milestone.py` drives it with real input events, and checks the file bytes equal `snapshot.dumps`
+- [x] Record contract gaps found (below)
+- [ ] Exit: joint PR freezes `commands.py`, `document.py`, `queries.py`, `errors.py` → split streams
+
+### Contract gaps (shell side, 2026-09-15) — for the freeze PR
+
+Engine pieces the V1 shell calls but that raise `NotImplementedError` today, in the order the shell needs them. Each goes through `caliper/app/engine_gaps.py` and shows "X isn't in the engine yet":
+
+1. `feature_point` + `nearest_feature`: feature snapping, the dimension tool, and drawing distance dimensions (the canvas shows "N dimensions not drawn")
+2. `dimension_value`: dimension labels show "?" until then
+3. `MoveEntities`, `DeleteEntities`: drag-to-move and Delete send the right command; the bus raises
+4. `entities_in_box`: box selection
+5. `merge_key`: not needed yet (the panel commits on Return/blur, so one edit is one undo step). Needed once value scrubbing exists
+
+Contract wording to settle before freezing:
+
+6. **`DistanceDimension.offset` sign is unspecified.** The shell uses positive = left of a→b. For HORIZONTAL/VERTICAL it's also unclear what the offset is measured from, so the dimension tool only creates ALIGNED for now
+7. **Arc `start_angle` isn't normalized.** 0 and 360 are different stored inputs for the same arc, so two identical-looking documents compare unequal. The shell sends [0, 360). Decide: the engine normalizes, or the contract says callers must
+8. **A no-op `execute` returns `Applied` but sends no `Change`.** The shell handles it; say so in the `CommandBus.execute` docstring
+9. **Opening a file means a new `Bus`.** `CommandBus` has no load/replace, so the session swaps the bus and re-subscribes. That's probably right (undo never crosses files), but it should be stated
+10. **No document revision.** The shell detects unsaved changes with `Document ==`, which is O(entities) per change. Fine for V1; a `revision` counter would be cheaper later. Non-blocking
+11. **`LoadError` lives in `engine/io/canonical.py`,** not the contract, so every caller that opens files (shell, later the AI layer) imports an engine module to catch it
+12. Agreeing with core gaps 2 and 5: `entity_at_point` is outline-only (clicking inside a rectangle is a miss, which is the SolidWorks convention and the shell relies on it), and `bounding_box` excludes annotations, so Zoom to Fit can clip dimension labels
+
+### Built (2026-09-15)
+
+| Area | Where | Notes |
+|---|---|---|
+| Transform + grid | `viewport/transform.py`, `viewport/grid.py` | Only place Y flips. Zoom about cursor, clamped; fit; adaptive 1-2-5 grid; grid snap rounds to the spacing's decimals |
+| Canvas | `viewport/canvas.py`, `painter.py`, `annotations.py` | Cosmetic pens (sharp at 2x, verified on Cocoa at DPR 2.0). Trackpad pans, pinch or Cmd/wheel zooms, middle or Space-drag pans, Option suspends snapping. Grid lines batched per paint |
+| Tools | `tools/` | Controller: `activate` cancels the operation first; Esc cancels the operation, then leaves the tool; right-click cancels. Each tool has an explicit `Phase` enum. A fast second click (Qt DblClick) counts as a press |
+| Session | `session.py` | Owns bus, path, dirty state, selection, hover. Prunes deleted ids from the selection on every change |
+| Properties | `properties.py` | Fields generated from the entity dataclass; `Rejected` highlights `Error.field`; enum fields are combo boxes; fixed width so selecting never shifts the canvas |
+| Window | `main_window.py`, `theme.py` | File (New/Open/Save/Save As, unsaved-changes prompt, `LoadError` dialog listing each error), Edit (Undo/Redo with labels, Delete, Select All), View (Zoom to Fit F, Grid G, Snap), Sketch tools. Dark Fusion palette, text-only tool bar grouped by category |
+| Tests | `tests/app/` (81) | pytest-qt offscreen. Mutation-checked: breaking the properties commit, rectangle corner normalization, or the Y flip fails 5 / 1 / 21 tests. Qt tests are skipped on the Linux core job (verified: 221 passed there with no Qt) |
+
+### Debt to remove
+
+- `caliper/app/engine_gaps.py` and the `CompletedQueries` test stand-ins in `tests/app/conftest.py` (they duplicate engine geometry) once Stream A lands the queries
+- The drawing-in-progress overlay text can overlap geometry near the bottom-left corner
+- No numeric input while drawing, no line chaining, no scrubbing fields (flagged, not V1-blocking)
 
 ## V1 — Shell
 
-- [ ] Main window: Mac-first, dark, compact chrome, canvas-dominant
-- [ ] Viewport: pan, zoom, grid, snapping, Retina-correct, smooth at 120 Hz
-- [ ] Tool modes as a state machine: select, line, circle, rectangle, arc
-- [ ] Selection, hover highlight, drag-to-move (one command on release), delete
-- [ ] Properties panel for dimensions (coalesced edits = one undo step)
-- [ ] Undo/redo wired to the command bus, with command display labels
-- [ ] File menu: new, open, save, save as
-- [ ] pytest-qt coverage for tool-mode transitions and input handling
+- [x] Main window: Mac-first, dark, compact chrome, canvas-dominant
+- [~] Viewport: pan, zoom, grid, grid snapping, Retina-correct done. Feature snapping waits on `nearest_feature`. 120 Hz not profiled yet
+- [x] Tool modes as a state machine: select, line, circle, rectangle, arc (+ dimension)
+- [~] Selection, hover highlight done; drag-to-move and delete send the right commands but wait on the engine
+- [x] Properties panel for dimensions (one edit = one undo step, no merge_key needed yet)
+- [x] Undo/redo wired to the command bus, with command display labels
+- [x] File menu: new, open, save, save as
+- [x] pytest-qt coverage for tool-mode transitions and input handling
+- [ ] Profile paint time with ~2,000 entities at 120 Hz
