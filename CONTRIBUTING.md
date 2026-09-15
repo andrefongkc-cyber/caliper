@@ -109,8 +109,7 @@ Write an ADR when a decision would be expensive to reverse or would surprise som
 
 ## Repository settings (maintainers)
 
-Branch protection on `main` requires a public repository, or a paid GitHub plan for a
-private one.
+The repository is public, which makes branch protection and macOS CI runners free.
 
 **Settings:**
 
@@ -119,21 +118,21 @@ private one.
   - Require review from Code Owners
   - Dismiss stale approvals when new commits are pushed
 - **Require status checks to pass:**
-  - `core (Linux)` and `boundaries`
+  - `core (Linux)`, `app (macOS)`, and `boundaries`
   - Require branches to be up to date
 - **Require linear history** (matches the rebase workflow).
 - **Do not allow bypassing the above settings,** so the rules apply to admins too.
 - **Block force pushes and deletion.**
 
-`app (macOS)` and `licenses (all extras)` only run when relevant files change, so they
-can't be required checks. A required check that never runs blocks the PR forever.
+`licenses (all extras)` only runs when dependencies change, so it can't be a required
+check: a required check that never runs blocks the PR forever.
 
-Apply the settings with the GitHub CLI once the remote exists (replace `OWNER/REPO`):
+Apply the settings with the GitHub CLI:
 
 ```bash
-gh api -X PUT repos/OWNER/REPO/branches/main/protection --input - <<'EOF'
+gh api -X PUT repos/andrefongkc-cyber/caliper/branches/main/protection --input - <<'EOF'
 {
-  "required_status_checks": {"strict": true, "contexts": ["core (Linux)", "boundaries"]},
+  "required_status_checks": {"strict": true, "contexts": ["core (Linux)", "app (macOS)", "boundaries"]},
   "enforce_admins": true,
   "required_pull_request_reviews": {
     "required_approving_review_count": 1,
