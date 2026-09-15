@@ -13,6 +13,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetricsF
 
 from caliper.app import theme
+from caliper.app.dimension_layout import layout, midpoint
 from caliper.app.session import DocumentSession
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.contracts.document import (
@@ -70,24 +71,16 @@ def _distance(
     a, b = _point(session, dim.a), _point(session, dim.b)
     if a is None or b is None:
         return False
-    ex, ey = b.x - a.x, b.y - a.y
-    length = math.hypot(ex, ey)
-    if length == 0:
-        return False
-    ux, uy = ex / length, ey / length
-    nx, ny = -uy, ux  # left of a→b, matching the dimension tool's offset sign
-    overshoot = math.copysign(painter.view.length_to_model(EXTENSION_OVERSHOOT_PX), dim.offset)
-    da = Point2(x=a.x + nx * dim.offset, y=a.y + ny * dim.offset)
-    db = Point2(x=b.x + nx * dim.offset, y=b.y + ny * dim.offset)
+    geo = layout(dim.orientation, a, b, dim.offset)
+    overshoot = painter.view.length_to_model(EXTENSION_OVERSHOOT_PX)
+    ux, uy = geo.along
     painter.set_pen(cosmetic_pen(color, theme.GUIDE_WIDTH))
-    painter.line(a, Point2(x=da.x + nx * overshoot, y=da.y + ny * overshoot))
-    painter.line(b, Point2(x=db.x + nx * overshoot, y=db.y + ny * overshoot))
-    painter.line(da, db)
-    _arrow(painter, da, ux, uy)
-    _arrow(painter, db, -ux, -uy)
-    label(
-        painter, Point2(x=(da.x + db.x) / 2, y=(da.y + db.y) / 2), _value_text(session, id), color
-    )
+    for point, foot, (ox, oy) in ((a, geo.start, geo.out_a), (b, geo.end, geo.out_b)):
+        painter.line(point, Point2(x=foot.x + ox * overshoot, y=foot.y + oy * overshoot))
+    painter.line(geo.start, geo.end)
+    _arrow(painter, geo.start, ux, uy)
+    _arrow(painter, geo.end, -ux, -uy)
+    label(painter, midpoint(geo.start, geo.end), _value_text(session, id), color)
     return True
 
 

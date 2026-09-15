@@ -13,6 +13,7 @@ from enum import StrEnum
 from PySide6.QtCore import Qt
 
 from caliper.app import theme
+from caliper.app.dimension_layout import choose_orientation, layout, offset_for
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, Tool
 from caliper.app.tools.shapes import clean
@@ -73,14 +74,12 @@ class DimensionTool(Tool):
                     self.b = ref
                     self.phase = DimensionPhase.PLACE
             case DimensionPhase.PLACE if self.a is not None and self.b is not None:
-                offset = self._offset(pointer.raw)
-                if offset is not None:
+                placed = self._placement(pointer.raw)
+                if placed is not None:
+                    orientation, offset = placed
                     self.session.execute(
                         CreateDistanceDimension(
-                            a=self.a,
-                            b=self.b,
-                            orientation=DistanceOrientation.ALIGNED,
-                            offset=clean(offset),
+                            a=self.a, b=self.b, orientation=orientation, offset=clean(offset)
                         )
                     )
                 self.cancel()
@@ -98,8 +97,17 @@ class DimensionTool(Tool):
             return
         painter.set_pen(cosmetic_pen(theme.PREVIEW, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
         painter.marker(a, 3.0)
-        end = self._feature_point(self.b, quiet=True) if self.b is not None else None
-        painter.line(a, end if end is not None else self.current)
+        b = self._feature_point(self.b, quiet=True) if self.b is not None else None
+        if b is None or a == b:
+            painter.line(a, self.current)
+            return
+        painter.marker(b, 3.0)
+        orientation = choose_orientation(a, b, self.current)
+        geo = layout(orientation, a, b, offset_for(orientation, a, b, self.current))
+        painter.line(a, geo.start)
+        painter.line(b, geo.end)
+        painter.set_pen(cosmetic_pen(theme.PREVIEW, theme.GUIDE_WIDTH))
+        painter.line(geo.start, geo.end)
 
     # --- Steps ----------------------------------------------------------------------------
 
@@ -138,20 +146,15 @@ class DimensionTool(Tool):
             return None
         return found
 
-    def _offset(self, placement: Point2) -> float | None:
-        """Signed distance from the a→b line to the placement point; positive is to the left.
-
-        The contract says only "signed perpendicular offset"; the sign convention is a gap
-        recorded in docs/workplan/shell.md.
-        """
+    def _placement(self, placement: Point2) -> tuple[DistanceOrientation, float] | None:
+        """Orientation and offset for a dimension line through `placement`."""
         if self.a is None or self.b is None:
             return None
         a, b = self._feature_point(self.a), self._feature_point(self.b)
         if a is None or b is None:
             return None
-        ex, ey = b.x - a.x, b.y - a.y
-        length = (ex * ex + ey * ey) ** 0.5
-        if length == 0:
+        if a == b:
             self.session.message.emit("The two points coincide")
             return None
-        return (ex * (placement.y - a.y) - ey * (placement.x - a.x)) / length
+        orientation = choose_orientation(a, b, placement)
+        return orientation, offset_for(orientation, a, b, placement)
