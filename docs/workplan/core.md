@@ -1,4 +1,4 @@
-Status: waiting on user to check the new GitHub repo before pushing (step 8), next: push, branch protection, open PR
+Status: waiting on Lucas's review of PR #1 (Phase 0), next: merge, then the Phase 0.5 spike
 
 # Core workplan — Stream A
 
@@ -47,8 +47,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [x] Rewrote all 31 commits to the GitHub no-reply address (trees and dates unchanged); repo-local `user.email` set
   - [x] Installed `gh` 2.100.0 (checksum verified); user signed in via device flow (scopes repo, workflow)
   - [x] Created empty public repo https://github.com/andrefongkc-cyber/caliper; `origin` set; invited @lucassnam (write)
-  - [ ] User checks the repo and gives the go-ahead → push `main` and `phase-0/foundation`
-  - [ ] Apply branch protection (CONTRIBUTING.md), then open the PR
+  - [x] Pushed `main` and `phase-0/foundation`
+  - [x] Branch protection on `main`: 1 approval + code owners, stale approvals dismissed, required checks `core (Linux)` / `app (macOS)` / `boundaries` (strict), linear history, admins included
+  - [x] Opened https://github.com/andrefongkc-cyber/caliper/pull/1; fixed CI setup (pinned setup-uv to a commit, disabled pytest-qt in the licenses job). All four checks green
+  - [ ] Lucas (collaborator, invite accepted) reviews and approves → merge
 
 ## Phase 0.5 — Milestone spike (4-day timebox; shell side in shell.md)
 
