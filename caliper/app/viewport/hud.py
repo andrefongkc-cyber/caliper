@@ -99,6 +99,13 @@ class NumericEntry(QFrame):
     def values(self) -> tuple[float | None, ...]:
         return tuple(parse_number(f.text()) if f.text().strip() else None for f in self.fields)
 
+    def mark_invalid(self, index: int) -> None:
+        field = self.fields[index]
+        field.setProperty("invalid", True)
+        field.style().unpolish(field)
+        field.style().polish(field)
+        field.selectAll()
+
     def _emit_changed(self) -> None:
         for field in self.fields:
             bad = bool(field.text().strip()) and parse_number(field.text()) is None

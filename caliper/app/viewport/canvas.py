@@ -25,14 +25,17 @@ from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
 from caliper.app.engine_gaps import Unavailable, attempt
+from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind
-from caliper.app.tools.controller import ToolController
+from caliper.app.tools.controller import SELECT, ToolController
+from caliper.app.tools.select import editable_field
 from caliper.app.viewport.annotations import paint_annotations
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
+from caliper.contracts.commands import Applied, ModifyEntity
 from caliper.contracts.document import Arc, Circle, EntityId, Line, Point2, Rectangle
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
@@ -69,6 +72,8 @@ class Canvas(QWidget):
         self._space = False
         self._pointer: Pointer | None = None
         self._mouse_px = QPoint()
+        self._editing: tuple[EntityId, str] | None = None
+        """(entity, field) while the entry edits an existing value rather than a new shape."""
         self.entry = NumericEntry(self)
         self.entry.changed.connect(self._typed)
         self.entry.committed.connect(self._commit_typed)
@@ -148,10 +153,24 @@ class Canvas(QWidget):
     # --- Typed values ---------------------------------------------------------------------
 
     def _typed(self, values: tuple[float | None, ...]) -> None:
+        if self._editing is not None:
+            return
         self.controller.active.type_values(values)
         self.update()
 
     def _commit_typed(self, values: tuple[float | None, ...]) -> None:
+        if self._editing is not None:
+            entity_id, field = self._editing
+            (value,) = values
+            if value is None:
+                self.entry.close_entry()
+                return
+            result = self.session.execute(ModifyEntity(id=entity_id, changes={field: value}))
+            if isinstance(result, Applied):
+                self.entry.close_entry()
+            else:  # the session already put the engine's message in the status bar
+                self.entry.mark_invalid(0)
+            return
         if self.controller.active.commit_values(values):
             self.entry.close_entry()
             self.controller.changed.emit()
@@ -159,13 +178,17 @@ class Canvas(QWidget):
             self.session.message.emit("Those values don't make a shape: sizes must be above 0")
 
     def _entry_closed(self) -> None:
+        if self._editing is not None:
+            self._editing = None
+            self.setFocus()
+            return
         tool = self.controller.active
         tool.type_values([None] * len(tool.numeric_fields))
         self.setFocus()
         self.update()
 
     def _sync_entry(self) -> None:
-        if self.entry.isVisible() and not self.controller.active.busy:
+        if self.entry.isVisible() and self._editing is None and not self.controller.active.busy:
             self.entry.close_entry()
 
     def _hit(self, pointer: Pointer) -> EntityId | None:
@@ -202,9 +225,31 @@ class Canvas(QWidget):
             self.controller.escape()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.controller.active.name == SELECT
+            and not self._space
+        ):
+            pointer = self.pointer_at(event.position(), event.modifiers())
+            if self.edit_at(pointer, event.position().toPoint()):
+                return
         # Qt delivers a fast second click as a double-click instead of a press. Click-click
         # tools need it as a press.
         self.mousePressEvent(event)
+
+    def edit_at(self, pointer: Pointer, at: QPoint) -> bool:
+        """Open the entry on the dimension under the pointer. False if there's none."""
+        hit = self._hit(pointer)
+        entity = self.session.document.entities.get(hit) if hit is not None else None
+        field = editable_field(entity, pointer.raw)
+        if hit is None or field is None:
+            return False
+        self.controller.cancel_operation()
+        self.session.set_selection(frozenset({hit}))
+        self._editing = (hit, field)
+        self.entry.open((field.capitalize(),), format_number(getattr(entity, field)), at)
+        self.entry.fields[0].selectAll()
+        return True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if self._pan_from is not None:
