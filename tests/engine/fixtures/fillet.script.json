@@ -1,0 +1,9 @@
+{
+  "commands": [
+    {"end": {"x": 0.0, "y": 0.0}, "kind": "create_line", "start": {"x": 100.0, "y": 0.0}},
+    {"end": {"x": 0.0, "y": 80.0}, "kind": "create_line", "start": {"x": 0.0, "y": 0.0}},
+    {"a": "e1", "b": "e2", "kind": "fillet_corner", "radius": 10.0}
+  ],
+  "format": "caliper.script",
+  "schema_version": 1
+}
