@@ -1,4 +1,4 @@
-Status: PR #8 approved, blocked until PR #5 (Lucas's issue #7 fix) merges; default kernel and bench cases done on stream/core/*, next: open the stacked PRs in order
+Status: FilletCorner on contracts/fillet-corner, stacked after bench-cases (joint: it adds a Command, so Lucas reviews it and adds it to the palette), next: open PRs down the stack as each merges
 
 # Core workplan — Stream A
 
@@ -98,6 +98,13 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - [~] Clicking inside a closed shape selects it (entity_at_point), not just its outline
   - [x] Rectangle resize keeps the bottom-left corner fixed: already how ModifyEntity works (`test_changing_width_keeps_the_corner`). V1.5 solver default: pin that corner unless a constraint says otherwise
   - [~] Zoom-to-fit must not clip dimension labels. Engine `bounding_box` stays geometry-only, because `check`/bench BBOX metrics use it and text size is a rendering detail; see the recommendation for the shell
+- [~] `FilletCorner` (user request, 2026-09-15; branch `contracts/fillet-corner`, stacked after `bench-cases`; it does not depend on `interior-picking`)
+  - Contract: `FilletCorner(a, b, radius, id=None)` in `commands.py`, so this is a joint change that needs Stream B's review; a `contracts/` branch is unrestricted by the boundaries check
+  - V1 rounds a drawn corner: the two lines must already share an endpoint (exact match). Lines that would only meet if extended are rejected, per the user's decision
+  - Math in `handlers.py`: tangent distance from dot/cross (exact on right angles), centre a radius inside the corner, both lines trimmed to the tangent points, arc added the short way round CCW. Undo is one automatic delta
+  - Rejects: non-positive/non-finite radius, missing/malformed/duplicate/non-line ids, no shared endpoint, collinear lines, and a radius needing as much of a line as it has (a radius exactly equal to a line's length would leave a zero-length line)
+  - Shell impact: Lucas's `test_palette.py::test_every_command_type_is_listed_or_deliberately_left_out` walks the `Command` union, so the palette must list or deliberately skip `fillet_corner`. That test fails on this branch until he does
+  - Tests: exact right-angle values, all four shared-endpoint orders, undo/redo, resolved-command replay, a golden headless replay fixture, every error case, and a 1,000-example property test (tangency, sweep = 180° - corner angle, far ends kept). Verified the tests catch 5 deliberate breaks. Bench case `fillet-corner-10mm`
 - [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
 
 ## V1 — Core
