@@ -62,3 +62,4 @@ The `boundaries` CI check rejects stream branches that touch files outside their
 | [0004](docs/adr/0004-desktop-shell-pyside6-mac-first.md) | Desktop shell: PySide6, Mac-first | Accepted |
 | [0005](docs/adr/0005-file-format-and-schema-versioning.md) | File format and schema versioning | Accepted |
 | [0006](docs/adr/0006-license-policy-no-gpl.md) | License policy: no GPL/AGPL | Accepted |
+| [0007](docs/adr/0007-qt-gpl-modules-out-of-the-bundle.md) | Keep the GPL-only Qt modules out of the app bundle | Accepted |
