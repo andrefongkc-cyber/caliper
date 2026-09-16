@@ -36,6 +36,15 @@ def test_moves_and_deletes_replay_to_identical_bytes() -> None:
     assert second.stdout == first.stdout
 
 
+def test_a_fillet_replays_to_identical_bytes() -> None:
+    """Round a corner headlessly: two lines trimmed back, one arc added."""
+    script, expected = FIXTURES / "fillet.script.json", FIXTURES / "fillet.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
 def test_replay_can_write_a_file(tmp_path: Path) -> None:
     output = tmp_path / "milestone.caliper"
     result = replay(SCRIPT, "-o", output)
