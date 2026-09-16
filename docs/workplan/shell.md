@@ -1,4 +1,4 @@
-Status: P1, P4, P5, P6 built on top of Stream A's engine stack (local branch integ/shell-on-engine, not pushed; lands after PR #5 and the engine PRs merge); P7 blocked on the solver and a contract change; next: rebase onto main once the engine merges, then open the shell PR
+Status: Fillet tool + palette support for FilletCorner built on `integ/fillet` (Andre's fillet contract branch + his stack + interior picking, local only); issue #11 answered; next: the engine branches merge, then rebase the shell work onto main
 
 # Shell workplan — Stream B
 
@@ -225,3 +225,13 @@ Done on `integ/shell-on-engine` with `origin/stream/core/interior-picking` merge
 - [x] **Drag-select decision: keep the Fusion/SolidWorks behaviour** (a drag starting inside a closed shape moves it) **and add ⌘-drag to force a box**, since Shift (add), Option (suspend snapping), and Space (pan) are taken. The Select hint and the shortcut sheet say so.
 - [x] **`editable_field` takes a tolerance**, so double-clicking the middle of a rectangle no longer opens Width or Height by accident; it must be within the pick radius of an edge (or, for a circle or arc, of the rim).
 - [x] **Zoom to Fit pads for dimension labels** (`Canvas._with_label_extents` + `annotations.label_anchors`): fit the geometry, measure each visible label at that scale, then fit once more. `bounding_box` stays geometry-only, as Stream A decided.
+
+## Issue #11 · FilletCorner in the app (2026-09-15)
+
+Built on local branch `integ/fillet` = `origin/contracts/fillet-corner` + my 9 shell commits + `origin/stream/core/interior-picking`. 659 pass.
+
+**Palette decision (his question 2):** `FilletCorner` is listed, and takes its two lines from the selection, like Move and Delete. `command_schema` now understands single `EntityId` arguments: a command whose fields are entity ids fills them from the selection in id order, and `CommandSpec.wants` says how many must be selected. The palette refuses with "Fillet Corner needs exactly 2 selected, not 1" rather than opening a form that can't work.
+
+**Fillet tool** (`caliper/app/tools/fillet.py`, key **O**): click one line, click the other, type a radius, Return. The preview is not shell geometry: the tool runs `FilletCorner` on a scratch `Bus(document)` and draws what the engine returns, so the rounded corner and both trimmed lines are exactly what accepting will produce. A radius that doesn't fit shows the engine's own message ("the radius must stay under 80.0") and sends nothing. Picked lines are drawn in the selection colour, the result in the preview colour.
+
+Items 1 and 3 of #11 were already done earlier today (interior picking test updates + ⌘-drag, and Zoom to Fit label padding); see the section above.

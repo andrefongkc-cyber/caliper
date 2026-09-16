@@ -151,3 +151,18 @@ def test_the_preview_is_drawn_on_the_canvas(window, driver, qtbot, corner) -> No
     pick_both(driver)
     type_keys(qtbot, "30")
     assert preview_pixels() > before + 30
+
+
+def test_picked_lines_and_the_preview_are_told_apart(window, driver, qtbot, corner) -> None:
+    """The chosen lines use the selection colour; only the result uses the preview colour."""
+    from caliper.app import theme
+
+    assert theme.SELECTED.name() != theme.PREVIEW.name()
+    window.canvas.zoom_to_fit()
+    pick_both(driver)
+    image = window.canvas.grab().toImage()
+    colours = {
+        image.pixelColor(x, y).name() for x in range(image.width()) for y in range(image.height())
+    }
+    assert theme.SELECTED.name() in colours
+    assert theme.PREVIEW.name() in colours
