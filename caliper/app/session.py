@@ -41,6 +41,8 @@ class HistoryEntry:
     author: Author
     at: float
     """Seconds since the epoch."""
+    commands: tuple[Command, ...] = ()
+    """The resolved commands this entry ran, for the file's optional history section."""
 
 
 class DocumentSession(QObject):
@@ -70,6 +72,11 @@ class DocumentSession(QObject):
         self._history: list[HistoryEntry] = []
         self._history_position = 0
         self._transaction_depth = 0
+        self._pending: list[Command] = []
+        self.save_history = False
+        self.opened_steps = 0
+        """How many recorded steps the file just opened carried, for the status line."""
+        """Write the optional history section when saving (ADR 0005: off by default)."""
         self._checks: list[Expectation] = []
         self.last_measurement: tuple[Ref, Ref] | None = None
         """The two points the Measure tool last measured, for turning into a check."""
@@ -93,12 +100,12 @@ class DocumentSession(QObject):
         result = self._bus.execute(command)
         if isinstance(result, Rejected):
             self.message.emit("; ".join(e.message for e in result.errors))
-        elif (
-            isinstance(result, Applied)
-            and self._transaction_depth == 0
-            and (result.delta.before or result.delta.after)
-        ):
-            self._record(result.label, author)
+            return result
+        if isinstance(result, Applied) and (result.delta.before or result.delta.after):
+            if self._transaction_depth:
+                self._pending.append(result.command)
+            else:
+                self._record(result.label, author, (result.command,))
         return result
 
     @contextmanager
@@ -113,8 +120,10 @@ class DocumentSession(QObject):
             committed = True
         finally:
             self._transaction_depth -= 1
-        if committed and self._transaction_depth == 0 and self._bus.document != before:
-            self._record(label, author)
+        if self._transaction_depth == 0:
+            ran, self._pending = tuple(self._pending), []
+            if committed and self._bus.document != before:
+                self._record(label, author, ran)
 
     def undo(self) -> None:
         if (change := self._bus.undo()) is not None:
@@ -140,9 +149,11 @@ class DocumentSession(QObject):
         """How many history entries are currently applied; later ones are undone."""
         return self._history_position
 
-    def _record(self, label: str, author: Author) -> None:
+    def _record(self, label: str, author: Author, commands: tuple[Command, ...] = ()) -> None:
         del self._history[self._history_position :]  # a new change discards the redo stack
-        self._history.append(HistoryEntry(label=label, author=author, at=time.time()))
+        self._history.append(
+            HistoryEntry(label=label, author=author, at=time.time(), commands=commands)
+        )
         self._history_position = len(self._history)
         self.history_changed.emit()
 
@@ -213,14 +224,26 @@ class DocumentSession(QObject):
 
     def open(self, path: Path) -> None:
         """Raises `LoadError` (from caliper.engine.io.canonical) for a bad file; nothing changes."""
-        self.replace(Bus(snapshot.load(path)), path)
+        opened = snapshot.read_file(path)
+        self.replace(Bus(opened.document), path)
+        self.opened_steps = len(opened.history) if opened.history is not None else 0
+
+    @property
+    def recorded_commands(self) -> tuple[Command, ...]:
+        """Every command still applied, in order: what the file's history section holds."""
+        return tuple(
+            command
+            for entry in self._history[: self._history_position]
+            for command in entry.commands
+        )
 
     def save(self, path: Path | None = None) -> None:
         target = path if path is not None else self._path
         if target is None:
             raise ValueError("an untitled document needs a path")
         document = self._bus.document
-        snapshot.save(document, target)
+        history = self.recorded_commands if self.save_history else None
+        snapshot.save(document, target, history=history)
         self._saved = document
         self._path = target
         self.file_changed.emit()

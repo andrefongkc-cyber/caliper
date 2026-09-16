@@ -137,6 +137,12 @@ class MainWindow(QMainWindow):
             [QKeySequence(Qt.Key.Key_Delete), QKeySequence(Qt.Key.Key_Backspace)]
         )
         self.select_all_action = self._action("Select All", self.select_all, std.SelectAll)
+        self.history_action = self._action("Include History in Saved Files", self._toggle_history)
+        self.history_action.setCheckable(True)
+        self.history_action.setToolTip(
+            "Save the list of commands that built this drawing. Off by default: project files "
+            "are sent to suppliers, and a part's history isn't theirs to read."
+        )
         self.fit_action = self._action("Zoom to Fit", self.canvas.zoom_to_fit, "F")
         self.grid_action = self._action("Show Grid", self._toggle_grid, "G")
         self.grid_action.setCheckable(True)
@@ -187,6 +193,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         for action in (self.save_action, self.save_as_action):
             file_menu.addAction(action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.history_action)
         file_menu.addSeparator()
         file_menu.addAction(self.close_action)
 
@@ -319,7 +327,9 @@ class MainWindow(QMainWindow):
             return False
         self._remember_directory(path)
         self.canvas.zoom_to_fit()
-        self.show_message(f"Opened {path.name}")
+        steps = self.session.opened_steps
+        recorded = f" · {steps} recorded step{'s' if steps != 1 else ''}" if steps else ""
+        self.show_message(f"Opened {path.name}{recorded}")
         return True
 
     def save_document(self) -> bool:
@@ -455,6 +465,11 @@ class MainWindow(QMainWindow):
         self.cursor_label.setText(
             "" if point is None else f"X {point.x:9.3f}   Y {point.y:9.3f}  mm"
         )
+
+    def _toggle_history(self, checked: bool) -> None:
+        self.session.save_history = checked
+        if checked and self.session.path is not None:
+            self.show_message("Saved files will include how the drawing was built")
 
     def _toggle_grid(self, checked: bool) -> None:
         self.canvas.show_grid = checked
