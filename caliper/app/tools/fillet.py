@@ -111,7 +111,7 @@ class FilletTool(Tool):
 
     def paint(self, painter: ModelPainter) -> None:
         entities = self.session.document.entities
-        painter.set_pen(cosmetic_pen(theme.SNAP, theme.HIGHLIGHT_WIDTH))
+        painter.set_pen(cosmetic_pen(theme.SELECTED, theme.HIGHLIGHT_WIDTH))
         for id in (self.a, self.b):
             chosen = entities.get(id) if id is not None else None
             if isinstance(chosen, Line):
