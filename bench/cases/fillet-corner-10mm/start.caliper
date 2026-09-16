@@ -1,0 +1,35 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "end": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 100.0,
+          "y": 0.0
+        }
+      },
+      "e2": {
+        "end": {
+          "x": 0.0,
+          "y": 80.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      }
+    },
+    "next_id": 3
+  },
+  "format": "caliper.document",
+  "schema_version": 1,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}

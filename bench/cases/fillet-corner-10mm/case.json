@@ -1,0 +1,10 @@
+{
+  "format": "caliper.bench_case",
+  "schema_version": 1,
+  "prompt": "Round the corner where the two lines meet with a 10 mm radius.",
+  "expectations": [
+    {"metric": "distance", "refs": [{"entity": "e3", "feature": "start"}, {"entity": "e3", "feature": "end"}], "expected": 14.142135623730951, "tolerance": 1e-9},
+    {"metric": "bbox_width", "expected": 100.0, "tolerance": 1e-9},
+    {"metric": "bbox_height", "expected": 80.0, "tolerance": 1e-9}
+  ]
+}
