@@ -48,14 +48,23 @@ class SelectTool(Tool):
         return {
             SelectPhase.MOVING: "Release to move (Esc cancels)",
             SelectPhase.BOXING: "Left to right selects inside; right to left selects touching",
-        }.get(self.phase, "Click to select, Shift-click to add, drag to move or box-select")
+        }.get(
+            self.phase,
+            "Click to select, Shift-click to add, drag to move · ⌘-drag boxes from inside a shape",
+        )
 
     @property
     def busy(self) -> bool:
         return self.phase in (SelectPhase.MOVING, SelectPhase.BOXING)
 
     def press(self, pointer: Pointer) -> None:
-        hit = self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
+        # Pressing inside a closed shape picks it (as Fusion and SolidWorks do), so ⌘ is
+        # how you rubber-band from inside one.
+        hit = (
+            None
+            if pointer.force_box
+            else self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
+        )
         self.start = self.current = pointer
         self.hit = hit
         if hit is None:
@@ -140,17 +149,28 @@ class SelectTool(Tool):
         self.session.set_selection(self.session.selection | ids if end.shift else ids)
 
 
-def editable_field(entity: object, point: Point2) -> str | None:
-    """The dimension a double-click on an entity's outline edits, or None.
+def editable_field(entity: object, point: Point2, tolerance: float) -> str | None:
+    """The dimension a double-click near an entity's outline edits, or None.
 
     A rectangle's top or bottom edge edits width; a side edits height. Circles and arcs edit
     radius. A line's length isn't a stored input, so there's nothing to edit in place yet.
+    The point must be within `tolerance` of the outline: since a click inside a shape selects
+    it, without this a double-click in the middle would open whichever edge happened to be
+    nearer.
     """
     match entity:
         case Rectangle(corner=c, width=w, height=h):
+            inside_x = c.x - tolerance <= point.x <= c.x + w + tolerance
+            inside_y = c.y - tolerance <= point.y <= c.y + h + tolerance
             to_side = min(abs(point.x - c.x), abs(point.x - (c.x + w)))
             to_top_or_bottom = min(abs(point.y - c.y), abs(point.y - (c.y + h)))
-            return "width" if to_top_or_bottom <= to_side else "height"
-        case Circle() | Arc():
-            return "radius"
+            if to_top_or_bottom <= tolerance and inside_x:
+                return "width"
+            if to_side <= tolerance and inside_y:
+                return "height"
+            return None
+        case Circle(center=c, radius=r) | Arc(center=c, radius=r):
+            return (
+                "radius" if abs(math.hypot(point.x - c.x, point.y - c.y) - r) <= tolerance else None
+            )
     return None

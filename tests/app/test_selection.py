@@ -19,11 +19,15 @@ def shapes(window) -> tuple[str, str]:
     return rect.created_ids[0], circle.created_ids[0]
 
 
-def test_click_selects_the_outline_and_empty_space_clears(window, driver, shapes) -> None:
+def test_clicking_a_shape_or_its_inside_selects_it_and_empty_space_clears(
+    window, driver, shapes
+) -> None:
     rect, _ = shapes
     driver.click(0, 20)
     assert window.session.selection == {rect}
-    driver.click(50, 25)  # inside the rectangle, away from its edges: a miss
+    driver.click(50, 25)  # inside the rectangle: closed shapes pick from their interior too
+    assert window.session.selection == {rect}
+    driver.click(-40, -40)  # outside everything
     assert window.session.selection == set()
 
 
@@ -48,6 +52,8 @@ def test_hover_follows_the_pointer_in_select_mode_only(window, driver, shapes) -
     driver.move(100, 10)
     assert window.session.hover == rect
     driver.move(60, 25)
+    assert window.session.hover == rect  # inside the rectangle counts as over it
+    driver.move(-40, -40)
     assert window.session.hover is None
     driver.tool("Line")
     driver.move(100, 10)
@@ -115,8 +121,30 @@ def test_box_select_left_to_right_selects_only_whats_inside(window, driver, shap
 
 def test_box_select_right_to_left_also_selects_what_it_touches(window, driver, shapes) -> None:
     rect, circle = shapes
-    driver.drag([(200, 30), (150, 30), (90, 30)])  # crosses the circle and the rectangle edge
+    driver.drag([(240, 30), (150, 30), (90, 30)])  # starts outside, crosses circle and rectangle
     assert window.session.selection == {rect, circle}
+
+
+def test_dragging_from_inside_a_shape_moves_it(window, driver, shapes) -> None:
+    rect, _ = shapes
+    driver.move(50, 25)
+    driver.press(50, 25)
+    driver.move(60, 35)
+    driver.release(60, 35)
+    assert window.session.document.entities[rect].corner == Point2(x=10.0, y=10.0)
+
+
+def test_command_drag_boxes_from_inside_a_shape(window, driver, shapes) -> None:
+    rect, circle = shapes
+    command = Qt.KeyboardModifier.ControlModifier  # ⌘ on macOS
+    driver.move(50, 25)
+    driver.press(50, 25, command)  # inside the rectangle
+    driver.move(10, 10)
+    driver.move(-30, -20)  # right to left: a crossing box
+    driver.release(-30, -20, command)
+    assert window.session.selection == {rect}
+    assert circle not in window.session.selection
+    assert window.session.document.entities[rect].corner == Point2(x=0.0, y=0.0)  # not moved
 
 
 def test_drag_moves_the_selection(window, driver, shapes) -> None:

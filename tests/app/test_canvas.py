@@ -2,11 +2,12 @@
 
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QColor, QWheelEvent
+from PySide6.QtGui import QColor, QFontMetricsF, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from caliper.app import theme
 from caliper.app.tools.base import SnapKind
+from caliper.app.viewport.annotations import label_anchors
 from caliper.contracts.commands import (
     CreateArc,
     CreateCircle,
@@ -250,3 +251,37 @@ def test_empty_canvas_shows_a_hint_until_something_is_drawn(window, qtbot) -> No
     assert not hint.isVisible()
     window.undo_action.trigger()
     assert hint.isVisible()
+
+
+def test_zoom_to_fit_leaves_room_for_dimension_labels(window) -> None:
+    session = window.session
+    (plate,) = session.execute(
+        CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50)
+    ).created_ids
+    session.execute(
+        CreateDistanceDimension(
+            a=Ref(entity=plate, feature=Feature.TOP_LEFT),
+            b=Ref(entity=plate, feature=Feature.TOP_RIGHT),
+            orientation=DistanceOrientation.HORIZONTAL,
+            offset=200,  # far above the plate: without padding the label falls outside
+        )
+    )
+    window.fit_action.trigger()
+    box = window.canvas.visible_box()
+    (anchor, text) = label_anchors(session, window.canvas.view)[0]
+    metrics = QFontMetricsF(window.canvas.font())
+    view = window.canvas.view
+    half_width = view.length_to_model(metrics.horizontalAdvance(text) / 2)
+    half_height = view.length_to_model(metrics.height() / 2)
+    assert box.y_max > anchor.y + half_height  # the whole label, not just its anchor
+    assert box.x_min < anchor.x - half_width
+    assert box.x_max > anchor.x + half_width
+
+
+def test_zoom_to_fit_ignores_labels_when_there_are_none(window) -> None:
+    window.session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    window.fit_action.trigger()
+    box = window.canvas.visible_box()
+    assert box.x_min < 0
+    assert box.x_max > 120
+    assert box.width < 400  # not padded for labels that aren't there

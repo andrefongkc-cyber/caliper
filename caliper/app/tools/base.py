@@ -33,6 +33,8 @@ class Pointer:
     tolerance: float
     """Pick radius in mm, derived from a fixed on-screen radius and the current zoom."""
     shift: bool = False
+    force_box: bool = False
+    """The user asked for a box selection even where a shape would be picked (⌘ held)."""
     guides: tuple[tuple[Point2, Point2], ...] = ()
     """Alignment guides to draw, from an acquired feature point to `point`."""
 
