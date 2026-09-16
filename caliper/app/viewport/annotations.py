@@ -16,6 +16,7 @@ from caliper.app import theme
 from caliper.app.dimension_layout import layout, midpoint
 from caliper.app.session import DocumentSession
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
+from caliper.app.viewport.transform import ViewTransform
 from caliper.contracts.document import (
     Arc,
     Circle,
@@ -29,6 +30,8 @@ from caliper.contracts.document import (
 from caliper.contracts.errors import Error
 
 ARROW_PX = 8.0
+LABEL_GAP_PX = 24.0
+"""How far past the rim a radial dimension's label sits."""
 EXTENSION_OVERSHOOT_PX = 4.0
 
 
@@ -100,7 +103,7 @@ def _radial(
     c, r = target.center, target.radius
     ux, uy = math.cos(math.radians(dim.label_angle)), math.sin(math.radians(dim.label_angle))
     rim = Point2(x=c.x + ux * r, y=c.y + uy * r)
-    beyond = painter.view.length_to_model(24.0)
+    beyond = painter.view.length_to_model(LABEL_GAP_PX)
     label_at = Point2(x=rim.x + ux * beyond, y=rim.y + uy * beyond)
     painter.set_pen(cosmetic_pen(color, theme.GUIDE_WIDTH))
     if dim.measure is RadialMeasure.DIAMETER:
@@ -135,3 +138,32 @@ def label(painter: ModelPainter, at: Point2, text: str, color: QColor) -> None:
     qp.fillRect(box, theme.CANVAS)
     qp.setPen(cosmetic_pen(color, theme.GUIDE_WIDTH))
     qp.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+
+
+def label_anchors(session: DocumentSession, view: ViewTransform) -> list[tuple[Point2, str]]:
+    """Where each visible dimension's label sits, and its text, for Zoom to Fit padding."""
+    document = session.document
+    anchors: list[tuple[Point2, str]] = []
+    for id in sorted(document.entities):
+        entity = document.entities[id]
+        match entity:
+            case DistanceDimension():
+                a, b = _point(session, entity.a), _point(session, entity.b)
+                if a is None or b is None:
+                    continue
+                geo = layout(entity.orientation, a, b, entity.offset)
+                anchors.append((midpoint(geo.start, geo.end), _value_text(session, id)))
+            case RadialDimension(target=target, measure=measure, label_angle=angle):
+                curve = document.entities.get(target)
+                if not isinstance(curve, Circle | Arc):
+                    continue
+                ux, uy = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+                beyond = curve.radius + view.length_to_model(LABEL_GAP_PX)
+                prefix = "\u2300" if measure is RadialMeasure.DIAMETER else "R"
+                anchors.append(
+                    (
+                        Point2(x=curve.center.x + ux * beyond, y=curve.center.y + uy * beyond),
+                        prefix + _value_text(session, id),
+                    )
+                )
+    return anchors

@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
+    QFontMetricsF,
     QInputDevice,
     QKeyEvent,
     QMouseEvent,
@@ -33,7 +34,7 @@ from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind
 from caliper.app.tools.controller import SELECT, ToolController
 from caliper.app.tools.select import editable_field
-from caliper.app.viewport.annotations import paint_annotations
+from caliper.app.viewport.annotations import LABEL_GAP_PX, label_anchors, paint_annotations
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
@@ -124,12 +125,33 @@ class Canvas(QWidget):
     # --- View -----------------------------------------------------------------------------
 
     def zoom_to_fit(self) -> None:
+        """Fit the geometry, then again with room for the dimension labels.
+
+        `bounding_box` covers geometry only, by design: how big a label renders is a property
+        of this view, not the document. The shell draws the labels, so it pads for them here.
+        A second pass is enough: the first fit sets the scale the label extents are measured at.
+        """
         box = self.session.queries.bounding_box()
         if isinstance(box, Error):
             self.reset_view()
-        else:
-            self.view.fit(box, self.width(), self.height())
+            return
+        self.view.fit(box, self.width(), self.height())
+        padded = self._with_label_extents(box)
+        if padded != box:
+            self.view.fit(padded, self.width(), self.height())
         self.update()
+
+    def _with_label_extents(self, box: BoundingBox) -> BoundingBox:
+        metrics = QFontMetricsF(self.font())
+        x_min, y_min, x_max, y_max = box.x_min, box.y_min, box.x_max, box.y_max
+        for at, text in label_anchors(self.session, self.view):
+            half_w = self.view.length_to_model(
+                metrics.horizontalAdvance(text) / 2 + LABEL_GAP_PX / 3
+            )
+            half_h = self.view.length_to_model(metrics.height() / 2 + LABEL_GAP_PX / 3)
+            x_min, x_max = min(x_min, at.x - half_w), max(x_max, at.x + half_w)
+            y_min, y_max = min(y_min, at.y - half_h), max(y_max, at.y + half_h)
+        return BoundingBox(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max)
 
     def frame(self, ids: frozenset[EntityId]) -> None:
         """Fit the given geometry in view; dimensions frame the geometry they measure."""
@@ -192,9 +214,16 @@ class Canvas(QWidget):
         raw = self.view.to_model(position.x(), position.y())
         tolerance = self.view.length_to_model(PICK_RADIUS_PX)
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        force_box = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
         if modifiers & Qt.KeyboardModifier.AltModifier:
             return Pointer(
-                raw=raw, point=raw, snap=SnapKind.NONE, ref=None, tolerance=tolerance, shift=shift
+                raw=raw,
+                point=raw,
+                snap=SnapKind.NONE,
+                ref=None,
+                tolerance=tolerance,
+                shift=shift,
+                force_box=force_box,
             )
         queries = self.session.queries
         ref = queries.nearest_feature(raw, tolerance)
@@ -208,6 +237,7 @@ class Canvas(QWidget):
                     ref=ref,
                     tolerance=tolerance,
                     shift=shift,
+                    force_box=force_box,
                 )
         base = snap_to_grid(raw, minor_spacing(self.view.scale)) if self.snap_to_grid else raw
         point, guides = align(raw, base, self.acquired, tolerance)
@@ -220,6 +250,7 @@ class Canvas(QWidget):
             ref=None,
             tolerance=tolerance,
             shift=shift,
+            force_box=force_box,
             guides=guides,
         )
 
@@ -326,7 +357,7 @@ class Canvas(QWidget):
         """Open the entry on the dimension under the pointer. False if there's none."""
         hit = self._hit(pointer)
         entity = self.session.document.entities.get(hit) if hit is not None else None
-        field = editable_field(entity, pointer.raw)
+        field = editable_field(entity, pointer.raw, pointer.tolerance)
         if hit is None or field is None:
             return False
         self.controller.cancel_operation()

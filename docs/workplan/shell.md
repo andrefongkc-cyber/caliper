@@ -216,3 +216,12 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 - `ChecksPanel.metric` shadowed `QWidget.metric()`, crashing any render of the panel.
 - After a transaction the Edit menu kept the previous undo label.
 - The app-test fixture re-applied the stylesheet per test (61 s → 11 s suite).
+
+## Issue #9 (interior picking, drag-select, Zoom to Fit labels), 2026-09-15
+
+Done on `integ/shell-on-engine` with `origin/stream/core/interior-picking` merged in; 614 pass.
+
+- [x] **Two selection tests updated** for interior picking, plus a third of mine (`test_box_select_right_to_left_also_selects_what_it_touches`) whose drag started inside the circle and now moved it. Workplan item 12 above is superseded: clicking inside a closed shape selects it.
+- [x] **Drag-select decision: keep the Fusion/SolidWorks behaviour** (a drag starting inside a closed shape moves it) **and add ⌘-drag to force a box**, since Shift (add), Option (suspend snapping), and Space (pan) are taken. The Select hint and the shortcut sheet say so.
+- [x] **`editable_field` takes a tolerance**, so double-clicking the middle of a rectangle no longer opens Width or Height by accident; it must be within the pick radius of an edge (or, for a circle or arc, of the rim).
+- [x] **Zoom to Fit pads for dimension labels** (`Canvas._with_label_extents` + `annotations.label_anchors`): fit the geometry, measure each visible label at that scale, then fit once more. `bounding_box` stays geometry-only, as Stream A decided.

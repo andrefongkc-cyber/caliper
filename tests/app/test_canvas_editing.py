@@ -108,3 +108,17 @@ def test_double_click_in_a_drawing_tool_still_places_points(window, driver, bus)
     double_click(driver, 40, 30)
     assert bus.sent == [CreateRectangle(corner=Point2(x=0.0, y=0.0), width=40.0, height=30.0)]
     assert not window.canvas.entry.isVisible()
+
+
+def test_double_click_in_the_middle_opens_nothing(window, driver, bus) -> None:
+    """Interior picking selects the rectangle, but there's no edge to edit there."""
+    add(window, CreateRectangle(corner=Point2(x=0, y=0), width=100, height=50))
+    double_click(driver, 50, 25)
+    assert not window.canvas.entry.isVisible()
+    assert window.session.selection != set()  # it still selects
+
+
+def test_double_click_inside_a_circle_opens_nothing(window, driver) -> None:
+    add(window, CreateCircle(center=Point2(x=0, y=0), radius=20))
+    double_click(driver, 0, 0)
+    assert not window.canvas.entry.isVisible()
