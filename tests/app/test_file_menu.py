@@ -111,3 +111,51 @@ def test_a_newer_schema_says_to_update(window, dialogs, tmp_path: Path) -> None:
 def test_a_missing_file_is_reported(window, dialogs, tmp_path: Path) -> None:
     assert not window.open_document(tmp_path / "nope.caliper")
     assert dialogs[0].text() == "Couldn't open nope.caliper"
+
+
+def test_history_is_left_out_of_saved_files_by_default(window, tmp_path: Path) -> None:
+    add_circle(window)
+    path = tmp_path / "plain.caliper"
+    window._save_to(path)
+    assert "history" not in path.read_text()
+    assert not window.history_action.isChecked()
+
+
+def test_turning_history_on_records_how_the_drawing_was_built(window, tmp_path: Path) -> None:
+    from caliper.engine.io import snapshot
+
+    add_circle(window)
+    window.session.execute(CreateCircle(center=Point2(x=50, y=0), radius=8))
+    window.history_action.trigger()  # checkable: one trigger turns it on
+    assert window.history_action.isChecked()
+    path = tmp_path / "with-history.caliper"
+    window._save_to(path)
+    opened = snapshot.read_file(path)
+    assert opened.history is not None
+    assert [c.kind for c in opened.history] == ["create_circle", "create_circle"]
+    assert opened.history[1].radius == 8.0  # the resolved command, with its id filled in
+    assert opened.history[1].id is not None
+
+
+def test_undone_steps_are_not_written(window, tmp_path: Path) -> None:
+    from caliper.engine.io import snapshot
+
+    add_circle(window)
+    window.session.execute(CreateCircle(center=Point2(x=50, y=0), radius=8))
+    window.undo_action.trigger()
+    window.history_action.trigger()  # checkable: one trigger turns it on
+    assert window.history_action.isChecked()
+    path = tmp_path / "undone.caliper"
+    window._save_to(path)
+    assert len(snapshot.read_file(path).history or ()) == 1
+
+
+def test_opening_a_file_with_history_says_so(window, tmp_path: Path) -> None:
+    add_circle(window)
+    window.history_action.trigger()  # checkable: one trigger turns it on
+    assert window.history_action.isChecked()
+    path = tmp_path / "recorded.caliper"
+    window._save_to(path)
+    window.session.new()
+    assert window.open_document(path)
+    assert window.statusBar().currentMessage() == "Opened recorded.caliper · 1 recorded step"
