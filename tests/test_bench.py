@@ -25,11 +25,12 @@ def test_all_cases_pass() -> None:
         "dimension-bottom-edge",
         "move-right-30",
         "delete-circle-with-dimension",
+        "fillet-corner-10mm",
     ):
-        assert re.search(rf"^{case}\s+pass\s+match\s+2 passed, 0 failed$", result.stdout, re.M), (
+        assert re.search(rf"^{case}\s+pass\s+match\s+\d+ passed, 0 failed$", result.stdout, re.M), (
             case
         )
-    assert "5 case(s): 5 passed, 0 failed" in result.stdout
+    assert "6 case(s): 6 passed, 0 failed" in result.stdout
 
 
 def test_a_failed_expectation_fails(tmp_path: Path) -> None:
