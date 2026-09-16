@@ -1,4 +1,4 @@
-Status: click-inside picking on stream/core/interior-picking (top of the stack); it changes 2 shell tests, so it should land as a joint change with Lucas's test updates, next: agree that with the user and Lucas
+Status: interior picking + FilletCorner land together with Lucas's shell work in one joint contracts/ PR (see docs/workplan/shell.md), next: review that PR with Lucas
 
 # Core workplan — Stream A
 

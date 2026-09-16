@@ -120,7 +120,11 @@ class Queries(Protocol):
         ...
 
     def entity_at_point(self, point: Point2, tolerance: float) -> EntityId | None:
-        """Nearest geometry entity within `tolerance` (mm), ties broken by id.
+        """What a click at `point` picks, or None.
+
+        An outline within `tolerance` (mm) wins first: nearest, then lowest id. Otherwise a
+        closed shape containing the point wins, smallest first, then lowest id, so clicking
+        inside a rectangle or circle selects it. Lines and arcs enclose nothing.
 
         Geometry only: annotation hit-testing depends on rendered text size and belongs
         to the shell.
@@ -128,7 +132,11 @@ class Queries(Protocol):
         ...
 
     def entities_in_box(self, box: BoundingBox, *, crossing: bool) -> tuple[EntityId, ...]:
-        """Geometry entities fully inside `box`, or also touching it if `crossing`. Sorted by id."""
+        """Geometry entities fully inside `box`, or also touching it if `crossing`. Sorted by id.
+
+        A crossing box also takes a closed shape whose inside it touches, matching
+        `entity_at_point`.
+        """
         ...
 
     def nearest_feature(self, point: Point2, tolerance: float) -> Ref | None:
