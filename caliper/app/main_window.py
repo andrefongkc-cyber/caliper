@@ -3,8 +3,8 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence
+from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -15,8 +15,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from caliper.app import icons
+from caliper.app.palette import CommandPalette
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
+from caliper.app.shortcuts import ShortcutSheet
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
 from caliper.contracts.commands import DeleteEntities
@@ -27,6 +30,9 @@ FILE_FILTER = "Caliper documents (*.caliper)"
 SUFFIX = ".caliper"
 MESSAGE_MS = 5000
 DOCK_WIDTH = 260
+TOOL_ICON_SIZE = 18
+COMPACT_TOOLBAR_BELOW = 980
+"""Window width in logical pixels below which the tool bar drops its labels."""
 
 
 class MainWindow(QMainWindow):
@@ -37,6 +43,8 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas(self.session, self.controller)
         self.properties = PropertiesPanel(self.session)
         self.tool_actions: dict[str, QAction] = {}
+        self.palette = CommandPalette(self.session, self)
+        self.palette.return_focus = self.canvas
 
         self.setCentralWidget(self.canvas)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -53,6 +61,22 @@ class MainWindow(QMainWindow):
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
 
+        self.palette.set_actions(
+            [
+                *self.tool_actions.values(),
+                self.undo_action,
+                self.redo_action,
+                self.delete_action,
+                self.select_all_action,
+                self.fit_action,
+                self.grid_action,
+                self.snap_action,
+                self.new_action,
+                self.open_action,
+                self.save_action,
+                self.save_as_action,
+            ]
+        )
         self._update_title()
         self._update_edit_actions()
         self._update_tool_state()
@@ -94,6 +118,25 @@ class MainWindow(QMainWindow):
         self.snap_action = self._action("Snap to Grid", self._toggle_snap)
         self.snap_action.setCheckable(True)
         self.snap_action.setChecked(True)
+        for action, name in (
+            (self.undo_action, "undo"),
+            (self.redo_action, "redo"),
+            (self.fit_action, "fit"),
+            (self.grid_action, "grid"),
+        ):
+            action.setIcon(icons.icon(name))
+
+        self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
+        self.shortcuts_action = self._action("Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
+        for action, tip in (
+            (self.fit_action, "Zoom to Fit"),
+            (self.grid_action, "Show Grid"),
+            (self.undo_action, "Undo"),
+            (self.redo_action, "Redo"),
+        ):
+            action.setToolTip(
+                f"{tip} ({action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)})"
+            )
 
         group = QActionGroup(self)
         group.setExclusive(True)
@@ -103,6 +146,7 @@ class MainWindow(QMainWindow):
             )
             action.setCheckable(True)
             action.setToolTip(f"{name} ({tool.shortcut})")
+            action.setIcon(icons.icon(name.lower()))
             group.addAction(action)
             self.tool_actions[name] = action
 
@@ -125,6 +169,8 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.select_all_action)
 
         view_menu = bar.addMenu("View")
+        view_menu.addAction(self.palette_action)
+        view_menu.addSeparator()
         view_menu.addAction(self.fit_action)
         view_menu.addSeparator()
         view_menu.addAction(self.grid_action)
@@ -134,19 +180,23 @@ class MainWindow(QMainWindow):
         for action in self.tool_actions.values():
             sketch_menu.addAction(action)
 
+        help_menu = bar.addMenu("Help")
+        help_menu.addAction(self.shortcuts_action)
+        self.menus = [file_menu, edit_menu, view_menu, sketch_menu, help_menu]
+
     def _build_tool_bar(self) -> None:
         bar = QToolBar("Sketch")
         bar.setObjectName("sketch-tools")
         bar.setMovable(False)
         bar.setFloatable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        bar.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
         # Groups by category, so later categories (constrain, inspect) add a group, not a redesign.
-        select, *create = self.tool_actions.values()
-        bar.addAction(select)
-        bar.addSeparator()
-        for action in create:
-            bar.addAction(action)
-        bar.addSeparator()
+        for category in ("select", "create", "inspect"):
+            for name, tool in self.controller.tools.items():
+                if tool.category == category:
+                    bar.addAction(self.tool_actions[name])
+            bar.addSeparator()
         bar.addAction(self.fit_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar
@@ -261,6 +311,20 @@ class MainWindow(QMainWindow):
         if lines:
             box.setDetailedText("\n".join(lines))
         box.exec()
+
+    def show_shortcuts(self) -> None:
+        ShortcutSheet(self.menus, self).exec()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        compact = event.size().width() < COMPACT_TOOLBAR_BELOW
+        style = (
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+            if compact
+            else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        if self.tool_bar.toolButtonStyle() != style:
+            self.tool_bar.setToolButtonStyle(style)
+        super().resizeEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if self.confirm_discard():

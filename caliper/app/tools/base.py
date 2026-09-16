@@ -4,6 +4,7 @@ Tools see model coordinates only (millimetres, Y up). The canvas converts mouse 
 a `Pointer` before a tool gets them, including the pick tolerance in mm and any snap.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -16,6 +17,8 @@ class SnapKind(StrEnum):
     NONE = "none"
     GRID = "grid"
     FEATURE = "feature"
+    GUIDE = "guide"
+    """Aligned with a recently hovered feature point's x or y."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -30,6 +33,8 @@ class Pointer:
     tolerance: float
     """Pick radius in mm, derived from a fixed on-screen radius and the current zoom."""
     shift: bool = False
+    guides: tuple[tuple[Point2, Point2], ...] = ()
+    """Alignment guides to draw, from an acquired feature point to `point`."""
 
 
 class Tool:
@@ -37,6 +42,8 @@ class Tool:
 
     name: str = ""
     shortcut: str = ""
+    category: str = "create"
+    """Tool bar group: "select", "create", or "inspect"."""
     uses_hover: bool = False
     """Whether the canvas should highlight the entity under the pointer."""
 
@@ -63,3 +70,18 @@ class Tool:
 
     def paint(self, painter: ModelPainter) -> None:
         """Draw the preview for the operation in progress."""
+
+    # --- Typed values ---------------------------------------------------------------------
+
+    numeric_fields: tuple[str, ...] = ()
+    """Labels of the values a user can type while this tool is busy, e.g. ("Width", "Height").
+
+    Empty means the tool takes no typed input.
+    """
+
+    def type_values(self, values: Sequence[float | None]) -> None:
+        """Preview with typed values. `None` means "not typed yet": follow the pointer."""
+
+    def commit_values(self, values: Sequence[float | None]) -> bool:
+        """Finish the operation with typed values. False if they don't make a valid shape."""
+        return False

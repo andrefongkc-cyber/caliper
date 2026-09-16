@@ -19,7 +19,7 @@ from caliper.app.tools.base import Pointer, Tool
 from caliper.app.tools.shapes import clean
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.contracts.commands import MoveEntities
-from caliper.contracts.document import Arc, Circle, EntityId, Line, Rectangle
+from caliper.contracts.document import Arc, Circle, EntityId, Line, Point2, Rectangle
 from caliper.contracts.queries import BoundingBox
 
 
@@ -33,6 +33,7 @@ class SelectPhase(StrEnum):
 
 class SelectTool(Tool):
     name = "Select"
+    category = "select"
     shortcut = "S"
     uses_hover = True
 
@@ -121,7 +122,7 @@ class SelectTool(Tool):
             crossing = b.x < a.x
             painter.filled_box(a, b, theme.RUBBER_BAND)
             style = Qt.PenStyle.DashLine if crossing else Qt.PenStyle.SolidLine
-            painter.set_pen(cosmetic_pen(theme.ACCENT, 1.0, style))
+            painter.set_pen(cosmetic_pen(theme.ACCENT, theme.GUIDE_WIDTH, style))
             painter.rectangle(a, b.x - a.x, b.y - a.y)
 
     @staticmethod
@@ -143,3 +144,19 @@ class SelectTool(Tool):
             return
         ids: frozenset[EntityId] = frozenset(found)
         self.session.set_selection(self.session.selection | ids if end.shift else ids)
+
+
+def editable_field(entity: object, point: Point2) -> str | None:
+    """The dimension a double-click on an entity's outline edits, or None.
+
+    A rectangle's top or bottom edge edits width; a side edits height. Circles and arcs edit
+    radius. A line's length isn't a stored input, so there's nothing to edit in place yet.
+    """
+    match entity:
+        case Rectangle(corner=c, width=w, height=h):
+            to_side = min(abs(point.x - c.x), abs(point.x - (c.x + w)))
+            to_top_or_bottom = min(abs(point.y - c.y), abs(point.y - (c.y + h)))
+            return "width" if to_top_or_bottom <= to_side else "height"
+        case Circle() | Arc():
+            return "radius"
+    return None

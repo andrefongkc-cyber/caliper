@@ -12,13 +12,14 @@ from pathlib import Path
 import pytest
 
 HAVE_QT = all(importlib.util.find_spec(name) for name in ("PySide6", "pytestqt"))
-QT_FREE = {"test_viewport_math.py"}
+QT_FREE = {"test_viewport_math.py", "test_tokens.py"}
 
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "bus(stub_unbuilt=False, complete_queries=False): configure the RecordingBus fixture",
+        "bus(stub_unbuilt=False, complete_queries=False, missing=()): configure the"
+        " RecordingBus fixture",
     )
 
 
@@ -58,26 +59,37 @@ if HAVE_QT:
         Ref,
     )
     from caliper.contracts.errors import Error, ErrorCode
-    from caliper.contracts.queries import Queries
+    from caliper.contracts.queries import Distance, Queries
     from caliper.engine.commands.bus import Bus
     from caliper.engine.queries import DocumentQueries
 
     class RecordingBus(Bus):
         """The real bus, plus a record of every command sent.
 
-        `stub_unbuilt=True` answers MoveEntities and DeleteEntities (not built in the
-        engine yet) with an empty Applied, so tests can check what the shell sends.
-        `complete_queries=True` swaps in `CompletedQueries`.
+        `stub_unbuilt=True` answers MoveEntities and DeleteEntities with an empty Applied,
+        so tests can check what the shell sends. `complete_queries=True` swaps in
+        `CompletedQueries`. `missing` names queries or command types to treat as not built
+        yet (they raise NotImplementedError), so tests of the "isn't in the engine yet"
+        path don't depend on how far the engine has got.
         """
 
-        def __init__(self, *, stub_unbuilt: bool = False, complete_queries: bool = False):
+        def __init__(
+            self,
+            *,
+            stub_unbuilt: bool = False,
+            complete_queries: bool = False,
+            missing: tuple[str, ...] = (),
+        ):
             super().__init__()
             self.sent: list[Command] = []
             self._stub = stub_unbuilt
             self._complete = complete_queries
+            self._missing = frozenset(missing)
 
         def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
             self.sent.append(command)
+            if type(command).__name__ in self._missing:
+                raise NotImplementedError(f"{type(command).__name__} (simulated)")
             if self._stub and isinstance(command, MoveEntities | DeleteEntities):
                 label = type(command).__name__
                 return Applied(
@@ -90,9 +102,24 @@ if HAVE_QT:
 
         @property
         def queries(self) -> Queries:
-            if self._complete:
-                return CompletedQueries(self.document)
-            return super().queries
+            base = CompletedQueries(self.document) if self._complete else super().queries
+            return MissingQueries(base, self._missing) if self._missing else base
+
+    class MissingQueries:
+        """Delegates to real queries, except the named ones, which raise NotImplementedError."""
+
+        def __init__(self, base: Queries, missing: frozenset[str]) -> None:
+            self._base = base
+            self._missing = missing
+
+        def __getattr__(self, name: str) -> object:
+            if name in self._missing:
+
+                def unbuilt(*_args: object, **_kwargs: object) -> object:
+                    raise NotImplementedError(f"{name} (simulated)")
+
+                return unbuilt
+            return getattr(self._base, name)
 
     class CompletedQueries(DocumentQueries):
         """Test-only stand-ins for the point queries Stream A hasn't built yet."""
@@ -112,6 +139,15 @@ if HAVE_QT:
                     if distance <= tolerance and (best is None or distance < best[0]):
                         best = (distance, id, feature)
             return None if best is None else Ref(entity=best[1], feature=best[2])
+
+        def measure_distance(self, a: Ref, b: Ref) -> Distance | Error:
+            pa, pb = self.feature_point(a), self.feature_point(b)
+            if isinstance(pa, Error):
+                return pa
+            if isinstance(pb, Error):
+                return pb
+            dx, dy = pb.x - pa.x, pb.y - pa.y
+            return Distance(value=math.hypot(dx, dy), dx=dx, dy=dy)
 
         def dimension_value(self, id: EntityId) -> float | Error:
             entity = self._document.entities.get(id)

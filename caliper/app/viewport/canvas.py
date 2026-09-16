@@ -10,7 +10,7 @@ Navigation, following Fusion/SolidWorks on a Mac:
 - Hold Option (Alt) to suspend snapping.
 """
 
-from PySide6.QtCore import QEvent, QLineF, QPointF, Qt, Signal
+from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import (
     QInputDevice,
     QKeyEvent,
@@ -25,13 +25,18 @@ from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
 from caliper.app.engine_gaps import Unavailable, attempt
+from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind
-from caliper.app.tools.controller import ToolController
+from caliper.app.tools.controller import SELECT, ToolController
+from caliper.app.tools.select import editable_field
 from caliper.app.viewport.annotations import paint_annotations
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
+from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
+from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
+from caliper.contracts.commands import Applied, ModifyEntity
 from caliper.contracts.document import Arc, Circle, EntityId, Line, Point2, Rectangle
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
@@ -67,6 +72,15 @@ class Canvas(QWidget):
         self._pan_from: QPointF | None = None
         self._space = False
         self._pointer: Pointer | None = None
+        self._mouse_px = QPoint()
+        self.acquired: list[Point2] = []
+        """Feature points the pointer recently passed over, for alignment guides."""
+        self._editing: tuple[EntityId, str] | None = None
+        """(entity, field) while the entry edits an existing value rather than a new shape."""
+        self.entry = NumericEntry(self)
+        self.entry.changed.connect(self._typed)
+        self.entry.committed.connect(self._commit_typed)
+        self.entry.closed.connect(self._entry_closed)
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -74,9 +88,11 @@ class Canvas(QWidget):
         self.setMinimumSize(200, 150)
         self.setCursor(Qt.CursorShape.CrossCursor)
         session.document_changed.connect(self.update)
+        session.document_changed.connect(self._forget_acquired)
         session.selection_changed.connect(self.update)
         session.hover_changed.connect(self.update)
         controller.changed.connect(self.update)
+        controller.changed.connect(self._sync_entry)
 
     # --- View -----------------------------------------------------------------------------
 
@@ -124,19 +140,63 @@ class Canvas(QWidget):
                     tolerance=tolerance,
                     shift=shift,
                 )
-        if self.snap_to_grid:
-            snapped = snap_to_grid(raw, minor_spacing(self.view.scale))
-            return Pointer(
-                raw=raw,
-                point=snapped,
-                snap=SnapKind.GRID,
-                ref=None,
-                tolerance=tolerance,
-                shift=shift,
-            )
+        base = snap_to_grid(raw, minor_spacing(self.view.scale)) if self.snap_to_grid else raw
+        point, guides = align(raw, base, self.acquired, tolerance)
+        fallback = SnapKind.GRID if self.snap_to_grid else SnapKind.NONE
+        kind = SnapKind.GUIDE if guides else fallback
         return Pointer(
-            raw=raw, point=raw, snap=SnapKind.NONE, ref=None, tolerance=tolerance, shift=shift
+            raw=raw,
+            point=point,
+            snap=kind,
+            ref=None,
+            tolerance=tolerance,
+            shift=shift,
+            guides=guides,
         )
+
+    # --- Typed values ---------------------------------------------------------------------
+
+    def _typed(self, values: tuple[float | None, ...]) -> None:
+        if self._editing is not None:
+            return
+        self.controller.active.type_values(values)
+        self.update()
+
+    def _commit_typed(self, values: tuple[float | None, ...]) -> None:
+        if self._editing is not None:
+            entity_id, field = self._editing
+            (value,) = values
+            if value is None:
+                self.entry.close_entry()
+                return
+            result = self.session.execute(ModifyEntity(id=entity_id, changes={field: value}))
+            if isinstance(result, Applied):
+                self.entry.close_entry()
+            else:  # the session already put the engine's message in the status bar
+                self.entry.mark_invalid(0)
+            return
+        if self.controller.active.commit_values(values):
+            self.entry.close_entry()
+            self.controller.changed.emit()
+        else:
+            self.session.message.emit("Those values don't make a shape: sizes must be above 0")
+
+    def _entry_closed(self) -> None:
+        if self._editing is not None:
+            self._editing = None
+            self.setFocus()
+            return
+        tool = self.controller.active
+        tool.type_values([None] * len(tool.numeric_fields))
+        self.setFocus()
+        self.update()
+
+    def _sync_entry(self) -> None:
+        if self.entry.isVisible() and self._editing is None and not self.controller.active.busy:
+            self.entry.close_entry()
+
+    def _forget_acquired(self) -> None:
+        self.acquired = []
 
     def _hit(self, pointer: Pointer) -> EntityId | None:
         return self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
@@ -172,9 +232,31 @@ class Canvas(QWidget):
             self.controller.escape()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.controller.active.name == SELECT
+            and not self._space
+        ):
+            pointer = self.pointer_at(event.position(), event.modifiers())
+            if self.edit_at(pointer, event.position().toPoint()):
+                return
         # Qt delivers a fast second click as a double-click instead of a press. Click-click
         # tools need it as a press.
         self.mousePressEvent(event)
+
+    def edit_at(self, pointer: Pointer, at: QPoint) -> bool:
+        """Open the entry on the dimension under the pointer. False if there's none."""
+        hit = self._hit(pointer)
+        entity = self.session.document.entities.get(hit) if hit is not None else None
+        field = editable_field(entity, pointer.raw)
+        if hit is None or field is None:
+            return False
+        self.controller.cancel_operation()
+        self.session.set_selection(frozenset({hit}))
+        self._editing = (hit, field)
+        self.entry.open((field.capitalize(),), format_number(getattr(entity, field)), at)
+        self.entry.fields[0].selectAll()
+        return True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if self._pan_from is not None:
@@ -183,7 +265,10 @@ class Canvas(QWidget):
             self.view.pan(delta.x(), delta.y())
             self.update()
             return
+        self._mouse_px = event.position().toPoint()
         pointer = self.pointer_at(event.position(), event.modifiers())
+        if pointer.snap is SnapKind.FEATURE:
+            self.acquired = acquire(self.acquired, pointer.point)
         self._pointer = pointer
         tool = self.controller.active
         pressed = bool(event.buttons() & Qt.MouseButton.LeftButton)
@@ -237,6 +322,17 @@ class Canvas(QWidget):
         return super().event(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        tool = self.controller.active
+        text = event.text()
+        if (
+            tool.busy
+            and tool.numeric_fields
+            and text
+            and text in STARTS_ENTRY
+            and not self.entry.isVisible()
+        ):
+            self.entry.open(tool.numeric_fields, text, self._mouse_px)
+            return
         if event.key() == Qt.Key.Key_Escape:
             self.controller.escape()
         elif event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
@@ -297,14 +393,14 @@ class Canvas(QWidget):
                 continue
             y = round(self.view.to_widget(Point2(x=0.0, y=k * spacing))[1]) + 0.5
             (major if k % every == 0 else minor).append(QLineF(0.0, y, w, y))
-        qp.setPen(cosmetic_pen(theme.GRID_MINOR, 1.0))
+        qp.setPen(cosmetic_pen(theme.GRID_MINOR, theme.GUIDE_WIDTH))
         qp.drawLines(minor)
-        qp.setPen(cosmetic_pen(theme.GRID_MAJOR, 1.0))
+        qp.setPen(cosmetic_pen(theme.GRID_MAJOR, theme.GUIDE_WIDTH))
         qp.drawLines(major)
         ox, oy = self.view.to_widget(Point2(x=0.0, y=0.0))
-        qp.setPen(cosmetic_pen(theme.AXIS_X, 1.0))
+        qp.setPen(cosmetic_pen(theme.AXIS_X, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(0.0, round(oy) + 0.5, w, round(oy) + 0.5))
-        qp.setPen(cosmetic_pen(theme.AXIS_Y, 1.0))
+        qp.setPen(cosmetic_pen(theme.AXIS_Y, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(round(ox) + 0.5, 0.0, round(ox) + 0.5, h))
 
     def _paint_geometry(self, painter: ModelPainter) -> None:
@@ -328,10 +424,16 @@ class Canvas(QWidget):
 
     def _paint_snap(self, painter: ModelPainter) -> None:
         pointer = self._pointer
-        if pointer is None or pointer.snap is not SnapKind.FEATURE:
+        if pointer is None:
             return
-        painter.set_pen(cosmetic_pen(theme.SNAP, 1.5))
-        painter.marker(pointer.point, 5.0)
+        if pointer.snap is SnapKind.FEATURE:
+            painter.set_pen(cosmetic_pen(theme.SNAP, theme.GEOMETRY_WIDTH))
+            painter.marker(pointer.point, 5.0)
+        elif pointer.snap is SnapKind.GUIDE:
+            painter.set_pen(cosmetic_pen(theme.SNAP, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
+            for source, target in pointer.guides:
+                painter.line(source, target)
+                painter.marker(source, 2.5)
 
     def _paint_overlay(self, qp: QPainter) -> None:
         if not self.hidden_dimensions:

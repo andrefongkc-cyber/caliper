@@ -6,6 +6,7 @@ nothing and keeps waiting for the next point.
 """
 
 import math
+from collections.abc import Sequence
 from enum import StrEnum
 
 from PySide6.QtCore import Qt
@@ -26,6 +27,15 @@ def clean(value: float) -> float:
     return float(f"{value:.12g}") + 0.0
 
 
+def _cos(degrees: float, radians: float) -> float:
+    """Exact at multiples of 90 degrees, so a typed 90 gives a truly vertical line."""
+    return (1.0, 0.0, -1.0, 0.0)[int(degrees // 90) % 4] if degrees % 90 == 0 else math.cos(radians)
+
+
+def _sin(degrees: float, radians: float) -> float:
+    return (0.0, 1.0, 0.0, -1.0)[int(degrees // 90) % 4] if degrees % 90 == 0 else math.sin(radians)
+
+
 class TwoPoint(StrEnum):
     FIRST = "first"
     SECOND = "second"
@@ -42,9 +52,14 @@ class TwoPointTool(Tool):
         self.phase = TwoPoint.FIRST
         self.anchor: Point2 | None = None
         self.current: Point2 | None = None
+        self.pointer: Point2 | None = None
+        """Where the pointer is, kept separately so typed values can follow its direction."""
+        self.typed: tuple[float | None, ...] | None = None
 
     @property
     def hint(self) -> str:
+        if self.phase is TwoPoint.SECOND and self.numeric_fields and self.typed is None:
+            return f"{self.second_hint}; or type {' and '.join(self.numeric_fields).lower()}"
         return self.first_hint if self.phase is TwoPoint.FIRST else self.second_hint
 
     @property
@@ -55,13 +70,21 @@ class TwoPointTool(Tool):
         if self.phase is TwoPoint.FIRST:
             self.anchor = pointer.point
             self.phase = TwoPoint.SECOND
-        self.current = pointer.point
+        self.current = self.pointer = pointer.point
 
     def move(self, pointer: Pointer) -> None:
-        self.current = pointer.point
+        self.pointer = pointer.point
+        if self.typed is not None:
+            self.type_values(self.typed)
+        else:
+            self.current = pointer.point
 
     def release(self, pointer: Pointer) -> None:
         if self.phase is not TwoPoint.SECOND or self.anchor is None:
+            return
+        if self.typed is not None:  # a click while values are typed confirms them
+            self.pointer = pointer.point
+            self.commit_values(self.typed)
             return
         self.current = pointer.point
         command = self.command(self.anchor, self.current)
@@ -72,7 +95,38 @@ class TwoPointTool(Tool):
     def cancel(self) -> None:
         self.phase = TwoPoint.FIRST
         self.anchor = None
-        self.current = None
+        self.current = self.pointer = None
+        self.typed = None
+
+    def type_values(self, values: Sequence[float | None]) -> None:
+        if self.anchor is None:
+            return
+        typed = tuple(values)
+        if all(v is None for v in typed):
+            self.typed = None
+            self.current = self.pointer or self.anchor
+            return
+        self.typed = typed
+        point = self.point_from_values(self.anchor, self.typed, self.pointer or self.anchor)
+        if point is not None:
+            self.current = point
+
+    def commit_values(self, values: Sequence[float | None]) -> bool:
+        if self.phase is not TwoPoint.SECOND or self.anchor is None:
+            return False
+        point = self.point_from_values(self.anchor, tuple(values), self.pointer or self.anchor)
+        command = None if point is None else self.command(self.anchor, point)
+        if command is None:
+            return False
+        self.session.execute(command)
+        self.cancel()
+        return True
+
+    def point_from_values(
+        self, anchor: Point2, values: tuple[float | None, ...], pointer: Point2
+    ) -> Point2 | None:
+        """The second point implied by typed values; untyped ones come from the pointer."""
+        return None
 
     def paint(self, painter: ModelPainter) -> None:
         if self.anchor is None or self.current is None:
@@ -92,6 +146,24 @@ class LineTool(TwoPointTool):
     shortcut = "L"
     first_hint = "Line: click or drag from the start point"
     second_hint = "Line: click the end point (Esc cancels)"
+    numeric_fields = ("Length", "Angle")
+
+    def point_from_values(
+        self, anchor: Point2, values: tuple[float | None, ...], pointer: Point2
+    ) -> Point2 | None:
+        length, angle = values
+        dx, dy = pointer.x - anchor.x, pointer.y - anchor.y
+        if length is None:
+            length = math.hypot(dx, dy)
+        if angle is None:
+            angle = math.degrees(math.atan2(dy, dx)) if (dx or dy) else 0.0
+        if length <= 0:
+            return None
+        radians = math.radians(angle)
+        return Point2(
+            x=clean(anchor.x + length * _cos(angle, radians)),
+            y=clean(anchor.y + length * _sin(angle, radians)),
+        )
 
     def command(self, anchor: Point2, current: Point2) -> Command | None:
         if anchor == current:
@@ -107,6 +179,17 @@ class CircleTool(TwoPointTool):
     shortcut = "C"
     first_hint = "Circle: click or drag from the center"
     second_hint = "Circle: click a point on the circle (Esc cancels)"
+    numeric_fields = ("Radius",)
+
+    def point_from_values(
+        self, anchor: Point2, values: tuple[float | None, ...], pointer: Point2
+    ) -> Point2 | None:
+        (radius,) = values
+        if radius is None:
+            return pointer
+        if radius <= 0:
+            return None
+        return Point2(x=clean(anchor.x + radius), y=anchor.y)
 
     def command(self, anchor: Point2, current: Point2) -> Command | None:
         radius = clean(math.hypot(current.x - anchor.x, current.y - anchor.y))
@@ -122,6 +205,19 @@ class RectangleTool(TwoPointTool):
     shortcut = "R"
     first_hint = "Rectangle: click or drag from a corner"
     second_hint = "Rectangle: click the opposite corner (Esc cancels)"
+    numeric_fields = ("Width", "Height")
+
+    def point_from_values(
+        self, anchor: Point2, values: tuple[float | None, ...], pointer: Point2
+    ) -> Point2 | None:
+        """Typed sizes extend toward the pointer, so the rectangle grows where you're pointing."""
+        width, height = values
+        dx, dy = pointer.x - anchor.x, pointer.y - anchor.y
+        if (width is not None and width <= 0) or (height is not None and height <= 0):
+            return None
+        x = anchor.x + math.copysign(width, dx or 1.0) if width is not None else pointer.x
+        y = anchor.y + math.copysign(height, dy or 1.0) if height is not None else pointer.y
+        return Point2(x=clean(x), y=clean(y))
 
     def command(self, anchor: Point2, current: Point2) -> Command | None:
         width = clean(abs(current.x - anchor.x))
@@ -207,7 +303,7 @@ class ArcTool(Tool):
     def paint(self, painter: ModelPainter) -> None:
         if self.center is None or self.current is None:
             return
-        painter.set_pen(cosmetic_pen(theme.PREVIEW, 1.0, Qt.PenStyle.DashLine))
+        painter.set_pen(cosmetic_pen(theme.PREVIEW, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
         painter.marker(self.center, 2.0)
         if self.start is None:
             painter.line(self.center, self.current)

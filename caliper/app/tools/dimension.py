@@ -97,7 +97,7 @@ class DimensionTool(Tool):
         a = self._feature_point(self.a, quiet=True)
         if a is None:
             return
-        painter.set_pen(cosmetic_pen(theme.PREVIEW, 1.0, Qt.PenStyle.DashLine))
+        painter.set_pen(cosmetic_pen(theme.PREVIEW, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
         painter.marker(a, 3.0)
         end = self._feature_point(self.b, quiet=True) if self.b is not None else None
         painter.line(a, end if end is not None else self.current)
