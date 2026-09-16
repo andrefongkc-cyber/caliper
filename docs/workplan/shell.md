@@ -1,4 +1,4 @@
-Status: Fillet tool + palette support for FilletCorner built on `integ/fillet` (Andre's fillet contract branch + his stack + interior picking, local only); issue #11 answered; next: the engine branches merge, then rebase the shell work onto main
+Status: one joint PR on `contracts/v1-complete` carries Stream A's engine stack, the FilletCorner contract, interior picking, and all of Stream B's V1 shell work; next: Andre's review
 
 # Shell workplan — Stream B
 
@@ -235,3 +235,21 @@ Built on local branch `integ/fillet` = `origin/contracts/fillet-corner` + my 9 s
 **Fillet tool** (`caliper/app/tools/fillet.py`, key **O**): click one line, click the other, type a radius, Return. The preview is not shell geometry: the tool runs `FilletCorner` on a scratch `Bus(document)` and draws what the engine returns, so the rounded corner and both trimmed lines are exactly what accepting will produce. A radius that doesn't fit shows the engine's own message ("the radius must stay under 80.0") and sends nothing. Picked lines are drawn in the selection colour, the result in the preview colour.
 
 Items 1 and 3 of #11 were already done earlier today (interior picking test updates + ⌘-drag, and Zoom to Fit label padding); see the section above.
+
+## The joint PR (2026-09-15)
+
+`contracts/v1-complete` = Stream A's 10 stacked engine branches + `contracts/fillet-corner` + `stream/core/interior-picking` + Stream B's V1 shell work + the contract docstrings interior picking needed. 664 pass, 16 skipped; ruff, format and mypy clean; boundaries allows it as a `contracts/` branch.
+
+It is one PR because three of the pieces cannot land separately:
+
+1. **Interior picking** changes `entity_at_point`, which flips shell tests either way round: whoever merges first turns the other red (Andre's analysis in issue #11).
+2. **`FilletCorner`** adds a `Command`, so the palette test that walks the `Command` union fails until the shell lists it.
+3. The rest of Stream B's work uses move, delete, transactions, the full query API and `check`, none of which are on `main`.
+
+Shell work added on top of the engine in this PR:
+
+- **Fillet tool** (key **O**) with a preview computed by the engine on a scratch bus, and `FilletCorner` in the palette taking its two lines from the selection.
+- **Optional file history:** File → Include History in Saved Files writes the resolved commands that built the drawing (off by default, per ADR 0005); opening such a file says how many steps it carries. Undone steps are not written.
+- Everything recorded in the sections above: browser, history, checks, the agent review flow, performance work, interior picking updates with ⌘-drag, and Zoom to Fit label padding.
+
+Not included, deliberately: `shared/adr-0003-accepted`, `shared/occt-ci`, and `shared/qt-gpl-bundling`, which are Stream A's maintainer changes and independent of this.
