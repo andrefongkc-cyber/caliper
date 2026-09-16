@@ -1,5 +1,6 @@
 """What each command does to a Document. Pure functions: a Document in, a Document out."""
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -15,6 +16,7 @@ from caliper.contracts.commands import (
     CreateRadialDimension,
     CreateRectangle,
     DeleteEntities,
+    FilletCorner,
     ModifyEntity,
     MoveEntities,
 )
@@ -87,6 +89,8 @@ def handle(document: Document, command: Command) -> Handled | list[Error]:
             return _move(document, command)
         case DeleteEntities():
             return _delete(document, command)
+        case FilletCorner():
+            return _fillet(document, command)
         case _:
             assert_never(command)
 
@@ -250,6 +254,135 @@ def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error
     )
 
 
+def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
+    """Trim two lines back to an arc of `radius` tangent to both, and add that arc."""
+    errors: list[Error] = []
+    a_id = normalize_id(command.a, "a", errors)
+    b_id = normalize_id(command.b, "b", errors)
+    radius = normalize_float(command.radius, "radius", errors)
+    if errors:
+        return errors
+    if radius <= 0:
+        return [_error(ErrorCode.VALUE_NOT_POSITIVE, "radius", "radius must be greater than 0")]
+    lines: dict[str, Line] = {}
+    for field, entity_id in (("a", a_id), ("b", b_id)):
+        entity = document.entities.get(entity_id)
+        if entity is None:
+            errors.append(_error(ErrorCode.ENTITY_NOT_FOUND, field, f"no entity {entity_id!r}"))
+        elif not isinstance(entity, Line):
+            errors.append(
+                _error(
+                    ErrorCode.ENTITY_WRONG_KIND,
+                    field,
+                    f"{entity_id!r} is a {entity.kind}; a fillet rounds two lines",
+                )
+            )
+        else:
+            lines[field] = entity
+    if a_id == b_id:
+        errors.append(
+            _error(ErrorCode.REFERENCE_DEGENERATE, "b", "a and b must be different lines")
+        )
+    if errors:
+        return errors
+
+    corner = _shared_endpoint(lines["a"], lines["b"])
+    if corner is None:
+        return [
+            _error(
+                ErrorCode.GEOMETRY_DEGENERATE,
+                "b",
+                f"{a_id!r} and {b_id!r} must share exactly one endpoint to round the corner",
+            )
+        ]
+    ua, length_a = _direction(corner, _far_end(lines["a"], corner))
+    ub, length_b = _direction(corner, _far_end(lines["b"], corner))
+    dot = ua.x * ub.x + ua.y * ub.y
+    cross = ua.x * ub.y - ua.y * ub.x
+    if cross == 0:
+        return [
+            _error(
+                ErrorCode.GEOMETRY_DEGENERATE,
+                "b",
+                f"{a_id!r} and {b_id!r} are in line; there is no corner to round",
+            )
+        ]
+    # Distance from the corner to each tangent point: radius / tan(half the corner angle),
+    # written from the dot and cross products so a right angle stays exact.
+    reach = radius * (1.0 + dot) / abs(cross)
+    if reach >= length_a or reach >= length_b:
+        # Equal is no good either: the tangent point would land on the far end and leave
+        # nothing of that line.
+        largest = min(length_a, length_b) * abs(cross) / (1.0 + dot)
+        return [
+            _error(
+                ErrorCode.VALUE_OUT_OF_RANGE,
+                "radius",
+                f"radius {radius!r} needs {reach!r} mm of each line, but they are "
+                f"{length_a!r} and {length_b!r} mm long; the radius must stay under {largest!r}",
+            )
+        ]
+    touch_a = Point2(x=corner.x + ua.x * reach, y=corner.y + ua.y * reach)
+    touch_b = Point2(x=corner.x + ub.x * reach, y=corner.y + ub.y * reach)
+    inward = Point2(x=-ua.y, y=ua.x)
+    if inward.x * ub.x + inward.y * ub.y < 0:
+        inward = Point2(x=ua.y, y=-ua.x)
+    center = Point2(x=touch_a.x + inward.x * radius, y=touch_a.y + inward.y * radius)
+
+    trimmed: dict[EntityId, Entity] = {}
+    for entity_id, line, touch in ((a_id, lines["a"], touch_a), (b_id, lines["b"], touch_b)):
+        moved = "start" if line.start == corner else "end"
+        values = {name: getattr(line, name) for name in field_types(Line)} | {moved: touch}
+        built = build_entity(Line, values, document)
+        if isinstance(built, list):
+            return built
+        trimmed[entity_id] = built
+    arc = build_entity(Arc, _arc_values(center, radius, touch_a, touch_b), document)
+    if isinstance(arc, list):
+        return arc
+    arc_id, next_id = _resolve_id(document, command.id, errors)
+    if errors:
+        return errors
+    return Handled(
+        document=Document(
+            entities=MappingProxyType({**document.entities, **trimmed, arc_id: arc}),
+            next_id=next_id,
+        ),
+        command=FilletCorner(a=a_id, b=b_id, radius=radius, id=arc_id),
+        label="Fillet Corner",
+        created_ids=(arc_id,),
+    )
+
+
+def _shared_endpoint(a: Line, b: Line) -> Point2 | None:
+    """The one endpoint both lines have, or None if they share none or both."""
+    shared = [p for p in (a.start, a.end) if p in (b.start, b.end)]
+    return shared[0] if len(shared) == 1 else None
+
+
+def _far_end(line: Line, corner: Point2) -> Point2:
+    return line.end if line.start == corner else line.start
+
+
+def _direction(start: Point2, end: Point2) -> tuple[Point2, float]:
+    length = math.hypot(end.x - start.x, end.y - start.y)
+    return Point2(x=(end.x - start.x) / length, y=(end.y - start.y) / length), length
+
+
+def _arc_values(center: Point2, radius: float, a: Point2, b: Point2) -> dict[str, object]:
+    """The arc between the two tangent points: the short way round, counter-clockwise."""
+    angle_a = math.degrees(math.atan2(a.y - center.y, a.x - center.x))
+    angle_b = math.degrees(math.atan2(b.y - center.y, b.x - center.x))
+    sweep = (angle_b - angle_a) % 360.0
+    start = angle_a if sweep <= 180.0 else angle_b
+    return {
+        "center": center,
+        "radius": radius,
+        "start_angle": start % 360.0,
+        "sweep_angle": min(sweep, 360.0 - sweep),
+    }
+
+
 def _existing_ids(document: Document, ids: object, errors: list[Error]) -> tuple[EntityId, ...]:
     """Normalized ids, each once and in the order given, all present in `document`."""
     if not isinstance(ids, tuple | list):
@@ -288,6 +421,10 @@ def _plural_label(verb: str, document: Document, ids: tuple[EntityId, ...]) -> s
     if len(ids) == 1:
         return f"{verb} {_title(document.entities[ids[0]].kind)}"
     return f"{verb} {len(ids)} Entities"
+
+
+def _error(code: ErrorCode, field: str, message: str) -> Error:
+    return Error(code=code, message=message, field=field)
 
 
 def _title(snake: str) -> str:
