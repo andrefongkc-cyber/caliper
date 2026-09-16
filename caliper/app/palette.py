@@ -227,8 +227,12 @@ class CommandPalette(QFrame):
             self._open_form(entry.spec)
 
     def _open_form(self, spec: CommandSpec) -> None:
-        if spec.uses_selection and not self.session.selection:
+        selected = len(self.session.selection)
+        if spec.uses_selection and not selected:
             self._show_error(f"{spec.title} needs a selection: select something first")
+            return
+        if spec.wants is not None and selected != spec.wants:
+            self._show_error(f"{spec.title} needs exactly {spec.wants} selected, not {selected}")
             return
         self.spec = spec
         while self.form_layout.count():
@@ -240,10 +244,18 @@ class CommandPalette(QFrame):
         title.setFont(theme.font(bold=True))
         self.form_layout.addWidget(title)
         if spec.uses_selection:
-            count = len(self.session.selection)
-            self.form_layout.addWidget(
-                QLabel(f"{count} selected {'entity' if count == 1 else 'entities'}")
-            )
+            chosen = sorted(self.session.selection)
+            if spec.selection_fields:
+                pairs = ", ".join(
+                    f"{name} = {id}"
+                    for name, id in zip(spec.selection_fields, chosen, strict=False)
+                )
+                self.form_layout.addWidget(QLabel(pairs))
+            else:
+                count = len(chosen)
+                self.form_layout.addWidget(
+                    QLabel(f"{count} selected {'entity' if count == 1 else 'entities'}")
+                )
         form_widget = QWidget()
         form = QFormLayout(form_widget)
         form.setContentsMargins(0, SPACE.xs, 0, 0)

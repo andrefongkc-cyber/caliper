@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Tool
 from caliper.app.tools.dimension import DimensionTool
+from caliper.app.tools.fillet import FilletTool
 from caliper.app.tools.measure import MeasureTool
 from caliper.app.tools.select import SelectTool
 from caliper.app.tools.shapes import ArcTool, CircleTool, LineTool, RectangleTool
@@ -33,6 +34,7 @@ class ToolController(QObject):
             CircleTool(session),
             ArcTool(session),
             RectangleTool(session),
+            FilletTool(session),
             DimensionTool(session),
             MeasureTool(session),
         ]

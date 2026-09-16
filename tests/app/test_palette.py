@@ -10,8 +10,10 @@ from caliper.app.command_schema import build, command_specs, matches
 from caliper.contracts.commands import (
     Command,
     CreateCircle,
+    CreateLine,
     CreateRectangle,
     DeleteEntities,
+    FilletCorner,
     MoveEntities,
 )
 from caliper.contracts.document import EntityId, Point2
@@ -46,6 +48,61 @@ def test_every_command_type_is_listed_or_deliberately_left_out() -> None:
         "CreateRadialDimension",
         "ModifyEntity",  # the properties panel and on-canvas editing
     }
+
+
+def test_fillet_takes_its_two_lines_from_the_selection() -> None:
+    (spec,) = [s for s in command_specs() if s.type is FilletCorner]
+    assert spec.title == "Fillet Corner"
+    assert [f.path for f in spec.fields] == ["radius"]
+    assert spec.selection_fields == ("a", "b")
+    assert spec.wants == 2
+    ids = frozenset({EntityId("e2"), EntityId("e1")})
+    assert build(spec, {"radius": 5}, ids) == FilletCorner(a="e1", b="e2", radius=5)
+
+
+def test_fillet_from_the_palette_rounds_the_corner(window, qtbot) -> None:
+    session = window.session
+    (first,) = session.execute(
+        CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=0))
+    ).created_ids
+    (second,) = session.execute(
+        CreateLine(start=Point2(x=100, y=0), end=Point2(x=100, y=80))
+    ).created_ids
+    session.set_selection(frozenset({first, second}))
+    open_palette(window, qtbot)
+    type_keys(qtbot, "fillet corner\n20\n")
+    assert not window.palette.isVisible()
+    arc = [e for e in session.document.entities.values() if e.kind == "arc"]
+    assert len(arc) == 1
+    assert arc[0].radius == 20.0
+    assert window.undo_action.text() == "Undo Fillet Corner"
+
+
+def test_fillet_needs_exactly_two_shapes_selected(window, qtbot) -> None:
+    (only,) = window.session.execute(
+        CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=0))
+    ).created_ids
+    window.session.set_selection(frozenset({only}))
+    open_palette(window, qtbot)
+    type_keys(qtbot, "fillet corner\n")
+    assert window.palette.stack.currentIndex() == 0
+    assert "needs exactly 2 selected, not 1" in window.palette.error.text()
+
+
+def test_fillet_radius_that_doesnt_fit_explains_the_limit(window, qtbot) -> None:
+    session = window.session
+    (first,) = session.execute(
+        CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=0))
+    ).created_ids
+    (second,) = session.execute(
+        CreateLine(start=Point2(x=100, y=0), end=Point2(x=100, y=80))
+    ).created_ids
+    session.set_selection(frozenset({first, second}))
+    open_palette(window, qtbot)
+    type_keys(qtbot, "fillet corner\n500\n")
+    assert window.palette.isVisible()
+    assert "must stay under 80" in window.palette.error.text()
+    assert window.palette.form_fields["radius"].property("invalid") is True
 
 
 def test_rectangle_form_fields_come_from_the_dataclass() -> None:
@@ -195,3 +252,11 @@ def test_move_command_moves_the_selection(window, qtbot) -> None:
     assert not window.palette.isVisible()
     assert window.session.document.entities[circle].center == Point2(x=5.0, y=-2.0)
     assert window.undo_action.text() == "Undo Move Circle"
+
+
+def test_typing_fillet_picks_the_tool_over_the_command(window, qtbot) -> None:
+    open_palette(window, qtbot)
+    type_keys(qtbot, "fillet")
+    assert window.palette.visible_titles() == ["Fillet", "Fillet Corner"]
+    qtbot.keyClick(window.palette.search, Qt.Key.Key_Return)
+    assert window.controller.active.name == "Fillet"

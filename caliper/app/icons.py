@@ -28,6 +28,10 @@ _SHAPES: dict[str, str] = {
     "arc": '<path d="M3.5 14 A6.5 6.5 0 0 1 16.5 14"/><path d="M10 13.2 V14.8 M9.2 14 H10.8"/>',
     "rectangle": '<rect x="3.5" y="5.5" width="13" height="9"/>',
     # A dimension line with extension lines and arrowheads.
+    # A square corner with the corner itself rounded away.
+    "fillet": '<path d="M4 16.5 V10 A5.5 5.5 0 0 1 9.5 4.5 H16"/>'
+    '<path d="M4 6.5 H6 M5 5.5 V7.5" stroke-width="1.2"/>'
+    '<path d="M14 16.5 H16 M15 15.5 V17.5" stroke-width="1.2"/>',
     "dimension": '<path d="M4 6 V14 M16 6 V14 M4 10 H16 M6.5 8 L4 10 L6.5 12 M13.5 8 L16 10 '
     'L13.5 12"/>',
     # Corners closing in on a frame.

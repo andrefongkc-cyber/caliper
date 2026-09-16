@@ -28,7 +28,17 @@ class CommandSpec:
     """Title case, as the bus labels it: "Create Rectangle"."""
     fields: tuple[Field, ...]
     uses_selection: bool
-    """True if the command's `ids` come from the current selection."""
+    """True if the command takes entities from the current selection."""
+    selection_fields: tuple[str, ...] = ()
+    """Named entity arguments filled from the selection in id order, e.g. FilletCorner's a and b.
+
+    Empty when the command takes a whole `ids` tuple instead.
+    """
+
+    @property
+    def wants(self) -> int | None:
+        """How many entities must be selected, or None for "one or more"."""
+        return len(self.selection_fields) or None
 
 
 def _title(kind: str) -> str:
@@ -42,6 +52,7 @@ def _spec(command_type: type) -> CommandSpec | None:
     hints = typing.get_type_hints(command_type)
     fields: list[Field] = []
     uses_selection = False
+    selection_fields: list[str] = []
     for f in dataclasses.fields(command_type):
         hint = hints[f.name]
         if f.name == "id":
@@ -53,10 +64,17 @@ def _spec(command_type: type) -> CommandSpec | None:
             fields += [Field(f"{f.name}.x", f"{label} X", 0.0), Field(f"{f.name}.y", "Y", 0.0)]
         elif hint == tuple[EntityId, ...] and f.name == "ids":
             uses_selection = True
+        elif hint is EntityId:
+            # One entity per argument, e.g. FilletCorner's two lines: take them from the
+            # selection rather than asking someone to type ids.
+            uses_selection = True
+            selection_fields.append(f.name)
         else:
             return None
     kind: str = command_type.kind  # type: ignore[attr-defined]
-    return CommandSpec(command_type, _title(kind), tuple(fields), uses_selection)
+    return CommandSpec(
+        command_type, _title(kind), tuple(fields), uses_selection, tuple(selection_fields)
+    )
 
 
 def command_specs() -> tuple[CommandSpec, ...]:
@@ -76,7 +94,10 @@ def build(spec: CommandSpec, values: dict[str, float], selection: frozenset[Enti
             kwargs[name] = values[field.path]
     for name, xy in points.items():
         kwargs[name] = Point2(x=xy["x"], y=xy["y"])
-    if spec.uses_selection:
+    if spec.selection_fields:
+        for name, id in zip(spec.selection_fields, sorted(selection), strict=True):
+            kwargs[name] = id
+    elif spec.uses_selection:
         kwargs["ids"] = tuple(sorted(selection))
     return spec.type(**kwargs)  # type: ignore[no-any-return]
 
