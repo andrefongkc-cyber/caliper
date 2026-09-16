@@ -91,6 +91,23 @@ class CreateRadialDimension:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FilletCorner:
+    """Round the corner where two lines meet with an arc of `radius`, tangent to both.
+
+    V1 rounds a corner someone drew: `a` and `b` must already share an endpoint. Both lines
+    are trimmed back to where the arc touches them, and the arc is added as a new entity
+    with `id`, allocated when it is None. Lines that only meet if extended, or not at all,
+    are rejected.
+    """
+
+    kind: ClassVar[str] = "fillet_corner"
+    a: EntityId
+    b: EntityId
+    radius: float
+    id: EntityId | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class MoveEntities:
     """Translate geometry by (dx, dy).
 
@@ -138,6 +155,7 @@ Command = (
     | MoveEntities
     | DeleteEntities
     | ModifyEntity
+    | FilletCorner
 )
 
 
