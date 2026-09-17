@@ -260,3 +260,95 @@ def test_typing_fillet_picks_the_tool_over_the_command(window, qtbot) -> None:
     assert window.palette.visible_titles() == ["Fillet", "Fillet Corner"]
     qtbot.keyClick(window.palette.search, Qt.Key.Key_Return)
     assert window.controller.active.name == "Fillet"
+
+
+# --- The palette docked in the sidebar ---------------------------------------------------
+
+
+def panel_titles(window) -> list[str]:
+    return window.command_panel.visible_titles()
+
+
+def test_the_sidebar_lists_commands_under_properties(window) -> None:
+    panel = window.command_panel
+    assert window.commands_dock.widget() is panel
+    assert window.dockWidgetArea(window.commands_dock) == Qt.DockWidgetArea.RightDockWidgetArea
+    assert panel.isVisible()
+    properties = window.properties_dock.geometry()
+    commands = window.commands_dock.geometry()
+    checks = window.checks_dock.geometry()
+    assert properties.bottom() < commands.top()
+    assert commands.bottom() < checks.top()
+
+
+def test_the_sidebar_lists_everything_the_palette_does_without_opening_it(window, qtbot) -> None:
+    sidebar = panel_titles(window)
+    assert "Rectangle" in sidebar
+    assert "Create Rectangle" in sidebar
+    open_palette(window, qtbot)
+    assert sorted(sidebar) == sorted(window.palette.visible_titles())
+
+
+def test_typing_in_the_sidebar_filters_it(window, qtbot) -> None:
+    qtbot.keyClicks(window.command_panel.search, "circ")
+    assert panel_titles(window) == ["Circle", "Create Circle"]
+
+
+def test_a_command_run_from_the_sidebar_leaves_it_ready_for_the_next(window, bus, qtbot) -> None:
+    panel = window.command_panel
+    panel.search.setFocus()
+    qtbot.keyClicks(panel.search, "create rect")
+    qtbot.keyClick(panel.search, Qt.Key.Key_Return)
+    assert panel.stack.currentIndex() == 1
+    assert QApplication.focusWidget().objectName() == "width"  # the corner defaults to 0, 0
+    type_keys(qtbot, "120\t50\n")
+    assert bus.sent == [
+        CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0),
+    ]
+    assert panel.isVisible()
+    assert panel.stack.currentIndex() == 0
+    assert panel.search.text() == ""
+    assert QApplication.focusWidget() is window.canvas
+
+
+def test_the_sidebar_greys_out_actions_as_they_become_unavailable(window, qtbot) -> None:
+    def undo_enabled() -> bool:
+        panel = window.command_panel
+        (row,) = [i for i in range(panel.results.count()) if panel.results.item(i).text() == "Undo"]
+        return bool(panel.results.item(row).flags() & Qt.ItemFlag.ItemIsEnabled)
+
+    assert not undo_enabled()
+    window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5))
+    assert undo_enabled()
+
+
+def test_escape_in_the_sidebar_clears_it_and_returns_to_the_canvas(window, qtbot) -> None:
+    panel = window.command_panel
+    panel.search.setFocus()
+    qtbot.keyClicks(panel.search, "circ")
+    qtbot.keyClick(panel.search, Qt.Key.Key_Escape)
+    assert panel.isVisible()
+    assert panel.search.text() == ""
+    assert QApplication.focusWidget() is window.canvas
+
+
+def test_the_sidebar_list_is_drawn_on_the_panel_colour(window) -> None:
+    from caliper.app import theme
+
+    panel = window.command_panel
+    results = panel.results
+    image = panel.grab().toImage()
+    ratio = image.devicePixelRatio()
+    row = results.visualItemRect(results.item(1))
+    at_list = results.mapTo(panel, row.center())
+    # Between a title and its shortcut, and in the margin around the search field.
+    for x, y in ((at_list.x(), at_list.y()), (1, 1)):
+        colour = image.pixelColor(round(x * ratio), round(y * ratio))
+        assert (
+            max(
+                abs(colour.red() - theme.PANEL.red()),
+                abs(colour.green() - theme.PANEL.green()),
+                abs(colour.blue() - theme.PANEL.blue()),
+            )
+            <= 8
+        ), (x, y, colour.name(), theme.PANEL.name())

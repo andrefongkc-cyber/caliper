@@ -56,6 +56,8 @@ class MainWindow(QMainWindow):
         self.tool_actions: dict[str, QAction] = {}
         self.palette = CommandPalette(self.session, self)
         self.palette.return_focus = self.canvas
+        self.command_panel = CommandPalette(self.session, docked=True)
+        self.command_panel.return_focus = self.canvas
 
         self.prompt_bar = PromptBar()
         self.proposal_card = ProposalCard(self.canvas)
@@ -87,22 +89,22 @@ class MainWindow(QMainWindow):
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
 
-        self.palette.set_actions(
-            [
-                *self.tool_actions.values(),
-                self.undo_action,
-                self.redo_action,
-                self.delete_action,
-                self.select_all_action,
-                self.fit_action,
-                self.grid_action,
-                self.snap_action,
-                self.new_action,
-                self.open_action,
-                self.save_action,
-                self.save_as_action,
-            ]
-        )
+        palette_actions = [
+            *self.tool_actions.values(),
+            self.undo_action,
+            self.redo_action,
+            self.delete_action,
+            self.select_all_action,
+            self.fit_action,
+            self.grid_action,
+            self.snap_action,
+            self.new_action,
+            self.open_action,
+            self.save_action,
+            self.save_as_action,
+        ]
+        self.palette.set_actions(palette_actions)
+        self.command_panel.set_actions(palette_actions)
         self._update_title()
         self._update_edit_actions()
         self._update_tool_state()
@@ -278,11 +280,21 @@ class MainWindow(QMainWindow):
         checks.setWidget(self.checks)
         checks.setMinimumWidth(DOCK_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, checks)
-        self.splitDockWidget(dock, checks, Qt.Orientation.Vertical)
         self.checks_dock = checks
 
+        commands = QDockWidget("Commands", self)
+        commands.setObjectName("commands-dock")
+        commands.setFeatures(features)
+        commands.setWidget(self.command_panel)
+        commands.setMinimumWidth(DOCK_WIDTH)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, commands)
+        self.commands_dock = commands
+
+        self.splitDockWidget(dock, commands, Qt.Orientation.Vertical)
+        self.splitDockWidget(commands, checks, Qt.Orientation.Vertical)
+
         self.resizeDocks([browser, dock], [BROWSER_WIDTH, DOCK_WIDTH], Qt.Orientation.Horizontal)
-        self.resizeDocks([dock, checks], [320, 380], Qt.Orientation.Vertical)
+        self.resizeDocks([dock, commands, checks], [260, 260, 280], Qt.Orientation.Vertical)
 
     def _build_status_bar(self) -> None:
         status = self.statusBar()

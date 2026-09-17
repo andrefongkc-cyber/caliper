@@ -5,6 +5,9 @@ Two kinds of entries share one list:
 - contract commands from `command_schema`, which open a typed parameter form.
 
 Keyboard only: type to filter, Up/Down to move, Return to run, Esc to go back or close.
+
+The same widget also sits docked in the sidebar (`docked=True`): always visible, it keeps its
+list current as actions become available, and running something resets it instead of closing.
 """
 
 from dataclasses import dataclass
@@ -79,9 +82,12 @@ class Entry:
 
 
 class CommandPalette(QFrame):
-    def __init__(self, session: DocumentSession, parent: QWidget) -> None:
+    def __init__(
+        self, session: DocumentSession, parent: QWidget | None = None, *, docked: bool = False
+    ) -> None:
         super().__init__(parent)
         self.session = session
+        self.docked = docked
         self.actions: list[QAction] = []
         self.entries: list[Entry] = []
         self.spec: CommandSpec | None = None
@@ -89,21 +95,28 @@ class CommandPalette(QFrame):
         self.return_focus: QWidget | None = None
         """Where keyboard focus goes when the palette closes, usually the canvas."""
 
-        self.setObjectName("command-palette")
+        name = "command-panel" if docked else "command-palette"
+        self.setObjectName(name)
         self.setAutoFillBackground(True)
+        border = (
+            "border: none;"
+            if docked
+            else f"border: 1px solid {theme.BORDER.name()}; border-radius: 4px;"
+        )
+        frame = f"#{name} {{ background: {theme.PANEL.name()}; {border} }}"
         self.setStyleSheet(
-            f"#command-palette {{ background: {theme.PANEL.name()};"
-            f" border: 1px solid {theme.BORDER.name()}; border-radius: 4px; }}"
-            f" #command-palette QListWidget {{ background: transparent; border: none;"
+            frame + f" #{name} QListWidget {{ background: transparent; border: none;"
             f" outline: none; }}"
-            f" #command-palette QListWidget::item {{ padding: {SPACE.xs}px {SPACE.m}px; }}"
-            f" #command-palette QListWidget::item:selected {{"
+            f" #{name} QListWidget::item {{ padding: {SPACE.xs}px {SPACE.m}px; }}"
+            f" #{name} QListWidget::item:selected {{"
             f" background: {theme.FIELD.name()}; color: {theme.TEXT.name()};"
             f" border-left: 2px solid {theme.ACCENT.name()}; }}"
-            f" #palette-search {{ font-size: 15px; padding: {SPACE.s}px {SPACE.m}px; }}"
+            f" #{name} QLineEdit#palette-search {{"
+            f" font-size: {13 if docked else 15}px; padding: {SPACE.s}px {SPACE.m}px; }}"
         )
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(SPACE.m, SPACE.m, SPACE.m, SPACE.m)
+        margin = SPACE.s if docked else SPACE.m
+        layout.setContentsMargins(margin, margin, margin, margin)
         layout.setSpacing(SPACE.s)
 
         self.stack = QStackedWidget()
@@ -138,14 +151,20 @@ class CommandPalette(QFrame):
         self.error.setWordWrap(True)
         self.error.hide()
         layout.addWidget(self.error)
-        self.hide()
+        if not docked:
+            self.hide()
 
     # --- Opening --------------------------------------------------------------------------
 
     def set_actions(self, actions: list[QAction]) -> None:
         self.actions = actions
+        if self.docked:
+            for action in actions:
+                action.changed.connect(self._actions_changed)
+            self._load_entries()
+            self._refilter("")
 
-    def open(self) -> None:
+    def _load_entries(self) -> None:
         self.entries = [
             Entry(
                 a.text().replace("&", ""),
@@ -154,6 +173,22 @@ class CommandPalette(QFrame):
             )
             for a in self.actions
         ] + [Entry(spec.title, _parameters(spec), spec=spec) for spec in command_specs()]
+
+    def _actions_changed(self) -> None:
+        """Docked: keep enabled states current, and the highlighted row where it was."""
+        if self.stack.currentIndex() != 0:
+            return
+        current = self.results.currentItem()
+        title = current.text() if current is not None else None
+        self._refilter(self.search.text())
+        for i in range(self.results.count()):
+            item = self.results.item(i)
+            if item.text() == title and item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                self.results.setCurrentRow(i)
+                break
+
+    def open(self) -> None:
+        self._load_entries()
         self.stack.setCurrentIndex(0)
         self.error.hide()
         self.search.clear()
@@ -168,7 +203,13 @@ class CommandPalette(QFrame):
         self.search.setFocus()
 
     def close_palette(self) -> None:
-        self.hide()
+        """Floating: hide. Docked: go back to an empty search. Either way, hand focus back."""
+        if self.docked:
+            self.stack.setCurrentIndex(0)
+            self.error.hide()
+            self.search.clear()
+        else:
+            self.hide()
         target = self.return_focus or self.parentWidget()
         if target is not None:
             target.setFocus()
@@ -181,10 +222,17 @@ class CommandPalette(QFrame):
     def _fit_list(self) -> None:
         """As tall as the results, up to LIST_ROWS; hidden when nothing matches."""
         count = self.results.count()
+        if self.docked:
+            self.results.setVisible(count > 0)
+            return
         row = self.results.sizeHintForRow(0) if count else 0
         self.results.setFixedHeight(row * min(count, LIST_ROWS) + (4 if count else 0))
         self.results.setVisible(count > 0)
-        self.adjustSize()
+        self._resize_to_content()
+
+    def _resize_to_content(self) -> None:
+        if not self.docked:  # docked, the sidebar's layout owns the size
+            self.adjustSize()
 
     def _refilter(self, query: str) -> None:
         self.results.clear()
@@ -201,7 +249,7 @@ class CommandPalette(QFrame):
             if self.results.item(i).flags() & Qt.ItemFlag.ItemIsEnabled:
                 self.results.setCurrentRow(i)
                 break
-        if self.isVisible():
+        if self.docked or self.isVisible():
             self._fit_list()
 
     def _move(self, step: int) -> None:
@@ -273,7 +321,7 @@ class CommandPalette(QFrame):
         self.form_layout.addWidget(hint)
         self.error.hide()
         self.stack.setCurrentIndex(1)
-        self.adjustSize()
+        self._resize_to_content()
         edits = list(self.form_fields.values())
         empty = [e for e in edits if not e.text()]
         target = empty[0] if empty else (edits[0] if edits else None)
@@ -313,7 +361,7 @@ class CommandPalette(QFrame):
                 edit.selectAll()
         self.error.setText(message)
         self.error.show()
-        self.adjustSize()
+        self._resize_to_content()
 
     # --- Keys -----------------------------------------------------------------------------
 
@@ -342,7 +390,7 @@ class CommandPalette(QFrame):
             if key == Qt.Key.Key_Escape:
                 self.stack.setCurrentIndex(0)
                 self.error.hide()
-                self.adjustSize()
+                self._resize_to_content()
                 self.search.setFocus()
                 self.search.selectAll()
                 return True

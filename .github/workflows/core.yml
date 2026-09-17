@@ -1,6 +1,8 @@
 # Engine, contracts, lint, and types on Linux.
 # Running the core on Linux is deliberate: if it passes here, it isn't
-# secretly depending on macOS (invariant 1). No Qt, no OCCT installed.
+# secretly depending on macOS (invariant 1). The core job installs no Qt and no
+# OCCT; a second job installs the occt extra and holds OCCTKernel to the shared
+# kernel conformance suite (ADR 0001), which otherwise only ever runs locally.
 name: core
 
 on:
@@ -33,3 +35,18 @@ jobs:
         run: uv run mypy
       - name: Tests
         run: uv run pytest
+
+  occt:
+    name: occt (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: System libraries OpenCascade links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglu1-mesa libxext6 libxrender1
+      - name: Install engine + OCCT
+        run: uv sync --locked --extra occt
+      - name: Kernel conformance, fake and real
+        run: uv run pytest tests/engine/geometry -v

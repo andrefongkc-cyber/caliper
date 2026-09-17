@@ -10,10 +10,11 @@ from caliper.app.session import Author
 from caliper.contracts.commands import (
     CreateCircle,
     CreateDistanceDimension,
+    CreateRadialDimension,
     CreateRectangle,
     ModifyEntity,
 )
-from caliper.contracts.document import DistanceOrientation, Feature, Point2, Ref
+from caliper.contracts.document import DistanceOrientation, Feature, Point2, RadialMeasure, Ref
 from caliper.contracts.queries import Expectation, Metric
 
 
@@ -243,3 +244,65 @@ def test_browser_updates_rows_in_place(window, sketch) -> None:
     window.undo_action.trigger()
     assert hole not in window.browser.items
     assert window.browser.groups["Geometry"].childCount() == 1
+
+
+def _width_dimension(session, plate: str) -> str:
+    (dim,) = session.execute(
+        CreateDistanceDimension(
+            a=Ref(entity=plate, feature=Feature.BOTTOM_LEFT),
+            b=Ref(entity=plate, feature=Feature.BOTTOM_RIGHT),
+            orientation=DistanceOrientation.HORIZONTAL,
+            offset=-10,
+        )
+    ).created_ids
+    return dim
+
+
+def test_a_dimension_row_follows_the_shape_it_measures(window, sketch) -> None:
+    plate, _ = sketch
+    dim = _width_dimension(window.session, plate)
+    window.session.execute(ModifyEntity(id=plate, changes={"width": 150.0}))
+    assert window.browser.items[dim].text(1) == "150 · horizontal"
+
+
+def test_an_edit_refills_only_the_rows_it_changes(window, sketch, monkeypatch) -> None:
+    plate, hole = sketch
+    on_plate = _width_dimension(window.session, plate)
+    (on_hole,) = window.session.execute(
+        CreateRadialDimension(target=hole, measure=RadialMeasure.DIAMETER, label_angle=45)
+    ).created_ids
+    browser = window.browser
+    filled: list[str] = []
+    fill = browser._fill
+    monkeypatch.setattr(
+        browser, "_fill", lambda item, id, queries: (filled.append(id), fill(item, id, queries))
+    )
+    window.session.execute(ModifyEntity(id=plate, changes={"width": 150.0}))
+    assert sorted(filled) == sorted([plate, on_plate])  # not the hole or its diameter
+    assert on_hole in browser.items
+
+
+def test_the_value_column_fits_its_longest_value(window, sketch, qtbot) -> None:
+    plate, _ = sketch
+    browser = window.browser
+    metrics = browser.fontMetrics()
+
+    def fits() -> bool:
+        widest = max(metrics.horizontalAdvance(i.text(1)) for i in browser.items.values())
+        return browser.header().sectionSize(1) >= widest
+
+    qtbot.waitUntil(fits)
+    narrow = browser.header().sectionSize(1)
+    window.session.execute(ModifyEntity(id=plate, changes={"width": 123456.789}))
+    qtbot.waitUntil(fits)
+    assert browser.header().sectionSize(1) > narrow
+    window.undo_action.trigger()
+    qtbot.waitUntil(lambda: browser.header().sectionSize(1) == narrow)  # and shrinks back
+    (wide,) = window.session.execute(
+        CreateRectangle(corner=Point2(x=0, y=0), width=987654.321, height=1)
+    ).created_ids
+    qtbot.waitUntil(lambda: browser.header().sectionSize(1) > narrow)
+    window.session.set_selection(frozenset({wide}))
+    window.delete_action.trigger()
+    assert wide not in browser.items
+    qtbot.waitUntil(lambda: browser.header().sectionSize(1) == narrow)  # a removed row too

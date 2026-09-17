@@ -12,7 +12,7 @@ Navigation, following Fusion/SolidWorks on a Mac:
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QFontMetricsF,
     QInputDevice,
@@ -57,6 +57,8 @@ from caliper.contracts.queries import BoundingBox
 PICK_RADIUS_PX = 6.0
 WHEEL_ZOOM_BASE = 1.0015
 """Zoom factor per unit of wheel angle delta (120 units = one notch ≈ 20%)."""
+SETTLE_MS = 150
+"""How long the view must stay still after a pan or zoom before the sketch is redrawn."""
 MAX_GRID_LINES = 600
 DEFAULT_VIEW_MM = 250.0
 """How many millimetres a fresh view spans across its shorter side."""
@@ -90,8 +92,16 @@ class Canvas(QWidget):
         """The agent proposal to preview, if any; set by the main window."""
         self.reject_proposal: Callable[[], None] = lambda: None
         self._layer: QPixmap | None = None
-        self._layer_key: tuple[float, float, float, int, int, float, bool] | None = None
+        self._layer_view: tuple[float, float, float] | None = None
+        """(scale, origin_x, origin_y) the layer was drawn at."""
+        self._layer_frame: tuple[int, int, float, bool] | None = None
         self._layer_document: object = None
+        self._moving = False
+        """True from a pan or zoom until the view has been still for SETTLE_MS."""
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(SETTLE_MS)
+        self._settle.timeout.connect(self._view_settled)
         self.acquired: list[Point2] = []
         """Feature points the pointer recently passed over, for alignment guides."""
         self._editing: tuple[EntityId, str] | None = None
@@ -139,7 +149,7 @@ class Canvas(QWidget):
         padded = self._with_label_extents(box)
         if padded != box:
             self.view.fit(padded, self.width(), self.height())
-        self.update()
+        self._view_jumped()
 
     def _with_label_extents(self, box: BoundingBox) -> BoundingBox:
         metrics = QFontMetricsF(self.font())
@@ -180,7 +190,7 @@ class Canvas(QWidget):
                 self.width(),
                 self.height(),
             )
-            self.update()
+            self._view_jumped()
 
     def frame_box(self, box: BoundingBox, right_inset: float = 0.0) -> None:
         """Fit `box` into the canvas, leaving `right_inset` pixels free on the right."""
@@ -193,13 +203,13 @@ class Canvas(QWidget):
         )
         width = max(self.width() - right_inset, 100.0)
         self.view.fit(padded, width, self.height())
-        self.update()
+        self._view_jumped()
 
     def reset_view(self) -> None:
         self.view.scale = min(self.width(), self.height()) / DEFAULT_VIEW_MM
         self.view.origin_x = self.width() / 2
         self.view.origin_y = self.height() / 2
-        self.update()
+        self._view_jumped()
 
     def visible_box(self) -> BoundingBox:
         top_left = self.view.to_model(0, 0)
@@ -372,7 +382,7 @@ class Canvas(QWidget):
             delta = event.position() - self._pan_from
             self._pan_from = event.position()
             self.view.pan(delta.x(), delta.y())
-            self.update()
+            self._view_moved()
             return
         self._mouse_px = event.position().toPoint()
         pointer = self.pointer_at(event.position(), event.modifiers())
@@ -416,7 +426,7 @@ class Canvas(QWidget):
             steps = event.angleDelta().y() or event.angleDelta().x()
             position = event.position()
             self.view.zoom_about(WHEEL_ZOOM_BASE**steps, position.x(), position.y())
-        self.update()
+        self._view_moved()
         event.accept()
 
     def event(self, event: QEvent) -> bool:
@@ -426,7 +436,7 @@ class Canvas(QWidget):
         ):
             position = event.position()
             self.view.zoom_about(1.0 + event.value(), position.x(), position.y())
-            self.update()
+            self._view_moved()
             return True
         return super().event(event)
 
@@ -472,7 +482,7 @@ class Canvas(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         qp = QPainter(self)
-        qp.drawPixmap(0, 0, self._static_layer())
+        self._paint_static(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter = ModelPainter(qp, self.view)
         self._paint_highlights(painter)
@@ -512,6 +522,52 @@ class Canvas(QWidget):
         qp.setPen(cosmetic_pen(theme.AXIS_Y, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(round(ox) + 0.5, 0.0, round(ox) + 0.5, h))
 
+    def _view_moved(self) -> None:
+        """A pan or zoom step. Redraw the sketch only once the view has stopped moving."""
+        self._moving = True
+        self._settle.start()
+        self.update()
+
+    def _view_jumped(self) -> None:
+        """A one-off view change (fit, frame, reset): draw it sharp straight away."""
+        self._moving = False
+        self._settle.stop()
+        self.update()
+
+    def _view_settled(self) -> None:
+        self._moving = False
+        self.update()
+
+    def _frame_key(self) -> tuple[int, int, float, bool]:
+        return (self.width(), self.height(), self.devicePixelRatioF(), self.show_grid)
+
+    def _paint_static(self, qp: QPainter) -> None:
+        """Paint the static layer. While the view moves, move the last layer instead of redrawing.
+
+        Redrawing a large sketch takes longer than a frame, so a pan or zoom translates and
+        scales the layer it already has, and the sketch is redrawn when the view settles. Any
+        other change (the document, the widget size, the grid) redraws at once.
+        """
+        layer = self._layer
+        if (
+            self._moving
+            and layer is not None
+            and self._layer_view is not None
+            and self._layer_document is self.session.document
+            and self._layer_frame == self._frame_key()
+        ):
+            scale, origin_x, origin_y = self._layer_view
+            k = self.view.scale / scale
+            qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
+            qp.save()
+            qp.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            qp.translate(self.view.origin_x - origin_x * k, self.view.origin_y - origin_y * k)
+            qp.scale(k, k)
+            qp.drawPixmap(0, 0, layer)
+            qp.restore()
+            return
+        qp.drawPixmap(0, 0, self._static_layer())
+
     def _static_layer(self) -> QPixmap:
         """Grid, geometry, and dimensions, redrawn only when the document or the view changes.
 
@@ -520,17 +576,15 @@ class Canvas(QWidget):
         """
         ratio = self.devicePixelRatioF()
         view = self.view
-        key = (
-            view.scale,
-            view.origin_x,
-            view.origin_y,
-            self.width(),
-            self.height(),
-            ratio,
-            self.show_grid,
-        )
+        view_key = (view.scale, view.origin_x, view.origin_y)
+        frame = self._frame_key()
         document = self.session.document
-        if self._layer is not None and self._layer_key == key and self._layer_document is document:
+        if (
+            self._layer is not None
+            and self._layer_view == view_key
+            and self._layer_frame == frame
+            and self._layer_document is document
+        ):
             return self._layer
         layer = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
         layer.setDevicePixelRatio(ratio)
@@ -546,7 +600,8 @@ class Canvas(QWidget):
                 painter.geometry(entity)
         self.hidden_dimensions = paint_annotations(painter, self.session, frozenset())
         qp.end()
-        self._layer, self._layer_key, self._layer_document = layer, key, document
+        self._layer, self._layer_view, self._layer_frame = layer, view_key, frame
+        self._layer_document = document
         return layer
 
     def _paint_highlights(self, painter: ModelPainter) -> None:

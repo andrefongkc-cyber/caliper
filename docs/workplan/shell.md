@@ -1,4 +1,4 @@
-Status: one joint PR on `contracts/v1-complete` carries Stream A's engine stack, the FilletCorner contract, interior picking, and all of Stream B's V1 shell work; next: Andre's review
+Status: batched drawing measured and rejected (slower); PR open for the real-window benchmark, pan/zoom speedup, browser edit speedup, and the docked palette, next: decide on region-limited redraws
 
 # Shell workplan — Stream B
 
@@ -113,7 +113,7 @@ Contract wording to settle before freezing:
 - [x] Undo/redo wired to the command bus, with command display labels
 - [x] File menu: new, open, save, save as
 - [x] pytest-qt coverage for tool-mode transitions and input handling
-- [ ] Profile paint time with ~2,000 entities at 120 Hz
+- [x] Profile paint time with ~2,000 entities at 120 Hz (2026-09-17, real window; see "Real-window performance" below)
 
 ## Next: an interface that shows the verification loop (plan, 2026-09-15)
 
@@ -201,7 +201,7 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 
   Pointer move at 10,000 is the engine's linear `nearest_feature` + `entity_at_point` (profiled: 0.53 s of 20 moves inside `engine/queries.py`). A spatial index is Stream A's call.
 - [x] **P6 AI-native surfaces:** prompt bar (⌘L), proposal card (plan, commands, checks before and after, broken user checks), ghost geometry, Accept (⌘Return) as one transaction credited to Agent, Reject (Esc). Proposals run on a scratch `Bus(document)` and replay the submitted commands; accepting a stale proposal is refused. Driven by `caliper/app/agent/scripted.py`, a labelled stand-in that understands the phrasings in `EXAMPLES`; the review flow is what a V3 model would use.
-- [ ] **P7 Constraints:** blocked. Needs planegcs (ADR 0003, Proposed) and constraint types in the contract.
+- [~] **P7 Constraints:** blocked on the contract. The shell's needs are proposed in #18 (2026-09-17); planegcs acceptance is on `shared/adr-0003-accepted`.
 
 ### Gaps found (for Stream A / the contract)
 
@@ -253,3 +253,93 @@ Shell work added on top of the engine in this PR:
 - Everything recorded in the sections above: browser, history, checks, the agent review flow, performance work, interior picking updates with ⌘-drag, and Zoom to Fit label padding.
 
 Not included, deliberately: `shared/adr-0003-accepted`, `shared/occt-ci`, and `shared/qt-gpl-bundling`, which are Stream A's maintainer changes and independent of this.
+
+## After the merge (2026-09-17)
+
+- [x] **#15 merged** as `19757b9` with Rebase and merge: 41 linear commits, tree identical to the approved head. GitHub refuses to rebase a branch holding merge commits, so the branch was flattened first (one `core.md` status conflict, resolved as the original merge had) and CI re-ran green. On `main`: 664 passed, 16 skipped (OCCT extra not installed); ruff, format, mypy clean. The app tests need `QT_QPA_PLATFORM=offscreen` locally, as CI sets.
+- [x] Issue #11 closed. The branches #15 subsumed are deleted.
+- [x] **Contract gaps filed.** #16 covers where checks live: an ADR, recommending expectations in the document, changed by commands. #17 groups the rest: author on `Change`, no notice when a transaction commits, the dimension offset rule, the spatial index, and absolute-position metrics. The "Gaps found" list above now lives in those issues.
+- [~] **P7 contract proposal (#18):**
+  - Constraints as one entity dataclass per kind, with no placement field.
+  - `value: float | None` makes a dimension driving.
+  - A `solve_status` query.
+  - Conflicts come back as `Rejected` with `constraint.conflict` and a new `Error.ids`.
+  - A `DragFeature` command.
+  - Solved positions stored in the file.
+  - Also flags that `vision.md` puts driving dimensions in V2 while ADR 0003 and the `DistanceDimension` docstring say V1.5.
+- [ ] Next, once #18 settles decisions 1, 4, and 5: build the constraint glyph layer, the DoF colouring tokens, and the constraint palette entries against stand-ins.
+- [ ] Next, once #16 is decided: the Checks panel reads from the document, and adding or removing a check goes through the bus.
+
+## Real-window performance (2026-09-17)
+
+The P5 numbers were measured offscreen at device pixel ratio 1, and "repaint 42 → 0.2 ms" was the *cached* repaint only. New `tests/app/bench_canvas.py` (not collected by pytest) opens the main window and times what a user actually causes. Machine: M2 Pro MacBook Pro, Liquid Retina XDR, 120 Hz, ratio 2, window 1440x900. Sketch: a grid of rectangles, circles, lines, and arcs with 1 in 20 a horizontal dimension. Medians of 40 runs. Times are CPU time to handle the event and paint into Qt's backing store, not display latency.
+
+| Frame (budget 8.33 ms at 120 Hz) | 2,000 offscreen | 2,000 real | 10,000 offscreen | 10,000 real |
+|---|---|---|---|---|
+| Cached repaint | 0.34 | 3.36 | 0.38 | 4.79 |
+| Pointer move (handler + repaint) | 5.27 | 6.93 | 24.75 | 26.11 |
+| Pan frame | 14.90 | **25.55** | 69.90 | **80.37** |
+| Zoom frame | 15.06 | **22.33** | 69.65 | **77.74** |
+| One edit (command + repaint) | 41.06 | **51.73** | 112.14 | **122.75** |
+
+Reproduce: `uv run python tests/app/bench_canvas.py`, and again with `QT_QPA_PLATFORM=offscreen`.
+
+**What costs what at 2,000, real window** (checked by hiding panels and removing dimensions, not only by profiling):
+
+| Setup | Edit command | Edit repaint | Pan frame |
+|---|---|---|---|
+| Panels shown, with dimensions | 10.72 | 37.73 | 23.57 |
+| Panels hidden, with dimensions | 4.20 | 17.39 | 17.94 |
+| Panels shown, no dimensions | 9.46 | 31.35 | 17.56 |
+| Panels hidden, no dimensions | 3.23 | 15.83 | 16.27 |
+
+- **Pan and zoom rebuild the whole static layer every frame.** `_static_layer` keys on scale and origin, so the cache never survives a view change. Redrawing about 1,900 shapes into a ratio-2 pixmap is about 16 ms: twice the budget, with no panels and no dimensions.
+- **The side panels cost about 6 ms of every edit's command and about 20 ms of its repaint.** cProfile points at `SketchBrowser._apply` → `_fill` (about 100 rows and about 200 `setText` calls per edit) plus panel painting flushed in the same window sync. In the real app, `update()` coalescing may hide part of the repaint share; `bench_canvas.py` calls `repaint()` to time synchronously.
+- **Dimensions are cheap:** 100 of them add about 1.6 ms. cProfile claimed 11 ms; its per-call overhead inflates call-dense Python.
+- **Pointer moves** fit at 2,000 (6.9 ms) and miss at 10,000 (26 ms). That's the engine's linear hit-testing, the same both ways, so the spatial index (#17) only matters near 10,000.
+- **Cached repaint** (blitting the ratio-2 layer) takes 3.4 to 4.8 ms: about half a 120 Hz frame before anything else is drawn.
+
+Fix order (Stream B, not started):
+- [x] **Pan and zoom** (2026-09-17): a trackpad scroll, wheel step, pinch, or middle/Space drag now translates and scales the last layer (`Canvas._paint_static`) and marks the view as moving. The sketch is redrawn once the view has been still for `SETTLE_MS` (150 ms). Anything else redraws at once: document, widget size, grid toggle, and view jumps (Zoom to Fit, frame, reset).
+
+  | Real window, median ms | 2,000 before | 2,000 after | 10,000 before | 10,000 after |
+  |---|---|---|---|---|
+  | Pan frame | 25.55 | **4.05** | 80.37 | **4.21** |
+  | Zoom frame | 22.33 | **4.78** | 77.74 | **5.33** |
+  | Redraw once the view settles (paid once per gesture) | n/a | 24.69 | n/a | 80.29 |
+
+  - Tests: 9 in `tests/app/test_canvas.py`. Reuse while moving and one rebuild after settling, for trackpad pan, wheel zoom, and middle drag. A panned frame matches a full redraw pixel for pixel outside the uncovered strips. Zoomed edges peak within 1 px of a full redraw. Edit, resize, grid, and Zoom to Fit redraw at once. Verified that 7 deliberate breaks each fail a test: no scale, translate without the zoom factor, pan sign flipped, never settling, ignoring document changes, ignoring size and grid, and Fit keeping the motion state.
+  - **Trade-off, visible:** while the view moves, areas the old layer didn't cover are plain canvas colour (no grid or geometry) until the redraw 150 ms after the gesture stops. Zooming out shows the most. A scaled layer also looks soft during a zoom.
+  - **Measurement note:** the same redraw takes 23.5 ms back to back but 46.6 ms after 650 ms of idle, because the chip slows after idling. `bench_canvas.py` now waits a realistic `SETTLE_MS` + 50 ms before timing the settle redraw.
+- [x] **Panels** (2026-09-17). Measured per widget before changing anything: a timed `QApplication.notify` for paint events, cProfile for slots, then ablation.
+  - **The main cost was the Sketch browser's value column set to `ResizeToContents`.** It re-measures every row whenever one row's text changes: about 7 ms of each edit's command and about 15 ms of its paint at 2,000 entities.
+  - The column is now `Fixed`, sized from a running maximum of text widths that is updated only for rows that change, including group counts and removed rows. It still fits its longest value and shrinks back.
+  - `_apply` now refills only the modified rows and the dimensions that measure them (`_measures`), not every dimension on every change.
+  - History, Checks, Properties, and the sidebar palette each cost under 0.4 ms per edit, so they're unchanged.
+
+  | Real window, median ms | 2,000 before | 2,000 after | 10,000 before | 10,000 after |
+  |---|---|---|---|---|
+  | Edit: command | 10.81 | **3.83** | 25.44 | **15.11** |
+  | Edit: repaint | 39.21 | **26.68** | 93.83 | **79.03** |
+  | Edit: total | 49.99 | **30.44** | 119.50 | **94.37** |
+
+  At 2,000 the edit repaint (26.7 ms) is now essentially the canvas layer rebuild (24.8 ms), which is the next item. At 10,000 the command's remaining 15 ms hasn't been profiled; the browser still loops over every entity for `_measures` and `_pull_selection`.
+  - Tests: 3 in `tests/app/test_panels.py`: dimension rows follow their shape; an edit refills only the rows it changes; the value column fits its longest value, including after an undo and a delete. Verified that 4 deliberate breaks each fail a test. The delete case was added after the first mutation run missed a kept width for removed rows.
+- [x] **Layer rebuild: batching measured and rejected** (2026-09-17). An ablation of the rebuild at 2,000 entities (real window, ratio 2, panels hidden, no dimensions) split the 14 to 15 ms into three parts:
+  - fill and grid: 2.0 ms
+  - Python per-entity work: about 2.0 ms
+  - Qt rasterising the antialiased shapes: about 11 ms (circles 5.2, arcs 3.7, rectangles 3.1, lines 2.1)
+
+  Batching attacks only the small Python part, and in practice it's slower: `drawLines` and `drawRects` lists take 18.8 ms, and a single `QPainterPath` for everything takes 292.9 ms. Turning antialiasing off saves 4.2 ms, but it's not worth the look; plain caps and joins save 1.9 ms.
+- [ ] **Next idea, not started, proposal only:** redraw only the region that changed. An edit would redraw the old and new bounds of the changed entities, plus the dimensions measuring them. A settling pan would shift the old layer and redraw just the exposed strips. Zoom still needs a full redraw. Correctness can be pinned by comparing a region-redrawn layer with a full redraw pixel for pixel. The risk is stale pixels from annotation extents.
+
+## Commands in the sidebar (2026-09-17, user request)
+
+- [x] **The ⌘K palette also sits docked in the right sidebar**, between Properties and Checks (`window.command_panel`, dock `commands-dock`). It's the same `CommandPalette` widget with `docked=True`: the same entries, search, ranking, keyboard handling, and typed parameter forms. So there's still one list, generated from the window's actions plus the `Command` union.
+  - It's always visible and never hides. Running an action or command, or pressing Esc in its search, resets it to an empty search and returns focus to the canvas.
+  - Enabled states stay current: each action's `changed` signal re-filters the list and keeps the highlighted row.
+  - ⌘K still opens the floating palette, unchanged.
+  - Painted on `theme.PANEL`: the first version had a transparent background that showed white on Cocoa and made names unreadable. Caught from a real-window screenshot, now pinned by a pixel test.
+  - Tests: 7 in `tests/app/test_palette.py`. Verified that 5 deliberate breaks each fail a test: docked below Checks, list never loaded, enabled states not tracked, hiding after a run, and the search not cleared.
+  - Not changed: no list in the app styles its scrollbar, so an overflowing list shows the native black track. That's app-wide, not specific to this panel.
+
