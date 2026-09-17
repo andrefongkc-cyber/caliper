@@ -1,8 +1,8 @@
 """Canvas navigation, painting, feature snapping, and the dimension tool."""
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QColor, QFontMetricsF, QWheelEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QFontMetricsF, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from caliper.app import theme
@@ -285,3 +285,138 @@ def test_zoom_to_fit_ignores_labels_when_there_are_none(window) -> None:
     assert box.x_min < 0
     assert box.x_max > 120
     assert box.width < 400  # not padded for labels that aren't there
+
+
+# --- Moving the view reuses the cached layer --------------------------------------------
+
+
+def _rebuilt_after_settling(canvas, qtbot, layer) -> None:
+    def rebuilt() -> bool:
+        canvas.grab()
+        return canvas._layer is not layer
+
+    qtbot.waitUntil(rebuilt, timeout=2000)
+
+
+def _brightest(image, at: tuple[float, float], along: str, reach: int = 8) -> int:
+    """Offset (in device pixels) of the brightest pixel within `reach` of `at`, across a line."""
+    ratio = image.devicePixelRatio()
+    cx, cy = round(at[0] * ratio), round(at[1] * ratio)
+    offsets = range(-reach, reach + 1)
+    if along == "x":
+        values = [image.pixelColor(cx + d, cy).lightness() for d in offsets]
+    else:
+        values = [image.pixelColor(cx, cy + d).lightness() for d in offsets]
+    return offsets[values.index(max(values))]
+
+
+def _trackpad_pan(canvas, qtbot) -> None:
+    wheel(canvas, QPoint(300, 300), pixels=QPoint(6, -4))
+
+
+def _wheel_zoom(canvas, qtbot) -> None:
+    wheel(canvas, QPoint(300, 300), angle=120)
+
+
+def _middle_drag(canvas, qtbot) -> None:
+    qtbot.mousePress(canvas, Qt.MouseButton.MiddleButton, pos=QPoint(200, 200))
+    position = QPointF(230, 190)
+    QApplication.sendEvent(
+        canvas,
+        QMouseEvent(
+            QEvent.Type.MouseMove,
+            position,
+            canvas.mapToGlobal(position),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.MiddleButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+    qtbot.mouseRelease(canvas, Qt.MouseButton.MiddleButton, pos=QPoint(230, 190))
+
+
+@pytest.mark.parametrize("gesture", [_trackpad_pan, _wheel_zoom, _middle_drag])
+def test_a_moving_view_reuses_the_layer_until_it_settles(window, qtbot, gesture) -> None:
+    draw_everything(window.session)
+    canvas = window.canvas
+    canvas.grab()
+    layer = canvas._layer
+    for _ in range(3):
+        gesture(canvas, qtbot)
+        canvas.grab()
+        assert canvas._layer is layer
+    _rebuilt_after_settling(canvas, qtbot, layer)
+
+
+def test_panning_draws_the_old_layer_exactly_where_a_redraw_would(window, qtbot) -> None:
+    draw_everything(window.session)
+    canvas = window.canvas
+    canvas.grab()
+    layer = canvas._layer
+    wheel(canvas, QPoint(300, 300), pixels=QPoint(12, -8))  # content moves right and up
+    moving = canvas.grab().toImage()
+    assert canvas._layer is layer
+    _rebuilt_after_settling(canvas, qtbot, layer)
+    settled = canvas.grab().toImage()
+    ratio = settled.devicePixelRatio()
+    width, height = round(canvas.width() * ratio), round(canvas.height() * ratio)
+    # The old layer still covers everything but a 12 px strip on the left and 8 px at the bottom.
+    differing = [
+        (x, y)
+        for y in range(0, height - round(8 * ratio), 3)
+        for x in range(round(12 * ratio), width, 3)
+        if moving.pixel(x, y) != settled.pixel(x, y)
+    ]
+    assert differing == []
+
+
+def test_zooming_draws_the_old_layer_scaled_about_the_pointer(window, qtbot) -> None:
+    draw_everything(window.session)
+    canvas = window.canvas
+    window.fit_action.trigger()
+    canvas.grab()
+    layer = canvas._layer
+    center = QPoint(canvas.width() // 2, canvas.height() // 2)
+    for _ in range(3):
+        wheel(canvas, center, angle=120)
+    moving = canvas.grab().toImage()
+    assert canvas._layer is layer
+    _rebuilt_after_settling(canvas, qtbot, layer)
+    settled = canvas.grab().toImage()
+    right = canvas.view.to_widget(Point2(x=100, y=25))  # the rectangle's right edge
+    top = canvas.view.to_widget(Point2(x=50, y=50))  # and its top edge
+    for x, y in (right, top):
+        assert 0 <= x < canvas.width()
+        assert 0 <= y < canvas.height()
+    # Scaling blurs a 1 px line, so compare where each edge peaks, not its exact colour.
+    assert abs(_brightest(moving, right, "x") - _brightest(settled, right, "x")) <= 1
+    assert abs(_brightest(moving, top, "y") - _brightest(settled, top, "y")) <= 1
+
+
+def _edit(window) -> None:
+    window.session.execute(CreateCircle(center=Point2(x=60, y=40), radius=4))
+
+
+def _resize(window) -> None:
+    window.resize(window.width() - 40, window.height())
+
+
+def _toggle_grid(window) -> None:
+    window.grid_action.trigger()
+
+
+def _zoom_to_fit(window) -> None:
+    window.fit_action.trigger()
+
+
+@pytest.mark.parametrize("change", [_edit, _resize, _toggle_grid, _zoom_to_fit])
+def test_changes_other_than_view_motion_redraw_at_once(window, qtbot, change) -> None:
+    draw_everything(window.session)
+    canvas = window.canvas
+    canvas.grab()
+    wheel(canvas, QPoint(300, 300), pixels=QPoint(6, -4))
+    canvas.grab()
+    layer = canvas._layer
+    change(window)
+    canvas.grab()
+    assert canvas._layer is not layer
