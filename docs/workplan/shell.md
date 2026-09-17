@@ -1,4 +1,4 @@
-Status: edits 50 → 30 ms at 2,000 entities after fixing the Sketch browser's column sizing and refills, next: batch the canvas draw calls (the layer rebuild is now most of an edit and the redraw after panning)
+Status: batched drawing measured and rejected (slower); PR open for the real-window benchmark, pan/zoom speedup, browser edit speedup, and the docked palette, next: decide on region-limited redraws
 
 # Shell workplan — Stream B
 
@@ -325,7 +325,13 @@ Fix order (Stream B, not started):
 
   At 2,000 the edit repaint (26.7 ms) is now essentially the canvas layer rebuild (24.8 ms), which is the next item. At 10,000 the command's remaining 15 ms hasn't been profiled; the browser still loops over every entity for `_measures` and `_pull_selection`.
   - Tests: 3 in `tests/app/test_panels.py`: dimension rows follow their shape; an edit refills only the rows it changes; the value column fits its longest value, including after an undo and a delete. Verified that 4 deliberate breaks each fail a test. The delete case was added after the first mutation run missed a kept width for removed rows.
-- [ ] **Layer rebuild:** batch the draw calls (`drawLines` and `drawRects` arrays, or one path per pen) instead of one Python→Qt call per entity. Measure with `bench_canvas.py`, panels hidden.
+- [x] **Layer rebuild: batching measured and rejected** (2026-09-17). An ablation of the rebuild at 2,000 entities (real window, ratio 2, panels hidden, no dimensions) split the 14 to 15 ms into three parts:
+  - fill and grid: 2.0 ms
+  - Python per-entity work: about 2.0 ms
+  - Qt rasterising the antialiased shapes: about 11 ms (circles 5.2, arcs 3.7, rectangles 3.1, lines 2.1)
+
+  Batching attacks only the small Python part, and in practice it's slower: `drawLines` and `drawRects` lists take 18.8 ms, and a single `QPainterPath` for everything takes 292.9 ms. Turning antialiasing off saves 4.2 ms, but it's not worth the look; plain caps and joins save 1.9 ms.
+- [ ] **Next idea, not started, proposal only:** redraw only the region that changed. An edit would redraw the old and new bounds of the changed entities, plus the dimensions measuring them. A settling pan would shift the old layer and redraw just the exposed strips. Zoom still needs a full redraw. Correctness can be pinned by comparing a region-redrawn layer with a full redraw pixel for pixel. The risk is stale pixels from annotation extents.
 
 ## Commands in the sidebar (2026-09-17, user request)
 
