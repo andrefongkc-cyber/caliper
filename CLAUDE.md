@@ -58,7 +58,7 @@ The `boundaries` CI check rejects stream branches that touch files outside their
 |---|---|---|
 | [0001](docs/adr/0001-geometry-kernel-occt.md) | Geometry kernel: OCCT behind a provisional Kernel protocol | Accepted |
 | [0002](docs/adr/0002-command-bus-and-snapshot-document.md) | Command bus with automatic deltas; snapshot document | Accepted |
-| [0003](docs/adr/0003-constraint-solver-planegcs.md) | Constraint solver: planegcs | Proposed |
+| [0003](docs/adr/0003-constraint-solver-planegcs.md) | Constraint solver: planegcs | Accepted |
 | [0004](docs/adr/0004-desktop-shell-pyside6-mac-first.md) | Desktop shell: PySide6, Mac-first | Accepted |
 | [0005](docs/adr/0005-file-format-and-schema-versioning.md) | File format and schema versioning | Accepted |
 | [0006](docs/adr/0006-license-policy-no-gpl.md) | License policy: no GPL/AGPL | Accepted |
