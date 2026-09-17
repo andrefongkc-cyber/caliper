@@ -1,4 +1,4 @@
-Status: measured the canvas in a real 120 Hz Retina window (pan, zoom and edits drop frames at 2,000 entities), next: fix pan/zoom first (reuse the layer while the view moves), then the per-change panel work
+Status: pan and zoom now reuse the cached layer (real window: 25.6 → 4.1 ms per pan frame at 2,000 entities), next: the per-change panel work, then batched draw calls for the redraw after the view settles
 
 # Shell workplan — Stream B
 
@@ -300,6 +300,16 @@ Reproduce: `uv run python tests/app/bench_canvas.py`, and again with `QT_QPA_PLA
 - **Cached repaint** (blitting the ratio-2 layer) takes 3.4 to 4.8 ms: about half a 120 Hz frame before anything else is drawn.
 
 Fix order (Stream B, not started):
-- [ ] **Pan and zoom:** keep the last layer while the view moves; translate it for pan and scale it for zoom, then rebuild once the view settles. Target: a pan frame near the cached-repaint cost.
+- [x] **Pan and zoom** (2026-09-17): a trackpad scroll, wheel step, pinch, or middle/Space drag now translates and scales the last layer (`Canvas._paint_static`) and marks the view as moving. The sketch is redrawn once the view has been still for `SETTLE_MS` (150 ms). Anything else redraws at once: document, widget size, grid toggle, and view jumps (Zoom to Fit, frame, reset).
+
+  | Real window, median ms | 2,000 before | 2,000 after | 10,000 before | 10,000 after |
+  |---|---|---|---|---|
+  | Pan frame | 25.55 | **4.05** | 80.37 | **4.21** |
+  | Zoom frame | 22.33 | **4.78** | 77.74 | **5.33** |
+  | Redraw once the view settles (paid once per gesture) | n/a | 24.69 | n/a | 80.29 |
+
+  - Tests: 9 in `tests/app/test_canvas.py`. Reuse while moving and one rebuild after settling, for trackpad pan, wheel zoom, and middle drag. A panned frame matches a full redraw pixel for pixel outside the uncovered strips. Zoomed edges peak within 1 px of a full redraw. Edit, resize, grid, and Zoom to Fit redraw at once. Verified that 7 deliberate breaks each fail a test: no scale, translate without the zoom factor, pan sign flipped, never settling, ignoring document changes, ignoring size and grid, and Fit keeping the motion state.
+  - **Trade-off, visible:** while the view moves, areas the old layer didn't cover are plain canvas colour (no grid or geometry) until the redraw 150 ms after the gesture stops. Zooming out shows the most. A scaled layer also looks soft during a zoom.
+  - **Measurement note:** the same redraw takes 23.5 ms back to back but 46.6 ms after 650 ms of idle, because the chip slows after idling. `bench_canvas.py` now waits a realistic `SETTLE_MS` + 50 ms before timing the settle redraw.
 - [ ] **Panels:** update only the rows a `Change` touches, not every dimension row; measure again to see how much of the repaint share goes with it.
 - [ ] **Layer rebuild:** batch the draw calls (`drawLines` and `drawRects` arrays, or one path per pen) instead of one Python→Qt call per entity. Measure with `bench_canvas.py`, panels hidden.
