@@ -1,4 +1,4 @@
-Status: V1 engine is on main (PR #15, 2026-09-17), next: restore the three closed maintainer PRs (#12-#14), then the contract freeze
+Status: V1 on main; freeze PR #22 and the restored maintainer PRs #12-#14 open for Lucas, next: the six deferred contract decisions once the freeze lands
 
 # Core workplan — Stream A
 
@@ -110,7 +110,10 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 - [x] PR #15 (Lucas, 2026-09-17) landed the whole stack plus interior picking, FilletCorner, and the shell's V1 work in one joint PR, rebased to a linear 41 commits. On main with every extra installed: 679 passed, 1 failed (below); bench 6/6; the three replay fixtures are byte-identical
   - `tests/app/test_panels.py::test_area_isnt_offered_without_a_geometry_kernel` assumes no kernel is installed, so it fails wherever the occt extra is (CI's app job doesn't install it). Tested fix: make the test pin "no kernel" itself
   - PRs #12 (OCCT CI job), #13 (ADR 0007, pyproject correction, QML ban) and #14 (ADR 0003 Accepted) were closed by Lucas before #15 and are not in it; all three still apply cleanly
-- [ ] Exit: freeze `commands.py`, `document.py`, `queries.py`, `errors.py` → split streams (10 contract gaps recorded above)
+- [~] Exit: freeze `commands.py`, `document.py`, `queries.py`, `errors.py` → split streams
+  - PR #22 drafts it as documentation only: both gap lists (core 1-10, shell 1-12) written into the four files, each marked frozen. No signatures or behaviour changed
+  - Six gaps need a real decision and are deferred with a recommendation each: `Error` returns for the pickers, normalizing `Arc.start_angle`, moving `LoadError` into contracts, an author on `Change`, a position `Metric`, a document revision counter
+  - Reopened and rebased #12 (OCCT CI job), #13 (ADR 0007 + pyproject), #14 (ADR 0003 Accepted); issue #21 asks Lucas why they were closed and carries the tested fix for the one test that fails outside CI
 
 ## V1 — Core
 
