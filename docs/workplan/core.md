@@ -1,4 +1,4 @@
-Status: interior picking + FilletCorner land together with Lucas's shell work in one joint contracts/ PR (see docs/workplan/shell.md), next: review that PR with Lucas
+Status: V1 on main; freeze PR #22 and the restored maintainer PRs #12-#14 open for Lucas, next: the six deferred contract decisions once the freeze lands
 
 # Core workplan — Stream A
 
@@ -100,14 +100,20 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
     - Shell impact (Stream B): `test_selection.py::test_click_selects_the_outline_and_empty_space_clears` and `::test_hover_follows_the_pointer_in_select_mode_only` assert inside-clicks miss, so they fail on this branch; a drag starting inside a shape now moves it instead of box-selecting
   - [x] Rectangle resize keeps the bottom-left corner fixed: already how ModifyEntity works (`test_changing_width_keeps_the_corner`). V1.5 solver default: pin that corner unless a constraint says otherwise
   - [~] Zoom-to-fit must not clip dimension labels. Engine `bounding_box` stays geometry-only, because `check`/bench BBOX metrics use it and text size is a rendering detail; see the recommendation for the shell
-- [~] `FilletCorner` (user request, 2026-09-15; branch `contracts/fillet-corner`, stacked after `bench-cases`; it does not depend on `interior-picking`)
+- [x] `FilletCorner` (user request, 2026-09-15). Landed with the shell's Fillet tool in PR #15
   - Contract: `FilletCorner(a, b, radius, id=None)` in `commands.py`, so this is a joint change that needs Stream B's review; a `contracts/` branch is unrestricted by the boundaries check
   - V1 rounds a drawn corner: the two lines must already share an endpoint (exact match). Lines that would only meet if extended are rejected, per the user's decision
   - Math in `handlers.py`: tangent distance from dot/cross (exact on right angles), centre a radius inside the corner, both lines trimmed to the tangent points, arc added the short way round CCW. Undo is one automatic delta
   - Rejects: non-positive/non-finite radius, missing/malformed/duplicate/non-line ids, no shared endpoint, collinear lines, and a radius needing as much of a line as it has (a radius exactly equal to a line's length would leave a zero-length line)
   - Shell impact: Lucas's `test_palette.py::test_every_command_type_is_listed_or_deliberately_left_out` walks the `Command` union, so the palette must list or deliberately skip `fillet_corner`. That test fails on this branch until he does
   - Tests: exact right-angle values, all four shared-endpoint orders, undo/redo, resolved-command replay, a golden headless replay fixture, every error case, and a 1,000-example property test (tangency, sweep = 180° - corner angle, far ends kept). Verified the tests catch 5 deliberate breaks. Bench case `fillet-corner-10mm`
-- [ ] Exit: milestone works end to end → freeze `commands.py` + `document.py` → split streams
+- [x] PR #15 (Lucas, 2026-09-17) landed the whole stack plus interior picking, FilletCorner, and the shell's V1 work in one joint PR, rebased to a linear 41 commits. On main with every extra installed: 679 passed, 1 failed (below); bench 6/6; the three replay fixtures are byte-identical
+  - `tests/app/test_panels.py::test_area_isnt_offered_without_a_geometry_kernel` assumes no kernel is installed, so it fails wherever the occt extra is (CI's app job doesn't install it). Tested fix: make the test pin "no kernel" itself
+  - PRs #12 (OCCT CI job), #13 (ADR 0007, pyproject correction, QML ban) and #14 (ADR 0003 Accepted) were closed by Lucas before #15 and are not in it; all three still apply cleanly
+- [~] Exit: freeze `commands.py`, `document.py`, `queries.py`, `errors.py` → split streams
+  - PR #22 drafts it as documentation only: both gap lists (core 1-10, shell 1-12) written into the four files, each marked frozen. No signatures or behaviour changed
+  - Six gaps need a real decision and are deferred with a recommendation each: `Error` returns for the pickers, normalizing `Arc.start_angle`, moving `LoadError` into contracts, an author on `Change`, a position `Metric`, a document revision counter
+  - Reopened and rebased #12 (OCCT CI job), #13 (ADR 0007 + pyproject), #14 (ADR 0003 Accepted); issue #21 asks Lucas why they were closed and carries the tested fix for the one test that fails outside CI
 
 ## V1 — Core
 
