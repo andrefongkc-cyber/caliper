@@ -1,4 +1,4 @@
-Status: pan and zoom now reuse the cached layer (real window: 25.6 → 4.1 ms per pan frame at 2,000 entities), next: the per-change panel work, then batched draw calls for the redraw after the view settles
+Status: added the command palette to the sidebar under Properties (user request), next: resume the per-change panel work that slows edits, then batched draw calls
 
 # Shell workplan — Stream B
 
@@ -313,3 +313,14 @@ Fix order (Stream B, not started):
   - **Measurement note:** the same redraw takes 23.5 ms back to back but 46.6 ms after 650 ms of idle, because the chip slows after idling. `bench_canvas.py` now waits a realistic `SETTLE_MS` + 50 ms before timing the settle redraw.
 - [ ] **Panels:** update only the rows a `Change` touches, not every dimension row; measure again to see how much of the repaint share goes with it.
 - [ ] **Layer rebuild:** batch the draw calls (`drawLines` and `drawRects` arrays, or one path per pen) instead of one Python→Qt call per entity. Measure with `bench_canvas.py`, panels hidden.
+
+## Commands in the sidebar (2026-09-17, user request)
+
+- [x] **The ⌘K palette also sits docked in the right sidebar**, between Properties and Checks (`window.command_panel`, dock `commands-dock`). It's the same `CommandPalette` widget with `docked=True`: the same entries, search, ranking, keyboard handling, and typed parameter forms. So there's still one list, generated from the window's actions plus the `Command` union.
+  - It's always visible and never hides. Running an action or command, or pressing Esc in its search, resets it to an empty search and returns focus to the canvas.
+  - Enabled states stay current: each action's `changed` signal re-filters the list and keeps the highlighted row.
+  - ⌘K still opens the floating palette, unchanged.
+  - Painted on `theme.PANEL`: the first version had a transparent background that showed white on Cocoa and made names unreadable. Caught from a real-window screenshot, now pinned by a pixel test.
+  - Tests: 7 in `tests/app/test_palette.py`. Verified that 5 deliberate breaks each fail a test: docked below Checks, list never loaded, enabled states not tracked, hiding after a run, and the search not cleared.
+  - Not changed: no list in the app styles its scrollbar, so an overflowing list shows the native black track. That's app-wide, not specific to this panel.
+
