@@ -5,7 +5,8 @@ and times the frames a user actually causes, against a 120 Hz budget:
 
 - cached repaint: nothing changed, the static layer is reused
 - pointer move: hover hit-testing and snapping, then the repaint it triggers
-- pan and zoom: the view changes, so the static layer is rebuilt
+- pan and zoom: a trackpad scroll or wheel step, which moves the cached layer
+- redraw after a pan: the one full rebuild once the view has settled
 - one edit: `ModifyEntity` through the session, then the repaint
 
 Run it once as is (Cocoa, Retina) and once with `QT_QPA_PLATFORM=offscreen` to compare.
@@ -21,13 +22,14 @@ import time
 from collections.abc import Callable
 from types import MappingProxyType
 
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QGuiApplication, QMouseEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QGuiApplication, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from caliper.app import theme
 from caliper.app.main_window import MainWindow
 from caliper.app.session import DocumentSession
+from caliper.app.viewport.canvas import SETTLE_MS
 from caliper.contracts.commands import ModifyEntity
 from caliper.contracts.document import (
     Arc,
@@ -149,11 +151,31 @@ def bench(app: QApplication, count: int, runs: int, warmup: int) -> list[tuple[s
         )
         QApplication.sendEvent(canvas, event)
 
+    def scroll(pixels: QPoint, angle: QPoint) -> None:
+        position = QPointF(w / 2, h / 2)
+        event = QWheelEvent(
+            position,
+            canvas.mapToGlobal(position),
+            pixels,
+            angle,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.ScrollUpdate if not pixels.isNull() else Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(canvas, event)
+
     def pan() -> None:
-        canvas.view.pan(3.0 if step[0] % 2 else -3.0, 0.0)
+        scroll(QPoint(3 if step[0] % 2 else -3, 0), QPoint())
 
     def zoom() -> None:
-        canvas.view.zoom_about(1.02 if step[0] % 2 else 1 / 1.02, w / 2, h / 2)
+        scroll(QPoint(), QPoint(0, 12 if step[0] % 2 else -12))
+
+    def settle_view() -> None:
+        deadline = time.monotonic() + (SETTLE_MS + 50) / 1000  # a real pause, just past settling
+        while time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.005)
 
     def edit() -> None:
         width = 15.0 if step[0] % 2 else 14.0
@@ -166,6 +188,7 @@ def bench(app: QApplication, count: int, runs: int, warmup: int) -> list[tuple[s
         "pointer move: total": [],
         "pan frame": [],
         "zoom frame": [],
+        "redraw after the view settles": [],
         "edit: command": [],
         "edit: repaint": [],
         "edit: total": [],
@@ -196,6 +219,12 @@ def bench(app: QApplication, count: int, runs: int, warmup: int) -> list[tuple[s
         frame = timed(lambda: (zoom(), canvas.repaint()))
         if keep:
             results["zoom frame"].append(frame)
+
+        if keep and k % 4 == 0:
+            settle_view()
+            # Once settled, a view change is drawn in full: the cost paid when a pan stops.
+            frame = timed(lambda: (canvas.view.pan(1.0, 0.0), canvas.repaint()))
+            results["redraw after the view settles"].append(frame)
 
         settle()
         command = timed(edit)
