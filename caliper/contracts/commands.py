@@ -1,4 +1,4 @@
-"""Commands: the only way to change a Document. Freezes hard.
+"""Commands: the only way to change a Document. Frozen for V1.
 
 Every mutation, whether it comes from the UI, the AI layer, or a script, is one of these
 dataclasses sent to a CommandBus. See ADR 0002.
@@ -13,6 +13,9 @@ Conventions:
   resolved command in `Applied` always carries the concrete id, and that is what replay
   and the transcript record.
 - Commands never define their own inverse. The bus records a Delta and undo inverts it.
+
+Frozen as of V1: a new command type, or a change to an existing one, needs a joint
+`contracts/` PR. ADR 0002 has the reasoning.
 """
 
 from collections.abc import Callable, Mapping
@@ -269,7 +272,15 @@ class Transaction(Protocol):
 
 
 class CommandBus(Protocol):
-    """The single entry point for changing a document."""
+    """The single entry point for changing a document.
+
+    There is no way to replace the document in place: a bus is created around one, and
+    opening a file means a new bus, because an undo stack must never cross documents.
+
+    Committing a transaction records its undo entry but sends no `Change`, since the
+    document is already in that state. A view that displays the undo label refreshes on
+    the next change.
+    """
 
     @property
     def document(self) -> Document:
@@ -286,6 +297,9 @@ class CommandBus(Protocol):
 
         Consecutive executes with the same `merge_key` merge into one undo entry, e.g.
         "e3.width" while a value is being dragged. Ignored inside a transaction.
+
+        A command that changes nothing (setting a width to the value it already has) is
+        `Applied` with an empty delta: nothing is recorded and subscribers hear nothing.
         """
         ...
 
