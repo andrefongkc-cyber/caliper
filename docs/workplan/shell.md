@@ -1,4 +1,4 @@
-Status: V1 merged (#15); contract gaps filed as #16 (where checks live) and #17, and the P7 constraint contract proposed in #18, next: Andre's answers on #16 and #18
+Status: measured the canvas in a real 120 Hz Retina window (pan, zoom and edits drop frames at 2,000 entities), next: fix pan/zoom first (reuse the layer while the view moves), then the per-change panel work
 
 # Shell workplan — Stream B
 
@@ -113,7 +113,7 @@ Contract wording to settle before freezing:
 - [x] Undo/redo wired to the command bus, with command display labels
 - [x] File menu: new, open, save, save as
 - [x] pytest-qt coverage for tool-mode transitions and input handling
-- [ ] Profile paint time with ~2,000 entities at 120 Hz
+- [x] Profile paint time with ~2,000 entities at 120 Hz (2026-09-17, real window; see "Real-window performance" below)
 
 ## Next: an interface that shows the verification loop (plan, 2026-09-15)
 
@@ -269,3 +269,37 @@ Not included, deliberately: `shared/adr-0003-accepted`, `shared/occt-ci`, and `s
   - Also flags that `vision.md` puts driving dimensions in V2 while ADR 0003 and the `DistanceDimension` docstring say V1.5.
 - [ ] Next, once #18 settles decisions 1, 4, and 5: build the constraint glyph layer, the DoF colouring tokens, and the constraint palette entries against stand-ins.
 - [ ] Next, once #16 is decided: the Checks panel reads from the document, and adding or removing a check goes through the bus.
+
+## Real-window performance (2026-09-17)
+
+The P5 numbers were measured offscreen at device pixel ratio 1, and "repaint 42 → 0.2 ms" was the *cached* repaint only. New `tests/app/bench_canvas.py` (not collected by pytest) opens the main window and times what a user actually causes. Machine: M2 Pro MacBook Pro, Liquid Retina XDR, 120 Hz, ratio 2, window 1440x900. Sketch: a grid of rectangles, circles, lines, and arcs with 1 in 20 a horizontal dimension. Medians of 40 runs. Times are CPU time to handle the event and paint into Qt's backing store, not display latency.
+
+| Frame (budget 8.33 ms at 120 Hz) | 2,000 offscreen | 2,000 real | 10,000 offscreen | 10,000 real |
+|---|---|---|---|---|
+| Cached repaint | 0.34 | 3.36 | 0.38 | 4.79 |
+| Pointer move (handler + repaint) | 5.27 | 6.93 | 24.75 | 26.11 |
+| Pan frame | 14.90 | **25.55** | 69.90 | **80.37** |
+| Zoom frame | 15.06 | **22.33** | 69.65 | **77.74** |
+| One edit (command + repaint) | 41.06 | **51.73** | 112.14 | **122.75** |
+
+Reproduce: `uv run python tests/app/bench_canvas.py`, and again with `QT_QPA_PLATFORM=offscreen`.
+
+**What costs what at 2,000, real window** (checked by hiding panels and removing dimensions, not only by profiling):
+
+| Setup | Edit command | Edit repaint | Pan frame |
+|---|---|---|---|
+| Panels shown, with dimensions | 10.72 | 37.73 | 23.57 |
+| Panels hidden, with dimensions | 4.20 | 17.39 | 17.94 |
+| Panels shown, no dimensions | 9.46 | 31.35 | 17.56 |
+| Panels hidden, no dimensions | 3.23 | 15.83 | 16.27 |
+
+- **Pan and zoom rebuild the whole static layer every frame.** `_static_layer` keys on scale and origin, so the cache never survives a view change. Redrawing about 1,900 shapes into a ratio-2 pixmap is about 16 ms: twice the budget, with no panels and no dimensions.
+- **The side panels cost about 6 ms of every edit's command and about 20 ms of its repaint.** cProfile points at `SketchBrowser._apply` → `_fill` (about 100 rows and about 200 `setText` calls per edit) plus panel painting flushed in the same window sync. In the real app, `update()` coalescing may hide part of the repaint share; `bench_canvas.py` calls `repaint()` to time synchronously.
+- **Dimensions are cheap:** 100 of them add about 1.6 ms. cProfile claimed 11 ms; its per-call overhead inflates call-dense Python.
+- **Pointer moves** fit at 2,000 (6.9 ms) and miss at 10,000 (26 ms). That's the engine's linear hit-testing, the same both ways, so the spatial index (#17) only matters near 10,000.
+- **Cached repaint** (blitting the ratio-2 layer) takes 3.4 to 4.8 ms: about half a 120 Hz frame before anything else is drawn.
+
+Fix order (Stream B, not started):
+- [ ] **Pan and zoom:** keep the last layer while the view moves; translate it for pan and scale it for zoom, then rebuild once the view settles. Target: a pan frame near the cached-repaint cost.
+- [ ] **Panels:** update only the rows a `Change` touches, not every dimension row; measure again to see how much of the repaint share goes with it.
+- [ ] **Layer rebuild:** batch the draw calls (`drawLines` and `drawRects` arrays, or one path per pen) instead of one Python→Qt call per entity. Measure with `bench_canvas.py`, panels hidden.
