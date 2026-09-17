@@ -344,8 +344,11 @@ def test_the_sidebar_list_is_drawn_on_the_panel_colour(window) -> None:
     # Between a title and its shortcut, and in the margin around the search field.
     for x, y in ((at_list.x(), at_list.y()), (1, 1)):
         colour = image.pixelColor(round(x * ratio), round(y * ratio))
-        assert max(
-            abs(colour.red() - theme.PANEL.red()),
-            abs(colour.green() - theme.PANEL.green()),
-            abs(colour.blue() - theme.PANEL.blue()),
-        ) <= 8, (x, y, colour.name(), theme.PANEL.name())
+        assert (
+            max(
+                abs(colour.red() - theme.PANEL.red()),
+                abs(colour.green() - theme.PANEL.green()),
+                abs(colour.blue() - theme.PANEL.blue()),
+            )
+            <= 8
+        ), (x, y, colour.name(), theme.PANEL.name())
