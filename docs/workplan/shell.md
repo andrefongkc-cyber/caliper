@@ -1,4 +1,4 @@
-Status: added the command palette to the sidebar under Properties (user request), next: resume the per-change panel work that slows edits, then batched draw calls
+Status: edits 50 → 30 ms at 2,000 entities after fixing the Sketch browser's column sizing and refills, next: batch the canvas draw calls (the layer rebuild is now most of an edit and the redraw after panning)
 
 # Shell workplan — Stream B
 
@@ -311,7 +311,20 @@ Fix order (Stream B, not started):
   - Tests: 9 in `tests/app/test_canvas.py`. Reuse while moving and one rebuild after settling, for trackpad pan, wheel zoom, and middle drag. A panned frame matches a full redraw pixel for pixel outside the uncovered strips. Zoomed edges peak within 1 px of a full redraw. Edit, resize, grid, and Zoom to Fit redraw at once. Verified that 7 deliberate breaks each fail a test: no scale, translate without the zoom factor, pan sign flipped, never settling, ignoring document changes, ignoring size and grid, and Fit keeping the motion state.
   - **Trade-off, visible:** while the view moves, areas the old layer didn't cover are plain canvas colour (no grid or geometry) until the redraw 150 ms after the gesture stops. Zooming out shows the most. A scaled layer also looks soft during a zoom.
   - **Measurement note:** the same redraw takes 23.5 ms back to back but 46.6 ms after 650 ms of idle, because the chip slows after idling. `bench_canvas.py` now waits a realistic `SETTLE_MS` + 50 ms before timing the settle redraw.
-- [ ] **Panels:** update only the rows a `Change` touches, not every dimension row; measure again to see how much of the repaint share goes with it.
+- [x] **Panels** (2026-09-17). Measured per widget before changing anything: a timed `QApplication.notify` for paint events, cProfile for slots, then ablation.
+  - **The main cost was the Sketch browser's value column set to `ResizeToContents`.** It re-measures every row whenever one row's text changes: about 7 ms of each edit's command and about 15 ms of its paint at 2,000 entities.
+  - The column is now `Fixed`, sized from a running maximum of text widths that is updated only for rows that change, including group counts and removed rows. It still fits its longest value and shrinks back.
+  - `_apply` now refills only the modified rows and the dimensions that measure them (`_measures`), not every dimension on every change.
+  - History, Checks, Properties, and the sidebar palette each cost under 0.4 ms per edit, so they're unchanged.
+
+  | Real window, median ms | 2,000 before | 2,000 after | 10,000 before | 10,000 after |
+  |---|---|---|---|---|
+  | Edit: command | 10.81 | **3.83** | 25.44 | **15.11** |
+  | Edit: repaint | 39.21 | **26.68** | 93.83 | **79.03** |
+  | Edit: total | 49.99 | **30.44** | 119.50 | **94.37** |
+
+  At 2,000 the edit repaint (26.7 ms) is now essentially the canvas layer rebuild (24.8 ms), which is the next item. At 10,000 the command's remaining 15 ms hasn't been profiled; the browser still loops over every entity for `_measures` and `_pull_selection`.
+  - Tests: 3 in `tests/app/test_panels.py`: dimension rows follow their shape; an edit refills only the rows it changes; the value column fits its longest value, including after an undo and a delete. Verified that 4 deliberate breaks each fail a test. The delete case was added after the first mutation run missed a kept width for removed rows.
 - [ ] **Layer rebuild:** batch the draw calls (`drawLines` and `drawRects` arrays, or one path per pen) instead of one Python→Qt call per entity. Measure with `bench_canvas.py`, panels hidden.
 
 ## Commands in the sidebar (2026-09-17, user request)
