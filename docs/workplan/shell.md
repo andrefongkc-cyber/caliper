@@ -1,4 +1,4 @@
-Status: one joint PR on `contracts/v1-complete` carries Stream A's engine stack, the FilletCorner contract, interior picking, and all of Stream B's V1 shell work; next: Andre's review
+Status: V1 merged (#15); contract gaps filed as #16 (where checks live) and #17, and the P7 constraint contract proposed in #18, next: Andre's answers on #16 and #18
 
 # Shell workplan — Stream B
 
@@ -201,7 +201,7 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 
   Pointer move at 10,000 is the engine's linear `nearest_feature` + `entity_at_point` (profiled: 0.53 s of 20 moves inside `engine/queries.py`). A spatial index is Stream A's call.
 - [x] **P6 AI-native surfaces:** prompt bar (⌘L), proposal card (plan, commands, checks before and after, broken user checks), ghost geometry, Accept (⌘Return) as one transaction credited to Agent, Reject (Esc). Proposals run on a scratch `Bus(document)` and replay the submitted commands; accepting a stale proposal is refused. Driven by `caliper/app/agent/scripted.py`, a labelled stand-in that understands the phrasings in `EXAMPLES`; the review flow is what a V3 model would use.
-- [ ] **P7 Constraints:** blocked. Needs planegcs (ADR 0003, Proposed) and constraint types in the contract.
+- [~] **P7 Constraints:** blocked on the contract. The shell's needs are proposed in #18 (2026-09-17); planegcs acceptance is on `shared/adr-0003-accepted`.
 
 ### Gaps found (for Stream A / the contract)
 
@@ -253,3 +253,19 @@ Shell work added on top of the engine in this PR:
 - Everything recorded in the sections above: browser, history, checks, the agent review flow, performance work, interior picking updates with ⌘-drag, and Zoom to Fit label padding.
 
 Not included, deliberately: `shared/adr-0003-accepted`, `shared/occt-ci`, and `shared/qt-gpl-bundling`, which are Stream A's maintainer changes and independent of this.
+
+## After the merge (2026-09-17)
+
+- [x] **#15 merged** as `19757b9` with Rebase and merge: 41 linear commits, tree identical to the approved head. GitHub refuses to rebase a branch holding merge commits, so the branch was flattened first (one `core.md` status conflict, resolved as the original merge had) and CI re-ran green. On `main`: 664 passed, 16 skipped (OCCT extra not installed); ruff, format, mypy clean. The app tests need `QT_QPA_PLATFORM=offscreen` locally, as CI sets.
+- [x] Issue #11 closed. The branches #15 subsumed are deleted.
+- [x] **Contract gaps filed.** #16 covers where checks live: an ADR, recommending expectations in the document, changed by commands. #17 groups the rest: author on `Change`, no notice when a transaction commits, the dimension offset rule, the spatial index, and absolute-position metrics. The "Gaps found" list above now lives in those issues.
+- [~] **P7 contract proposal (#18):**
+  - Constraints as one entity dataclass per kind, with no placement field.
+  - `value: float | None` makes a dimension driving.
+  - A `solve_status` query.
+  - Conflicts come back as `Rejected` with `constraint.conflict` and a new `Error.ids`.
+  - A `DragFeature` command.
+  - Solved positions stored in the file.
+  - Also flags that `vision.md` puts driving dimensions in V2 while ADR 0003 and the `DistanceDimension` docstring say V1.5.
+- [ ] Next, once #18 settles decisions 1, 4, and 5: build the constraint glyph layer, the DoF colouring tokens, and the constraint palette entries against stand-ins.
+- [ ] Next, once #16 is decided: the Checks panel reads from the document, and adding or removing a check goes through the bus.
