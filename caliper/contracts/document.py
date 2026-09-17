@@ -1,4 +1,4 @@
-"""Document model: the entities that make up a Caliper project. Freezes hard.
+"""Document model: the entities that make up a Caliper project. Frozen for V1.
 
 Conventions:
 - Lengths are millimetres and angles are degrees, both float.
@@ -10,6 +10,10 @@ Conventions:
 - Selection, hover, and drawing previews are UI state and never appear here.
 - Every dataclass is keyword-only, so adding a field with a default later does not
   break existing callers.
+- Ids sort as strings wherever order matters, so "e10" comes before "e2".
+
+Frozen as of V1: a new entity kind or field needs a joint `contracts/` PR, and a file
+format change on top of that (ADR 0005).
 """
 
 from collections.abc import Mapping
@@ -53,7 +57,12 @@ class Circle:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Arc:
-    """Runs counter-clockwise from `start_angle` through `sweep_angle`, with 0 < sweep < 360."""
+    """Runs counter-clockwise from `start_angle` through `sweep_angle`, with 0 < sweep < 360.
+
+    `start_angle` is stored exactly as given and is not normalized, so 0 and 360 describe
+    the same arc while comparing unequal. Callers that need two equal-looking arcs to
+    compare equal send [0, 360).
+    """
 
     kind: ClassVar[str] = "arc"
     center: Point2
@@ -146,7 +155,11 @@ class DistanceDimension:
     b: Ref
     orientation: DistanceOrientation
     offset: float
-    """Placement only: signed perpendicular offset of the dimension line from the points."""
+    """Placement only: how far the dimension line sits from the two points, in mm.
+
+    Measured perpendicular to a→b, positive to the left of that direction, whatever the
+    orientation. Nothing measured depends on it: `dimension_value` ignores it entirely.
+    """
 
 
 class RadialMeasure(StrEnum):
