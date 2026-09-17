@@ -1,7 +1,15 @@
-"""Structured errors shared by commands and queries.
+"""Structured errors shared by commands and queries. Frozen for V1.
 
 Invalid input is reported as an `Error` value, never raised. Exceptions mean a bug in
 Caliper itself (or API misuse such as undoing inside an open transaction).
+
+Two things are deliberately outside this rule. Queries whose return type carries no
+`Error` report unusable input as "no match" (see `queries.py`). And opening a file raises
+`LoadError` from `caliper.engine.io.canonical`, carrying these same `Error` values in
+`errors`, because a file is a document that may be wrong in many ways at once.
+
+Frozen as of V1: adding a code is a normal change, but renaming or repurposing one breaks
+every caller that branches on it, and needs a joint `contracts/` PR.
 """
 
 from dataclasses import dataclass

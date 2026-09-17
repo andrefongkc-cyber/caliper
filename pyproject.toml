@@ -9,8 +9,10 @@ classifiers = ["Private :: Do Not Upload"]
 dependencies = []
 
 [project.optional-dependencies]
-# Desktop shell. "essentials" deliberately excludes pyside6-addons, which is
-# where the GPL-only Qt modules live (ADR 0006).
+# Desktop shell. "essentials" leaves out pyside6-addons, but still bundles libraries
+# from three GPL-only Qt modules (Lottie Animation, Quick Timeline, Qml Compiler). The
+# widgets shell never loads them, a guard test keeps it that way, and packaging must
+# exclude them (ADR 0006, ADR 0007).
 app = ["pyside6-essentials>=6.11"]
 # OpenCascade B-rep kernel. Large download; only needed for OCCTKernel.
 occt = ["cadquery-ocp>=8.0"]
@@ -62,6 +64,8 @@ select = [
 "PySide6.QtGraphsWidgets".msg = "GPL-only in open-source Qt (ADR 0006)."
 "PySide6.QtQuick3D".msg = "GPL-only in open-source Qt (ADR 0006)."
 "PySide6.QtVirtualKeyboard".msg = "GPL-only in open-source Qt (ADR 0006)."
+"PySide6.QtQml".msg = "The shell is widgets-only; QML loads GPL-only Qt plugins (ADR 0007)."
+"PySide6.QtQuick".msg = "The shell is widgets-only; QML loads GPL-only Qt plugins (ADR 0007)."
 "py_slvs".msg = "GPL-3 (ADR 0006). Use planegcs."
 "slvs".msg = "GPL-3 (ADR 0006). Use planegcs."
 
