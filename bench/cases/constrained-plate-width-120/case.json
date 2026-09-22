@@ -1,0 +1,60 @@
+{
+  "format": "caliper.bench_case",
+  "schema_version": 1,
+  "prompt": "The plate is fully dimensioned. Make it 120 mm wide, keeping its fixed corner where it is and the hole tangent to the top edge.",
+  "expectations": [
+    {
+      "metric": "dimension_value",
+      "ids": [
+        "e14"
+      ],
+      "expected": 120.0,
+      "tolerance": 1e-09
+    },
+    {
+      "metric": "bbox_width",
+      "ids": [
+        "e1",
+        "e2",
+        "e3",
+        "e4"
+      ],
+      "expected": 120.0,
+      "tolerance": 1e-09
+    },
+    {
+      "metric": "bbox_height",
+      "ids": [
+        "e1",
+        "e2",
+        "e3",
+        "e4"
+      ],
+      "expected": 50.0,
+      "tolerance": 1e-09
+    },
+    {
+      "metric": "dimension_value",
+      "ids": [
+        "e19"
+      ],
+      "expected": 20.0,
+      "tolerance": 1e-09
+    },
+    {
+      "metric": "distance_y",
+      "refs": [
+        {
+          "entity": "e16",
+          "feature": "center"
+        },
+        {
+          "entity": "e3",
+          "feature": "start"
+        }
+      ],
+      "expected": 10.0,
+      "tolerance": 1e-09
+    }
+  ]
+}

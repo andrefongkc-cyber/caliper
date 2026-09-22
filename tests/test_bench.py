@@ -30,7 +30,7 @@ def test_all_cases_pass() -> None:
         assert re.search(rf"^{case}\s+pass\s+match\s+\d+ passed, 0 failed$", result.stdout, re.M), (
             case
         )
-    assert "6 case(s): 6 passed, 0 failed" in result.stdout
+    assert "7 case(s): 7 passed, 0 failed" in result.stdout
 
 
 def test_a_failed_expectation_fails(tmp_path: Path) -> None:

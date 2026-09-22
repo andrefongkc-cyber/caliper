@@ -1,0 +1,13 @@
+{
+  "format": "caliper.script",
+  "schema_version": 1,
+  "commands": [
+    {
+      "kind": "modify_entity",
+      "id": "e14",
+      "changes": {
+        "value": 120.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,237 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "construction": false,
+        "end": {
+          "x": 100.75,
+          "y": 1.5
+        },
+        "kind": "line",
+        "start": {
+          "x": 0.75,
+          "y": 1.5
+        }
+      },
+      "e10": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e2",
+            "feature": "curve"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e11": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e12": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e13": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e1",
+            "feature": "start"
+          }
+        ],
+        "type": "fix"
+      },
+      "e14": {
+        "a": {
+          "entity": "e1",
+          "feature": "start"
+        },
+        "b": {
+          "entity": "e1",
+          "feature": "end"
+        },
+        "kind": "distance_dimension",
+        "offset": -11.5,
+        "orientation": "aligned",
+        "value": 100.0
+      },
+      "e15": {
+        "a": {
+          "entity": "e2",
+          "feature": "start"
+        },
+        "b": {
+          "entity": "e2",
+          "feature": "end"
+        },
+        "kind": "distance_dimension",
+        "offset": -9.25,
+        "orientation": "aligned",
+        "value": 50.0
+      },
+      "e16": {
+        "center": {
+          "x": 30.0,
+          "y": 41.5
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 10.0
+      },
+      "e17": {
+        "construction": true,
+        "end": {
+          "x": 50.0,
+          "y": 55.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 50.0,
+          "y": -5.0
+        }
+      },
+      "e18": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e3",
+            "feature": "curve"
+          },
+          {
+            "entity": "e16",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e19": {
+        "kind": "radial_dimension",
+        "label_angle": 306.53159572347505,
+        "measure": "diameter",
+        "target": "e16",
+        "value": 20.0
+      },
+      "e2": {
+        "construction": false,
+        "end": {
+          "x": 100.75,
+          "y": 51.5
+        },
+        "kind": "line",
+        "start": {
+          "x": 100.75,
+          "y": 1.5
+        }
+      },
+      "e3": {
+        "construction": false,
+        "end": {
+          "x": 0.75,
+          "y": 51.5
+        },
+        "kind": "line",
+        "start": {
+          "x": 100.75,
+          "y": 51.5
+        }
+      },
+      "e4": {
+        "construction": false,
+        "end": {
+          "x": 0.75,
+          "y": 1.5
+        },
+        "kind": "line",
+        "start": {
+          "x": 0.75,
+          "y": 51.5
+        }
+      },
+      "e5": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e1",
+            "feature": "end"
+          },
+          {
+            "entity": "e2",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e6": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e2",
+            "feature": "end"
+          },
+          {
+            "entity": "e3",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e7": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e3",
+            "feature": "end"
+          },
+          {
+            "entity": "e4",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e8": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e4",
+            "feature": "end"
+          },
+          {
+            "entity": "e1",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e9": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e1",
+            "feature": "curve"
+          }
+        ],
+        "type": "horizontal"
+      }
+    },
+    "next_id": 20
+  },
+  "format": "caliper.document",
+  "schema_version": 2,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}
