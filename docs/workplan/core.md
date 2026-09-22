@@ -1,6 +1,4 @@
-Status: V1.5 constraint engine built and tested on local branch `contracts/sketch-constraints` (not pushed), next: Andre's go-ahead to push and open the joint PR with Lucas's shell patch
-Status: V1 engine done and on main (PR #15), contract frozen (PR #22), next: a position Metric so check can verify where things are
-
+Status: V1.5 constraint engine open as PR #25 (joint, reopens the contract), next: Lucas's review; he decides whether the palette should offer constraints and dimensions
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -33,64 +31,8 @@ Plan (markers updated as work lands):
 - [x] CLI `inspect`: sketch status, per-entity DOF, driving/construction/conflict markers, constraints; `replay` errors list the ids involved
 - [x] Tests (534 engine-side, all green; `tests/engine/constraints/` has 129): every constraint type, all seven dimension kinds, applicability, DOF and the four states, conflicts and redundancy, suggestions, construction, picking, fillets, files, transactions, solver building blocks, and hypothesis property tests over random constrained sketches (200 examples each). Golden replay fixture `constraints.*` (byte-identical: lines and circles only). Bench case `constrained-plate-width-120`; bench 7/7
 - [x] ADR 0008 (our own solver, supersedes 0003's choice) and ADR 0009 (constraints in the document; settles ADR 0005's V1.5 storage question), both Proposed
-- [~] Shell follow-up for Lucas. Not committed here (`caliper/app/` is Stream B's). Without it, 11 `tests/app/test_palette.py` tests fail (the palette drops any command with a field it can't render, so `construction` hides the create commands) and the Sketch browser raises `KeyError` for `point`, `constraint`, `angle_dimension` icons. With it, all 307 shell tests pass and the app opens `tests/engine/fixtures/constraints.caliper` with no exceptions (verified offscreen 2026-09-22):
-
-```diff
-diff --git a/caliper/app/command_schema.py b/caliper/app/command_schema.py
-index bd3b088..cd9b674 100644
---- a/caliper/app/command_schema.py
-+++ b/caliper/app/command_schema.py
-@@ -69,6 +69,8 @@ def _spec(command_type: type) -> CommandSpec | None:
-             # selection rather than asking someone to type ids.
-             uses_selection = True
-             selection_fields.append(f.name)
-+        elif f.default is not dataclasses.MISSING:
-+            continue  # optional, left at its default: construction, a dimension's value
-         else:
-             return None
-     kind: str = command_type.kind  # type: ignore[attr-defined]
-diff --git a/caliper/app/panels/browser.py b/caliper/app/panels/browser.py
-index bffc9b2..697d840 100644
---- a/caliper/app/panels/browser.py
-+++ b/caliper/app/panels/browser.py
-@@ -122,7 +122,7 @@ class SketchBrowser(QTreeWidget):
-         value = summary(entity, id, queries)
-         item.setText(0, f"{kind_title(entity)}  {id}")
-         item.setText(1, value)
--        item.setIcon(0, icons.icon(ICON[entity.kind]))
-+        item.setIcon(0, icons.icon(ICON.get(entity.kind, "select")))
-         self._value_widths[id] = self.fontMetrics().horizontalAdvance(value)
- 
-     def _update_groups(self) -> None:
-diff --git a/caliper/app/panels/describe.py b/caliper/app/panels/describe.py
-index a9c9bb2..c541c4c 100644
---- a/caliper/app/panels/describe.py
-+++ b/caliper/app/panels/describe.py
-@@ -28,7 +28,9 @@ ICON: dict[str, str] = {
-     "rectangle": "rectangle",
-     "distance_dimension": "dimension",
-     "radial_dimension": "dimension",
-+    "angle_dimension": "dimension",
- }
-+"""Kinds without an entry (point, constraint) show the select icon until P7 draws theirs."""
- 
- 
- def kind_title(entity: Entity) -> str:
-diff --git a/tests/app/test_palette.py b/tests/app/test_palette.py
-index 206fde7..44138ab 100644
---- a/tests/app/test_palette.py
-+++ b/tests/app/test_palette.py
-@@ -46,6 +46,9 @@ def test_every_command_type_is_listed_or_deliberately_left_out() -> None:
-     assert {t.__name__ for t in left_out} == {
-         "CreateDistanceDimension",  # needs feature references: the Dimension tool picks them
-         "CreateRadialDimension",
-+        "CreateAngleDimension",
-+        "CreateDimension",  # a selection and a placement: the Dimension tool, via infer_dimension
-+        "CreateConstraint",  # offered per selection from queries.applicable_constraints
-         "ModifyEntity",  # the properties panel and on-canvas editing
-     }
- 
-```
+- [x] Shell follow-up, on this branch so PR #25's checks pass (Stream B's files, so Lucas reviews it): the palette leaves a field it can't render at its default instead of dropping the whole command (the `construction` flag had hidden Create Line/Circle/Arc/Rectangle, failing 11 palette tests), the Sketch browser falls back to an icon for kinds it doesn't know, and angle dimensions reuse the dimension icon. All 841 tests pass. Open for Lucas: whether `CreateConstraint` and `CreateDimension` belong in the palette at all, and icons for points and constraints
+- [x] CLAUDE.md: stack line, ADR table rows for 0008/0009, and the V1.5 pointer (maintainer file, changed on Andre's instruction)
 
 Partial or blocked, deliberately:
 - **Pierce**: needs 3D curves referenced from outside the sketch. The type exists and is reported `constraint.unsupported` everywhere (applicability, commands); no equations
@@ -101,12 +43,14 @@ Partial or blocked, deliberately:
 - **Not built**: a `DragFeature` command (issue #18 decision 6), expressions/variables for dimension values (the `value` field leaves room), constraint glyph placement (UI state by design), a spatial index
 
 Next, in order:
-- [ ] Andre: push `contracts/sketch-constraints`, open the joint PR, and post the shell patch above for Lucas (on issue #18 or the PR). Needs Andre's go-ahead: it's outward-facing
-- [ ] Maintainers (propose only): CLAUDE.md stack line "planegcs (V1.5, Accepted)" → "own solver (ADR 0008, Proposed)"; ADR table rows for 0008/0009; `docs/architecture.md` gains a "Constraints" section (relation registry → solve in commands → status queries)
+- [ ] Lucas's review of PR #25: ADRs 0008 and 0009 to Accepted or revisited, and the palette question above
+- [ ] Maintainers (propose only): `docs/architecture.md` gains a "Constraints" section (relation registry → solve in commands → status queries)
 - [ ] After review: `DragFeature` + a drag-preview timing budget, then sparse elimination if clusters past ~100 unknowns show up
 ## Start here (2026-09-21)
 
-**Where things stand.** The V1 engine is finished and on `main`: every command (create, modify, move, delete, fillet), transactions and merge keys, the full query API including `check`, OCCTKernel behind the `occt` extra (used by default when installed), the optional file history, and the `replay` / `inspect` / `export` CLI. The contract is frozen (PR #22). CI runs the OCCT conformance suite (PR #12); ADRs 0003 and 0007 are Accepted. No open PRs. On `main` with every extra installed: 698 passed, 1 failed (below), bench 6/6.
+**Where things stand (updated 2026-09-22).** V1.5 constraints are open as PR #25; the
+section above is the current work. What follows describes `main`. The V1 engine is
+finished and on `main`: every command (create, modify, move, delete, fillet), transactions and merge keys, the full query API including `check`, OCCTKernel behind the `occt` extra (used by default when installed), the optional file history, and the `replay` / `inspect` / `export` CLI. The contract is frozen (PR #22). CI runs the OCCT conformance suite (PR #12); ADRs 0003 and 0007 are Accepted. On `main` with every extra installed: 698 passed, 1 failed (below), bench 6/6.
 
 Branch names in the history below (`stream/core/queries` and so on) are historical: all of them merged through PR #15 and were deleted.
 
@@ -118,7 +62,7 @@ Branch names in the history below (`stream/core/queries` and so on) are historic
 - [ ] **Normalize `Arc.start_angle` to [0, 360)** (deferred decision 2). Two identical-looking arcs compare unequal today. It changes stored values, so it needs a decision on existing files and a fixture test
 - [ ] **Move `LoadError` into `contracts/`** (decision 3). Every caller that opens a file imports an engine module to catch it; the change touches the shell's imports
 - [ ] The other three deferred decisions, recommended "not yet" in PR #22: `Error` returns for the pickers, an author on `Change`, a document revision counter
-- [ ] **V1.5: constraints with planegcs** (ADR 0003). Needs a constraint contract designed with Lucas first; his screen side is phase P7 in `shell.md`. Decided already: an unconstrained rectangle keeps its bottom-left corner fixed when resized
+- [x] **V1.5: constraints.** Done in PR #25, with our own solver instead of planegcs (ADRs 0008 and 0009, both Proposed). Lucas's screen side is still phase P7 in `shell.md`
 - [ ] Spatial index for hit-testing: only if profiles demand it. Lucas measured ~19 ms per pointer move at 10,000 entities, all in `nearest_feature` + `entity_at_point`
 
 **How work lands.** Engine work on `stream/core/<topic>` branches; anything touching `caliper/contracts/` on a `contracts/<topic>` branch reviewed by both. Every PR needs Lucas's approval and "Rebase and merge"; branches must be linear (no merge commits) or GitHub offers no way to merge. Talking to Lucas means a GitHub issue or comment posted from Andre's account, so ask Andre first.
