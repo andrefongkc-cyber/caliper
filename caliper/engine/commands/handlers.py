@@ -9,10 +9,14 @@ from typing import assert_never
 
 from caliper.contracts.commands import (
     Command,
+    CreateAngleDimension,
     CreateArc,
     CreateCircle,
+    CreateConstraint,
+    CreateDimension,
     CreateDistanceDimension,
     CreateLine,
+    CreatePoint,
     CreateRadialDimension,
     CreateRectangle,
     DeleteEntities,
@@ -21,43 +25,75 @@ from caliper.contracts.commands import (
     MoveEntities,
 )
 from caliper.contracts.document import (
+    AngleDimension,
     Arc,
     Circle,
+    Constraint,
+    ConstraintType,
     DistanceDimension,
     Document,
     Entity,
     EntityId,
+    Feature,
     Geometry,
     Line,
+    Point,
     Point2,
     RadialDimension,
     Rectangle,
+    Ref,
 )
 from caliper.contracts.errors import Error, ErrorCode
+from caliper.contracts.queries import DimensionType
 from caliper.engine.commands.validation import (
+    GEOMETRY,
     build_entity,
+    feature_errors,
     field_types,
+    normalize_enum,
     normalize_float,
     normalize_id,
+    normalize_point,
+    normalize_refs,
+)
+from caliper.engine.constraints import dimensions
+from caliper.engine.constraints.model import PARAMS
+from caliper.engine.constraints.relations import Match, match
+from caliper.engine.constraints.sketch import (
+    Request,
+    entity_params,
+    is_relation,
+    ref_params,
+    references,
+    settle,
 )
 
 CreateCommand = (
-    CreateLine
+    CreatePoint
+    | CreateLine
     | CreateCircle
     | CreateArc
     | CreateRectangle
     | CreateDistanceDimension
     | CreateRadialDimension
+    | CreateAngleDimension
+    | CreateConstraint
 )
 
 _CREATES: Mapping[type[CreateCommand], type[Entity]] = {
+    CreatePoint: Point,
     CreateLine: Line,
     CreateCircle: Circle,
     CreateArc: Arc,
     CreateRectangle: Rectangle,
     CreateDistanceDimension: DistanceDimension,
     CreateRadialDimension: RadialDimension,
+    CreateAngleDimension: AngleDimension,
+    CreateConstraint: Constraint,
 }
+
+_PLACEMENT_FIELDS = frozenset({"offset", "label_angle"})
+"""Dimension fields that only position a label; changing them never needs a solve."""
 
 
 _ALLOCATED_ID = re.compile(r"e([1-9][0-9]*)")
@@ -70,19 +106,37 @@ class Handled:
     """Resolved: ids filled in, values normalized."""
     label: str
     created_ids: tuple[EntityId, ...]
+    solve: Request | None = None
+    """What the constraints must re-check after this command, if anything."""
 
 
 def handle(document: Document, command: Command) -> Handled | list[Error]:
+    """Apply `command`, then solve whatever constraints it touched."""
+    outcome = _apply(document, command)
+    if isinstance(outcome, list) or outcome.solve is None:
+        return outcome
+    solved = settle(document, outcome.document, outcome.solve)
+    if isinstance(solved, list):
+        return solved
+    return replace(outcome, document=solved, solve=None)
+
+
+def _apply(document: Document, command: Command) -> Handled | list[Error]:
     match command:
         case (
-            CreateLine()
+            CreatePoint()
+            | CreateLine()
             | CreateCircle()
             | CreateArc()
             | CreateRectangle()
             | CreateDistanceDimension()
             | CreateRadialDimension()
+            | CreateAngleDimension()
+            | CreateConstraint()
         ):
             return _create(document, command)
+        case CreateDimension():
+            return _create_dimension(document, command)
         case ModifyEntity():
             return _modify(document, command)
         case MoveEntities():
@@ -104,14 +158,88 @@ def _create(document: Document, command: CreateCommand) -> Handled | list[Error]
     if errors or isinstance(built, list):
         return errors
     resolved = replace(command, id=entity_id, **{name: getattr(built, name) for name in names})
-    return Handled(
-        document=Document(
-            entities=MappingProxyType({**document.entities, entity_id: built}), next_id=next_id
-        ),
-        command=resolved,
-        label=_title(command.kind),
-        created_ids=(entity_id,),
+    after = Document(
+        entities=MappingProxyType({**document.entities, entity_id: built}), next_id=next_id
     )
+    label = (
+        f"Add {_title(built.type)} Constraint"
+        if isinstance(built, Constraint)
+        else _title(command.kind)
+    )
+    return Handled(
+        document=after,
+        command=resolved,
+        label=label,
+        created_ids=(entity_id,),
+        solve=_relation_solve(after, entity_id, new=True) if is_relation(built) else None,
+    )
+
+
+def _create_dimension(document: Document, command: CreateDimension) -> Handled | list[Error]:
+    """Infer the dimension a selection and placement mean, then create it like any other."""
+    errors: list[Error] = []
+    refs = normalize_refs(command.refs, "refs", errors)
+    placement = normalize_point(command.placement, "placement", errors)
+    value = None if command.value is None else normalize_float(command.value, "value", errors)
+    kind = (
+        None
+        if command.type is None
+        else normalize_enum(DimensionType, command.type, "type", errors)
+    )
+    if errors:
+        return errors
+    for i, ref in enumerate(refs):
+        errors += feature_errors(ref, f"refs[{i}]", document, curves=True)
+    if errors:
+        return errors
+    if len(set(refs)) != len(refs):
+        return [_error(ErrorCode.REFERENCE_DEGENERATE, "refs", "a reference is repeated")]
+    inferred = dimensions.infer(document, refs, placement, kind)
+    if isinstance(inferred, Error):
+        return [inferred]
+    kind, entity = inferred
+    values = {name: getattr(entity, name) for name in field_types(type(entity))}
+    built = build_entity(type(entity), values | {"value": value}, document)
+    if isinstance(built, list):
+        return built
+    entity_id, next_id = _resolve_id(document, command.id, errors)
+    if errors:
+        return errors
+    after = Document(
+        entities=MappingProxyType({**document.entities, entity_id: built}), next_id=next_id
+    )
+    return Handled(
+        document=after,
+        command=CreateDimension(
+            refs=refs, placement=placement, value=value, type=kind, id=entity_id
+        ),
+        label=f"Create {_title(kind)} Dimension",
+        created_ids=(entity_id,),
+        solve=_relation_solve(after, entity_id, new=True) if value is not None else None,
+    )
+
+
+def _relation_solve(document: Document, id: EntityId, *, new: bool) -> Request:
+    """Solve for a constraint or driving dimension, moving the reference it names last."""
+    mover = _mover(document, document.entities[id])
+    return Request(
+        touched=frozenset({id}),
+        movers=(ref_params(document, mover), entity_params(document, mover.entity)),
+        new=frozenset({id}) if new else frozenset(),
+    )
+
+
+def _mover(document: Document, entity: Entity) -> Ref:
+    match entity:
+        case Constraint(type=type_, refs=refs):
+            found = match(document, type_, refs)
+            assert isinstance(found, Match)
+            return found.refs[found.rule.mover]
+        case DistanceDimension(b=b) | AngleDimension(b=b):
+            return b
+        case RadialDimension(target=target):
+            return Ref(entity=target, feature=Feature.CURVE)
+    raise ValueError(f"{entity!r} isn't a constraint or dimension")
 
 
 def _resolve_id(
@@ -167,11 +295,12 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
     if isinstance(built, list):
         return built
     changed = list(command.changes)
+    after = Document(
+        entities=MappingProxyType({**document.entities, entity_id: built}),
+        next_id=document.next_id,
+    )
     return Handled(
-        document=Document(
-            entities=MappingProxyType({**document.entities, entity_id: built}),
-            next_id=document.next_id,
-        ),
+        document=after,
         command=ModifyEntity(
             id=entity_id, changes=MappingProxyType({name: getattr(built, name) for name in changed})
         ),
@@ -179,7 +308,30 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
         if len(changed) == 1
         else f"Edit {_title(current.kind)}",
         created_ids=(),
+        solve=_edit_solve(after, entity_id, current, built, set(changed)),
     )
+
+
+def _edit_solve(
+    document: Document, id: EntityId, before: Entity, after: Entity, changed: set[str]
+) -> Request | None:
+    if isinstance(after, GEOMETRY):
+        held = frozenset(
+            (id, path) for path in PARAMS[type(after)] if path.split(".")[0] in changed
+        )
+        if not held:
+            return None  # only the construction flag
+        return Request(
+            touched=frozenset({id}),
+            held=held,
+            movers=(entity_params(document, id) - held,),
+            edited=frozenset({id}),
+        )
+    if not is_relation(after) or not changed - _PLACEMENT_FIELDS:
+        return None
+    # A dimension turned driving, or a relation re-pointed, is new to the solver.
+    structural = bool(changed - _PLACEMENT_FIELDS - {"value"})
+    return _relation_solve(document, id, new=structural or not is_relation(before))
 
 
 def _move(document: Document, command: MoveEntities) -> Handled | list[Error]:
@@ -193,7 +345,7 @@ def _move(document: Document, command: MoveEntities) -> Handled | list[Error]:
     moved: dict[EntityId, Entity] = {}
     for entity_id in ids:
         entity = document.entities[entity_id]
-        if not isinstance(entity, Line | Circle | Arc | Rectangle):
+        if not isinstance(entity, GEOMETRY):
             continue
         values = {name: getattr(entity, name) for name in field_types(type(entity))}
         built = build_entity(type(entity), _translated(entity, values, dx, dy), document)
@@ -203,13 +355,21 @@ def _move(document: Document, command: MoveEntities) -> Handled | list[Error]:
                 for e in built
             ]
         moved[entity_id] = built
+    after = Document(
+        entities=MappingProxyType({**document.entities, **moved}), next_id=document.next_id
+    )
     return Handled(
-        document=Document(
-            entities=MappingProxyType({**document.entities, **moved}), next_id=document.next_id
-        ),
+        document=after,
         command=MoveEntities(ids=ids, dx=dx, dy=dy),
         label=_plural_label("Move", document, ids),
         created_ids=(),
+        solve=Request(
+            touched=frozenset(moved),
+            held=frozenset(p for id in moved for p in entity_params(after, id)),
+            edited=frozenset(moved),
+        )
+        if moved
+        else None,
     )
 
 
@@ -220,6 +380,8 @@ def _translated(
         return Point2(x=p.x + dx, y=p.y + dy)
 
     match entity:
+        case Point(position=position):
+            return values | {"position": shift(position)}
         case Line(start=start, end=end):
             return values | {"start": shift(start), "end": shift(end)}
         case Circle(center=center) | Arc(center=center):
@@ -229,7 +391,8 @@ def _translated(
 
 
 def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error]:
-    """Delete `ids`, and in the same delta every annotation that refers to a deleted entity."""
+    """Delete `ids`, and in the same delta every dimension and constraint that refers to a
+    deleted entity. Removing constraints never breaks the others, so nothing is solved."""
     errors: list[Error] = []
     ids = _existing_ids(document, command.ids, errors)
     if errors:
@@ -238,8 +401,7 @@ def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error
     doomed |= {
         entity_id
         for entity_id, entity in document.entities.items()
-        if (isinstance(entity, DistanceDimension) and {entity.a.entity, entity.b.entity} & doomed)
-        or (isinstance(entity, RadialDimension) and entity.target in doomed)
+        if {r.entity for r in references(entity)} & doomed
     }
     return Handled(
         document=Document(
@@ -330,6 +492,8 @@ def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
     center = Point2(x=touch_a.x + inward.x * radius, y=touch_a.y + inward.y * radius)
 
     trimmed: dict[EntityId, Entity] = {}
+    corner_refs: set[Ref] = set()
+    held: set[tuple[EntityId, str]] = set()
     for entity_id, line, touch in ((a_id, lines["a"], touch_a), (b_id, lines["b"], touch_b)):
         moved = "start" if line.start == corner else "end"
         values = {name: getattr(line, name) for name in field_types(Line)} | {moved: touch}
@@ -337,20 +501,37 @@ def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
         if isinstance(built, list):
             return built
         trimmed[entity_id] = built
-    arc = build_entity(Arc, _arc_values(center, radius, touch_a, touch_b), document)
+        corner_refs.add(Ref(entity=entity_id, feature=Feature(moved)))
+        held |= {(entity_id, f"{moved}.x"), (entity_id, f"{moved}.y")}
+    construction = lines["a"].construction and lines["b"].construction
+    arc_values = _arc_values(center, radius, touch_a, touch_b) | {"construction": construction}
+    arc = build_entity(Arc, arc_values, document)
     if isinstance(arc, list):
         return arc
     arc_id, next_id = _resolve_id(document, command.id, errors)
     if errors:
         return errors
+    # The corner the two ends met at is gone, so a constraint holding them together goes too.
+    consumed = {
+        id
+        for id, entity in document.entities.items()
+        if isinstance(entity, Constraint)
+        and entity.type is ConstraintType.COINCIDENT
+        and set(entity.refs) == corner_refs
+    }
+    kept = {id: e for id, e in document.entities.items() if id not in consumed}
     return Handled(
         document=Document(
-            entities=MappingProxyType({**document.entities, **trimmed, arc_id: arc}),
-            next_id=next_id,
+            entities=MappingProxyType({**kept, **trimmed, arc_id: arc}), next_id=next_id
         ),
         command=FilletCorner(a=a_id, b=b_id, radius=radius, id=arc_id),
         label="Fillet Corner",
         created_ids=(arc_id,),
+        solve=Request(
+            touched=frozenset({a_id, b_id}),
+            held=frozenset(held),
+            edited=frozenset({a_id, b_id}),
+        ),
     )
 
 
