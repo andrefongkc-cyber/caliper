@@ -2,6 +2,7 @@
   "document": {
     "entities": {
       "e1": {
+        "construction": false,
         "corner": {
           "x": 2.5,
           "y": -0.25
@@ -11,6 +12,7 @@
         "width": 100.0
       },
       "e5": {
+        "construction": false,
         "end": {
           "x": 30.0,
           "y": 60.0
@@ -25,7 +27,7 @@
     "next_id": 6
   },
   "format": "caliper.document",
-  "schema_version": 1,
+  "schema_version": 2,
   "units": {
     "angle": "deg",
     "length": "mm"

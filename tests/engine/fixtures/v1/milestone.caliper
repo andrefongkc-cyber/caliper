@@ -2,20 +2,19 @@
   "document": {
     "entities": {
       "e1": {
-        "construction": false,
         "corner": {
           "x": 0.0,
           "y": 0.0
         },
         "height": 50.0,
         "kind": "rectangle",
-        "width": 100.0
+        "width": 120.0
       }
     },
     "next_id": 2
   },
   "format": "caliper.document",
-  "schema_version": 2,
+  "schema_version": 1,
   "units": {
     "angle": "deg",
     "length": "mm"

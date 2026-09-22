@@ -31,7 +31,7 @@ class DecodeError(ValueError):
 def encode(value: object) -> JSON:
     match value:
         case bool():
-            raise TypeError("booleans aren't part of the document model")
+            return value
         case StrEnum():
             return value.value
         case None | int() | float() | str():
