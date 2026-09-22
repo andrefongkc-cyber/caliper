@@ -58,11 +58,11 @@ from caliper.engine.commands.validation import (
 )
 from caliper.engine.constraints import dimensions
 from caliper.engine.constraints.model import PARAMS
-from caliper.engine.constraints.relations import Match, match
 from caliper.engine.constraints.sketch import (
     Request,
     entity_params,
     is_relation,
+    mover,
     ref_params,
     references,
     settle,
@@ -221,25 +221,12 @@ def _create_dimension(document: Document, command: CreateDimension) -> Handled |
 
 def _relation_solve(document: Document, id: EntityId, *, new: bool) -> Request:
     """Solve for a constraint or driving dimension, moving the reference it names last."""
-    mover = _mover(document, document.entities[id])
+    moving = mover(document, document.entities[id])
     return Request(
         touched=frozenset({id}),
-        movers=(ref_params(document, mover), entity_params(document, mover.entity)),
+        movers=(ref_params(document, moving), entity_params(document, moving.entity)),
         new=frozenset({id}) if new else frozenset(),
     )
-
-
-def _mover(document: Document, entity: Entity) -> Ref:
-    match entity:
-        case Constraint(type=type_, refs=refs):
-            found = match(document, type_, refs)
-            assert isinstance(found, Match)
-            return found.refs[found.rule.mover]
-        case DistanceDimension(b=b) | AngleDimension(b=b):
-            return b
-        case RadialDimension(target=target):
-            return Ref(entity=target, feature=Feature.CURVE)
-    raise ValueError(f"{entity!r} isn't a constraint or dimension")
 
 
 def _resolve_id(
@@ -322,10 +309,7 @@ def _edit_solve(
         if not held:
             return None  # only the construction flag
         return Request(
-            touched=frozenset({id}),
-            held=held,
-            movers=(entity_params(document, id) - held,),
-            edited=frozenset({id}),
+            touched=frozenset({id}), held=held, keep=frozenset({id}), edited=frozenset({id})
         )
     if not is_relation(after) or not changed - _PLACEMENT_FIELDS:
         return None
@@ -530,6 +514,7 @@ def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
         solve=Request(
             touched=frozenset({a_id, b_id}),
             held=frozenset(held),
+            keep=frozenset({a_id, b_id}),
             edited=frozenset({a_id, b_id}),
         ),
     )
