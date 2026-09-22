@@ -69,17 +69,18 @@ def test_inspect_summarizes_a_file(tmp_path: Path) -> None:
     result = run("inspect", replayed(tmp_path, "--history"))
     assert result.returncode == 0, result.stderr
     lines = result.stdout.decode().splitlines()
-    assert lines[1:7] == [
-        "  schema version  1",
+    assert lines[1:8] == [
+        "  schema version  2",
         "  units           mm, deg",
         "  entities        4: 1 circle, 1 distance_dimension, 1 radial_dimension, 1 rectangle",
         "  next id         5",
         "  bounds          x 0.0 to 160.0, y 0.0 to 50.0 (160.0 x 50.0 mm)",
+        "  sketch          under-constrained, 7 DOF remaining",
         "  history         5 commands",
     ]
-    assert lines[8:] == [
-        "  e1  rectangle           corner (0.0, 0.0), width 120.0, height 50.0",
-        "  e2  circle              center (150.0, 25.0), radius 10.0",
+    assert lines[9:] == [
+        "  e1  rectangle           corner (0.0, 0.0), width 120.0, height 50.0  [dof 4]",
+        "  e2  circle              center (150.0, 25.0), radius 10.0  [dof 3]",
         "  e3  distance_dimension  a e1.bottom_left, b e1.bottom_right, orientation horizontal"
         " = 120.0",
         "  e4  radial_dimension    target e2, measure diameter = 20.0",
