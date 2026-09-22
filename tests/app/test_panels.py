@@ -15,7 +15,9 @@ from caliper.contracts.commands import (
     ModifyEntity,
 )
 from caliper.contracts.document import DistanceOrientation, Feature, Point2, RadialMeasure, Ref
-from caliper.contracts.queries import Expectation, Metric
+from caliper.contracts.queries import AreaProperties, BoundingBox, Expectation, Metric
+from caliper.engine.commands.bus import Bus
+from tests.app.conftest import make_window
 
 
 @pytest.fixture
@@ -209,10 +211,41 @@ def test_measurement_becomes_a_check(window, driver, sketch) -> None:
     assert describe(window.session.checks[0]).startswith("Distance e1 bottom left → e1 top right")
 
 
-def test_area_isnt_offered_without_a_geometry_kernel(window, sketch) -> None:
-    _, hole = sketch
-    window.session.set_selection(frozenset({hole}))
-    assert "Area of e2" not in [o.label for o in options(window.session)]
+class AreaKernel:
+    """Just enough of the contract's `Kernel` for a circle's area to be measurable."""
+
+    def make_face(self, boundary: object) -> object:
+        return boundary
+
+    def area_properties(self, face: object) -> AreaProperties:
+        return AreaProperties(area=1.0, centroid=Point2(x=0, y=0), ixx=0.0, iyy=0.0, ixy=0.0)
+
+    def bounding_box(self, shape: object) -> BoundingBox:
+        return BoundingBox(x_min=0, y_min=0, x_max=1, y_max=1)
+
+    def is_valid(self, shape: object) -> bool:
+        return True
+
+
+def area_offered(qtbot, kernel: AreaKernel | None) -> bool:
+    """Whether Checks offers the area of a circle, on a bus with exactly this kernel.
+
+    The kernel is pinned rather than inherited: the default finds OCCT whenever the `occt`
+    extra is installed, which CI's app job doesn't install and a developer's machine may.
+    """
+    window = make_window(qtbot, Bus(kernel=kernel))
+    s = window.session
+    (hole,) = s.execute(CreateCircle(center=Point2(x=30, y=25), radius=8)).created_ids
+    s.set_selection(frozenset({hole}))
+    return f"Area of {hole}" in [o.label for o in options(s)]
+
+
+def test_area_isnt_offered_without_a_geometry_kernel(qtbot) -> None:
+    assert not area_offered(qtbot, None)
+
+
+def test_area_is_offered_when_a_kernel_can_answer(qtbot) -> None:
+    assert area_offered(qtbot, AreaKernel())
 
 
 def test_invalid_expected_value_is_explained(window, sketch) -> None:
