@@ -29,6 +29,8 @@ from caliper.engine.io import snapshot
 from caliper.engine.io.canonical import LoadError
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+V1 = FIXTURES / "v1"
+"""Files written by schema 1, before sketch constraints, kept to test the migration."""
 
 
 def milestone_document() -> Document:
@@ -84,7 +86,7 @@ def mutated(change: str) -> str:
     entity = data["document"]["entities"]["e1"]
     match change:
         case "newer-schema":
-            data["schema_version"] = 2
+            data["schema_version"] = snapshot.SCHEMA_VERSION + 1
         case "wrong-format":
             data["format"] = "something.else"
         case "unknown-top-level":
@@ -136,26 +138,61 @@ def test_invalid_files_are_refused_with_a_reason(text: str, message: str) -> Non
 
 def test_migrations_run_in_order_on_load(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
+    real = snapshot.MIGRATIONS[1]
 
     def to_v2(data: dict[str, object]) -> dict[str, object]:
         calls.append(1)
+        return real(data)
+
+    def to_v3(data: dict[str, object]) -> dict[str, object]:
+        calls.append(2)
         return data
 
     expected = milestone_document()
-    monkeypatch.setattr(snapshot, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(snapshot, "SCHEMA_VERSION", 3)
     monkeypatch.setitem(snapshot.MIGRATIONS, 1, to_v2)
-    assert snapshot.loads((FIXTURES / "milestone.caliper").read_text()) == expected
-    assert calls == [1]
+    monkeypatch.setitem(snapshot.MIGRATIONS, 2, to_v3)
+    assert snapshot.loads((V1 / "milestone.caliper").read_text()) == expected
+    assert calls == [1, 2]
+
+
+def test_schema_1_files_gain_the_constraint_fields() -> None:
+    """Migration 1 → 2: nothing was construction geometry, and every dimension was driven."""
+    data = json.loads((V1 / "dimensioned.caliper").read_text())
+    upgraded = snapshot.migrate(data, 1)
+    entities = upgraded["document"]["entities"]  # type: ignore[index]
+    assert upgraded["schema_version"] == 2
+    assert entities["e1"] == {
+        "construction": False,
+        "corner": {"x": 0.0, "y": 0.0},
+        "height": 50.0,
+        "kind": "rectangle",
+        "width": 120.0,
+    }
+    assert entities["e2"] == {
+        "a": {"entity": "e1", "feature": "bottom_left"},
+        "b": {"entity": "e1", "feature": "bottom_right"},
+        "kind": "distance_dimension",
+        "offset": -10.0,
+        "orientation": "horizontal",
+        "value": None,
+    }
+    # Loading the old file gives the same document as the migrated bench expectation.
+    current = FIXTURES.parents[2] / "bench" / "cases" / "dimension-bottom-edge"
+    assert snapshot.load(V1 / "dimensioned.caliper") == snapshot.load(
+        current / "expected.caliper"
+    )
+    assert snapshot.dumps(snapshot.load(V1 / "dimensioned.caliper")) == (
+        current / "expected.caliper"
+    ).read_text()
 
 
 def test_every_schema_version_below_the_current_one_has_a_migration() -> None:
     assert set(snapshot.MIGRATIONS) == set(range(1, snapshot.SCHEMA_VERSION))
 
 
-def test_read_reports_the_version_a_file_was_written_with(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(snapshot, "SCHEMA_VERSION", 2)
-    monkeypatch.setitem(snapshot.MIGRATIONS, 1, lambda data: data)
-    read = snapshot.read((FIXTURES / "milestone.caliper").read_text())
+def test_read_reports_the_version_a_file_was_written_with() -> None:
+    read = snapshot.read((V1 / "milestone.caliper").read_text())
     assert read.schema_version == 1
     assert read.document == milestone_document()
 

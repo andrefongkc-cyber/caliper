@@ -19,13 +19,38 @@ from caliper.engine.io.canonical import JSON, LoadError
 from caliper.engine.io.codec import DecodeError, decode_command, decode_document, encode
 
 FORMAT = "caliper.document"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 UNITS: Mapping[str, str] = MappingProxyType({"angle": "deg", "length": "mm"})
 
 type Migration = Callable[[dict[str, object]], dict[str, object]]
 
-MIGRATIONS: dict[int, Migration] = {}
-"""MIGRATIONS[n] upgrades the data of a schema-n file to schema n+1. None exist yet.
+
+def _v1_to_v2(data: dict[str, object]) -> dict[str, object]:
+    """V1.5 sketch constraints: geometry gains `construction`, dimensions a driving `value`.
+
+    Every V1 entity keeps its meaning: nothing was construction geometry, and every
+    dimension was driven.
+    """
+    document = data.get("document")
+    if not isinstance(document, dict) or not isinstance(document.get("entities"), dict):
+        return data  # malformed; decoding reports it with a path
+    added: dict[object, dict[str, object]] = {
+        "line": {"construction": False},
+        "circle": {"construction": False},
+        "arc": {"construction": False},
+        "rectangle": {"construction": False},
+        "distance_dimension": {"value": None},
+        "radial_dimension": {"value": None},
+    }
+    entities = {
+        id: entity | added.get(entity.get("kind"), {}) if isinstance(entity, dict) else entity
+        for id, entity in document["entities"].items()
+    }
+    return data | {"document": document | {"entities": entities}}
+
+
+MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2}
+"""MIGRATIONS[n] upgrades the data of a schema-n file to schema n+1.
 
 Each migration is a pure function over raw JSON data and needs a fixture test: an old file
 in, the expected upgraded data out.
