@@ -49,7 +49,7 @@ Next, in order:
 - [ ] After review: `DragFeature` + a drag-preview timing budget, then sparse elimination if clusters past ~100 unknowns show up
 ## Start here (2026-09-21)
 
-**Where things stand (updated 2026-09-22).** V1.5 constraints are open as PR #25; the
+**Where things stand (updated 2026-09-22).** V1.5 constraints are open as PR #26; the
 section above is the current work. What follows describes `main`. The V1 engine is
 finished and on `main`: every command (create, modify, move, delete, fillet), transactions and merge keys, the full query API including `check`, OCCTKernel behind the `occt` extra (used by default when installed), the optional file history, and the `replay` / `inspect` / `export` CLI. The contract is frozen (PR #22). CI runs the OCCT conformance suite (PR #12); ADRs 0003 and 0007 are Accepted. On `main` with every extra installed: 698 passed, 1 failed (below), bench 6/6.
 
