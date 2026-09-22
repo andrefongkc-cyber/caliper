@@ -33,7 +33,9 @@ from caliper.app.properties import format_number, parse_number, ref_text
 from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
 from caliper.contracts.document import (
+    AngleDimension,
     Circle,
+    Constraint,
     DistanceDimension,
     EntityId,
     RadialDimension,
@@ -94,9 +96,9 @@ def options(session: DocumentSession) -> list[Option]:
     if len(selected) == 1:
         (id,) = selected
         entity = entities.get(id)
-        if isinstance(entity, DistanceDimension | RadialDimension):
+        if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
             found.append(Option(f"Value of {id}", Metric.DIMENSION_VALUE, ids=(id,)))
-        elif entity is not None:
+        elif entity is not None and not isinstance(entity, Constraint):
             found += [
                 Option(f"Width of {id}", Metric.BBOX_WIDTH, ids=(id,)),
                 Option(f"Height of {id}", Metric.BBOX_HEIGHT, ids=(id,)),

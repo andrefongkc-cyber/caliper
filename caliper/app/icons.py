@@ -37,6 +37,13 @@ _SHAPES: dict[str, str] = {
     # Corners closing in on a frame.
     "fit": '<path d="M3.5 7.5 V3.5 H7.5 M12.5 3.5 H16.5 V7.5 M16.5 12.5 V16.5 H12.5 M7.5 16.5 '
     'H3.5 V12.5"/><rect x="7" y="7" width="6" height="6"/>',
+    # A sketch point: a dot with a small cross through it.
+    "point": '<circle cx="10" cy="10" r="2.2"/><path d="M10 3.5 V6.5 M10 13.5 V16.5 '
+    'M3.5 10 H6.5 M13.5 10 H16.5"/>',
+    # Two parallel strokes held by a tie: a relationship kept true.
+    "constraint": '<path d="M5 15 L11 4 M9 16 L15 5 M6.5 9.5 H13.5"/>',
+    # Two rays from a corner with the arc between them.
+    "angle": '<path d="M3.5 16.5 H16.5 M3.5 16.5 L13 5"/><path d="M9.5 16.5 A6 6 0 0 0 7.4 11.9"/>',
     "grid": '<path d="M3.5 7.5 H16.5 M3.5 12.5 H16.5 M7.5 3.5 V16.5 M12.5 3.5 V16.5"/>',
     "undo": '<path d="M7.5 5 L4 8.5 L7.5 12 M4 8.5 H12 A4 4 0 0 1 12 16.5 H9"/>',
     "redo": '<path d="M12.5 5 L16 8.5 L12.5 12 M16 8.5 H8 A4 4 0 0 0 8 16.5 H11"/>',

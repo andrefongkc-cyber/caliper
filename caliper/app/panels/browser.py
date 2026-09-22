@@ -19,10 +19,17 @@ from caliper.app import icons, theme
 from caliper.app.panels.describe import ICON, kind_title, summary
 from caliper.app.session import DocumentSession
 from caliper.contracts.commands import Change
-from caliper.contracts.document import DistanceDimension, Entity, EntityId, RadialDimension
+from caliper.contracts.document import (
+    AngleDimension,
+    Constraint,
+    DistanceDimension,
+    Entity,
+    EntityId,
+    RadialDimension,
+)
 from caliper.contracts.queries import Queries
 
-GROUPS = ("Geometry", "Dimensions")
+GROUPS = ("Geometry", "Dimensions", "Constraints")
 ID_ROLE = Qt.ItemDataRole.UserRole
 
 
@@ -106,8 +113,7 @@ class SketchBrowser(QTreeWidget):
 
     def _insert(self, id: EntityId) -> None:
         entity = self.session.document.entities[id]
-        is_dimension = isinstance(entity, DistanceDimension | RadialDimension)
-        group = self.groups["Dimensions" if is_dimension else "Geometry"]
+        group = self.groups[_group(entity)]
         item = QTreeWidgetItem()
         item.setData(0, ID_ROLE, id)
         item.setForeground(1, theme.TEXT_DIM)
@@ -122,7 +128,16 @@ class SketchBrowser(QTreeWidget):
         value = summary(entity, id, queries)
         item.setText(0, f"{kind_title(entity)}  {id}")
         item.setText(1, value)
-        item.setIcon(0, icons.icon(ICON.get(entity.kind, "select")))
+        item.setIcon(0, icons.icon(ICON[entity.kind]))
+        construction = getattr(entity, "construction", False)
+        font = item.font(0)
+        if font.italic() != construction:
+            # Construction geometry reads in italics, and its tooltip says why.
+            font.setItalic(construction)
+            item.setFont(0, font)
+            item.setToolTip(
+                0, "Construction geometry: constrained, never a profile" if construction else ""
+            )
         self._value_widths[id] = self.fontMetrics().horizontalAdvance(value)
 
     def _update_groups(self) -> None:
@@ -173,10 +188,19 @@ def _natural(id: str) -> tuple[str, int, str]:
     return (head, int(digits) if digits else -1, id)
 
 
+def _group(entity: Entity) -> str:
+    match entity:
+        case DistanceDimension() | RadialDimension() | AngleDimension():
+            return "Dimensions"
+        case Constraint():
+            return "Constraints"
+    return "Geometry"
+
+
 def _measures(entity: Entity, ids: frozenset[EntityId]) -> bool:
     """True if `entity` is a dimension whose value depends on one of `ids`."""
     match entity:
-        case DistanceDimension(a=a, b=b):
+        case DistanceDimension(a=a, b=b) | AngleDimension(a=a, b=b):
             return a.entity in ids or b.entity in ids
         case RadialDimension(target=target):
             return target in ids
