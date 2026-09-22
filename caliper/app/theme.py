@@ -33,6 +33,7 @@ AXIS_Y = QColor(P.axis_y)
 GEOMETRY = QColor(P.geometry)
 CONSTRUCTION = QColor(P.construction)
 CONSTRAINED = QColor(P.constrained)
+GLYPH = QColor(P.glyph)
 HOVER = QColor(P.hover)
 SELECTED = ACCENT
 PREVIEW = QColor(P.preview)

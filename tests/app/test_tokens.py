@@ -56,6 +56,7 @@ def contrast(a: str, b: str) -> float:
         ("dimension", "canvas", 4.5),
         ("construction", "canvas", 4.5),
         ("constrained", "canvas", 7.0),
+        ("glyph", "canvas", 4.5),
     ],
 )
 def test_contrast_meets_wcag(fg: str, bg: str, minimum: float) -> None:
