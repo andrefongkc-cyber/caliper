@@ -88,10 +88,12 @@ def paint_annotations(
     selected: frozenset[EntityId],
     only: Iterable[EntityId] | None = None,
     color: QColor | None = None,
+    failed: frozenset[EntityId] = frozenset(),
 ) -> int:
     """Draw dimensions (all of them, or just `only`). Returns how many couldn't be drawn.
 
-    `color` overrides the usual colours, e.g. for dimensions a rejected change named.
+    `color` overrides the usual colours, e.g. for dimensions a rejected change named;
+    `failed` names driving dimensions that don't hold, drawn in the error colour.
     """
     document = session.document
     skipped = 0
@@ -105,8 +107,10 @@ def paint_annotations(
             continue
         if color is not None:
             shown = color
+        elif id in selected:
+            shown = theme.SELECTED
         else:
-            shown = theme.SELECTED if id in selected else theme.DIMENSION
+            shown = theme.ERROR if id in failed else theme.DIMENSION
         paint(painter, plan, shown)
     return skipped
 

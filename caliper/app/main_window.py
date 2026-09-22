@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from caliper.app import icons
+from caliper.app import icons, solve_state
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
 from caliper.app.palette import CommandPalette
@@ -82,6 +82,7 @@ class MainWindow(QMainWindow):
 
         self.session.file_changed.connect(self._update_title)
         self.session.document_changed.connect(self._update_edit_actions)
+        self.session.document_changed.connect(self._update_solve_status)
         self.session.selection_changed.connect(self._update_edit_actions)
         # A committed transaction sends no Change, so refresh labels when history moves too.
         self.session.history_changed.connect(self._update_edit_actions)
@@ -107,6 +108,7 @@ class MainWindow(QMainWindow):
         self.command_panel.set_actions(palette_actions)
         self._update_title()
         self._update_edit_actions()
+        self._update_solve_status()
         self._update_tool_state()
         self.resize(1280, 800)
 
@@ -300,10 +302,17 @@ class MainWindow(QMainWindow):
         status = self.statusBar()
         status.setSizeGripEnabled(False)
         self.hint_label = QLabel()
+        self.solve_label = QLabel()
+        self.solve_label.setObjectName("solve-status")
+        self.solve_label.setToolTip(
+            "How much of the sketch can still move. Fully constrained geometry is drawn in "
+            "its own colour."
+        )
         self.cursor_label = QLabel()
         self.cursor_label.setMinimumWidth(190)
         self.cursor_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         status.addWidget(self.hint_label, 1)
+        status.addPermanentWidget(self.solve_label)
         status.addPermanentWidget(self.cursor_label)
 
     # --- File -----------------------------------------------------------------------------
@@ -467,6 +476,15 @@ class MainWindow(QMainWindow):
         self.redo_action.setEnabled(bus.redo_label is not None)
         self.redo_action.setText(f"Redo {bus.redo_label}" if bus.redo_label else "Redo")
         self.delete_action.setEnabled(bool(self.session.selection))
+
+    def _update_solve_status(self) -> None:
+        document = self.session.document
+        if not solve_state.is_constrained(document):
+            self.solve_label.setText("")
+            self.solve_label.hide()
+            return
+        self.solve_label.setText(solve_state.describe(self.session.queries.solve_status()))
+        self.solve_label.show()
 
     def _update_tool_state(self) -> None:
         tool = self.controller.active
