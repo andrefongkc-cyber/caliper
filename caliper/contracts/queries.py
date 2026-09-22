@@ -264,8 +264,9 @@ class Queries(Protocol):
         The only query that needs a geometry kernel, so it is the only one that can report
         `kernel.unavailable` — when no kernel is configured, or the optional OCCT extra is
         not installed. `selection.empty` for no ids, `profile.not_closed` for anything that
-        isn't one closed profile, `profile.construction` for construction geometry. `ixx` and `iyy` are about the centroid, and `ixy` is the
-        product of inertia in the usual engineering sense (∫xy dA).
+        isn't one closed profile, `profile.construction` for construction geometry. `ixx`
+        and `iyy` are about the centroid, and `ixy` is the product of inertia in the usual
+        engineering sense (∫xy dA).
         """
         ...
 
