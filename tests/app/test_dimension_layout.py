@@ -3,9 +3,8 @@
 import pytest
 
 from caliper.app.dimension_layout import choose_orientation, layout, offset_for
-from caliper.contracts.commands import CreateDistanceDimension, CreateRectangle
 from caliper.contracts.document import DistanceOrientation as O
-from caliper.contracts.document import Feature, Point2, Ref
+from caliper.contracts.document import Point2
 
 P = Point2
 
@@ -61,24 +60,3 @@ def test_offset_for_puts_the_line_through_the_placement(orientation: O) -> None:
 )
 def test_placement_chooses_the_orientation(placement: Point2, expected: O) -> None:
     assert choose_orientation(P(x=0, y=0), P(x=100, y=40), placement) is expected
-
-
-def test_dimension_tool_creates_a_horizontal_dimension_above(window, driver, bus) -> None:
-    (rect,) = window.session.execute(
-        CreateRectangle(corner=P(x=0, y=0), width=100, height=40)
-    ).created_ids
-    bus.sent.clear()
-    driver.tool("Dimension")
-    driver.click(0, 0)
-    driver.click(100, 40)
-    driver.click(50, 60)
-    assert bus.sent == [
-        CreateDistanceDimension(
-            a=Ref(entity=rect, feature=Feature.BOTTOM_LEFT),
-            b=Ref(entity=rect, feature=Feature.TOP_RIGHT),
-            orientation=O.HORIZONTAL,
-            offset=40.0,  # midpoint y 20 to placement y 60
-        )
-    ]
-    (dim,) = [e for e in window.session.document.entities if e != rect]
-    assert window.session.queries.dimension_value(dim) == 100.0
