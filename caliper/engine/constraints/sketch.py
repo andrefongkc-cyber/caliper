@@ -43,7 +43,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import ConstraintState, SolveStatus
-from caliper.engine.constraints.ad import Dual
+from caliper.engine.constraints.ad import Dual, hypot
 from caliper.engine.constraints.linalg import RowBasis
 from caliper.engine.constraints.model import PARAMS, Frame, read, write
 from caliper.engine.constraints.relations import (
@@ -239,11 +239,33 @@ def _dense(gradients: Sequence[dict[int, float]], columns: Mapping[int, int]) ->
 
 
 def _newton(
-    system: System, relations: Sequence[EntityId], free: Sequence[int]
+    system: System,
+    relations: Sequence[EntityId],
+    free: Sequence[int],
+    *,
+    nudge: bool = False,
+    hold_lengths: Iterable[EntityId] = (),
 ) -> tuple[list[float], bool]:
-    """Minimum-norm Newton with backtracking on the free unknowns. True when solved."""
+    """Minimum-norm Newton with backtracking on the free unknowns. True when solved.
+
+    `nudge` starts from slightly off the stored values. A line exactly perpendicular to where
+    a constraint wants it sits on a saddle, where no small change helps; a deterministic
+    nudge of a thousandth of the sketch's size gives Newton a slope to follow.
+
+    `hold_lengths` adds, for this solve only, equations keeping those lines as long as they
+    were: they come last, so they only decide what the real constraints leave open.
+    """
+    held_lines = [id for id in hold_lengths if system.kinds.get(id) is Line]
+    equations = system.equations(relations, list(system.values)) + [
+        (id, _length_keeper(system, id)) for id in held_lines
+    ]
     x = list(system.values)
-    equations = system.equations(relations, x)
+    if nudge:
+        size = 1e-3 * max(1.0, *(abs(v) for v in x))
+        for n, i in enumerate(free):
+            x[i] += size * ((n * 7919) % 13 - 6) / 6  # a fixed spread in [-1, 1]
+        if not _in_domain(system, x):
+            x = list(system.values)
     columns = {p: c for c, p in enumerate(free)}
     tolerance = _tolerance(x)
     # Weighted minimum norm: solve for u = W Δx with J W⁻¹ u = -r, then Δx = W⁻¹ u.
@@ -289,6 +311,17 @@ def _newton(
     return x, max((abs(v) for v in r), default=0.0) <= tolerance
 
 
+def _length_keeper(system: System, id: EntityId) -> Callable[[Frame], list[Dual]]:
+    start = system.values[system.slots[id][0] : system.slots[id][0] + 4]
+    length = math.hypot(start[2] - start[0], start[3] - start[1])
+
+    def equation(f: Frame) -> list[Dual]:
+        line = f.straight(Ref(entity=id, feature=Feature.CURVE))
+        return [hypot(line.b[0] - line.a[0], line.b[1] - line.a[1]) - length]
+
+    return equation
+
+
 def _in_domain(system: System, values: Sequence[float]) -> bool:
     """Sizes positive and arc sweeps inside (0, 360), for every unknown in the system."""
     for (_, path), value in zip(system.params, values, strict=True):
@@ -319,6 +352,9 @@ class Request:
     """Relations this command adds (or turns from driven to driving): checked for redundancy."""
     edited: frozenset[EntityId] = frozenset()
     """Geometry the command edited directly, named when the edit itself conflicts."""
+    turning: frozenset[EntityId] = frozenset()
+    """Lines a new direction constraint refers to. The first attempts hold their lengths,
+    so they turn to the new direction instead of shrinking into it."""
 
 
 def settle(before: Document, after: Document, request: Request) -> Document | list[Error]:
@@ -371,8 +407,12 @@ def _stages(system: System, request: Request) -> list[list[int]]:
 def _solve_cluster(
     system: System, request: Request
 ) -> tuple[list[float], dict[EntityId, Entity]] | Error:
-    for free in _stages(system, request):
-        values, ok = _newton(system, system.relations, free)
+    stages = _stages(system, request)
+    holds = [request.turning, frozenset()] if request.turning else [frozenset()]
+    attempts = [(free, False, hold) for free in stages for hold in holds]
+    attempts += [(stages[-1], True, hold) for hold in holds]
+    for free, nudge, hold in attempts:
+        values, ok = _newton(system, system.relations, free, nudge=nudge, hold_lengths=hold)
         if ok and (entities := _written(system, values)) is not None:
             return values, entities
     return _conflict(system, request)
@@ -418,39 +458,38 @@ def _collapsed(entity: Geometry, tiny: float) -> bool:
 
 
 def _conflict(system: System, request: Request) -> Error:
-    """Which relations (and whether the command's own edit) stand in the way.
+    """The smallest set of existing relations that can't hold together with the command.
 
-    Each relation is dropped in turn; the ones whose removal lets the rest solve are the
-    conflict. The solver is local, so a conflict it could only escape by a large jump (a
-    horizontal line made vertical at a fixed length) may have no single culprit it can
-    find; then every relation on the geometry involved is named.
+    Found with QuickXplain (Junker, 2004): split the candidates in half, keep whichever half
+    already fails, recurse. That takes a few solves of small subsets instead of one solve of
+    the whole cluster per relation, and small subsets are easy for a local solver: a line
+    made vertical is found to conflict with its horizontal, even where swinging it 90° to
+    test the alternative would be out of the solver's reach. The command's own edit is
+    blamed too when releasing it lets everything hold.
     """
     held = system.indices(request.held)
-    everything = [i for i in range(len(system.params)) if i not in held]
-    blamed = [
-        id
-        for id in system.relations
-        if id not in request.new
-        and _solves(system, [r for r in system.relations if r != id], everything)
-    ]
+    free = [i for i in range(len(system.params)) if i not in held]
+    added = [id for id in system.relations if id in request.new]
+    near = set(_neighbours(system, request))
+    # Relations on the same geometry first: QuickXplain prefers blaming earlier candidates.
+    candidates = sorted(
+        (id for id in system.relations if id not in request.new),
+        key=lambda id: (id not in near, id),
+    )
+
+    def holds(relations: Sequence[EntityId]) -> bool:
+        return _solves(system, relations, free)
+
+    culprits = sorted(_quickxplain(added, candidates, holds)) if holds(added) else []
     edit_blamed = bool(held) and _solves(system, system.relations, range(len(system.params)))
-    ids = sorted({*blamed, *(request.edited if edit_blamed else ())})
+    ids = sorted({*culprits, *(request.edited if edit_blamed else ())})
     subject = _subject(system.document, request)
     if not ids:
-        ids = _neighbours(system, request)
-        if not ids:
-            return Error(
-                code=ErrorCode.CONSTRAINT_CONFLICT,
-                message=f"{subject} can't be satisfied by the geometry it refers to (a "
-                "rectangle can't turn, and nothing may shrink to nothing)",
-            )
         return Error(
             code=ErrorCode.CONSTRAINT_CONFLICT,
-            message=f"{subject} can't hold together with {_names(system.document, ids)}; "
-            "no single one of them is the cause on its own",
-            ids=tuple(ids),
+            message=f"{subject} can't be satisfied by the geometry it refers to (a "
+            "rectangle can't turn, and nothing may shrink to nothing)",
         )
-    culprits = [id for id in ids if id not in request.edited]
     if edit_blamed and not culprits:
         message = f"{subject} can't move that way; the constraints hold it"
     else:
@@ -458,9 +497,37 @@ def _conflict(system: System, request: Request) -> Error:
     return Error(code=ErrorCode.CONSTRAINT_CONFLICT, message=message, ids=tuple(ids))
 
 
+def _quickxplain(
+    background: list[EntityId],
+    candidates: list[EntityId],
+    holds: Callable[[Sequence[EntityId]], bool],
+) -> list[EntityId]:
+    """A minimal subset X of `candidates` such that `background` + X doesn't hold.
+
+    Assumes `background` holds and `background` + `candidates` doesn't.
+    """
+
+    def search(base: list[EntityId], grew: bool, pool: list[EntityId]) -> list[EntityId]:
+        if grew and not holds(base):
+            return []
+        if len(pool) == 1:
+            return pool
+        half = len(pool) // 2
+        first, second = pool[:half], pool[half:]
+        from_second = search(base + first, bool(first), second)
+        from_first = search(base + from_second, bool(from_second), first)
+        return from_first + from_second
+
+    return search(background, False, candidates) if candidates else []
+
+
 def _solves(system: System, relations: Sequence[EntityId], free: Iterable[int]) -> bool:
-    values, ok = _newton(system, relations, list(free))
-    return ok and _written(system, values) is not None
+    free = list(free)
+    for nudge in (False, True):
+        values, ok = _newton(system, relations, free, nudge=nudge)
+        if ok and _written(system, values) is not None:
+            return True
+    return False
 
 
 def _subject(document: Document, request: Request) -> str:
@@ -554,6 +621,21 @@ def mover(document: Document, relation: Entity) -> Ref:
         case RadialDimension(target=target):
             return Ref(entity=target, feature=Feature.CURVE)
     raise ValueError(f"{relation!r} isn't a constraint or dimension")
+
+
+def turning(document: Document, relation: Entity) -> frozenset[EntityId]:
+    """Lines a relation sets the direction of: they should turn, not shrink, when it's added."""
+    match relation:
+        case Constraint(type=type_, refs=refs):
+            found = match(document, type_, refs)
+            assert isinstance(found, Match)
+            if not found.rule.turns:
+                return frozenset()
+        case AngleDimension(a=a, b=b):
+            refs = (a, b)
+        case _:
+            return frozenset()
+    return frozenset(r.entity for r in refs if isinstance(document.entities[r.entity], Line))
 
 
 def canonical(document: Document, constraint: Constraint) -> tuple[Ref, ...]:
