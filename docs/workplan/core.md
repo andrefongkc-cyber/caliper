@@ -1,10 +1,37 @@
-Status: V1 on main; freeze PR #22 and the restored maintainer PRs #12-#14 open for Lucas, next: the six deferred contract decisions once the freeze lands
+Status: doing V1.5 sketch constraints on `contracts/sketch-constraints` (engine works end to end; writing the per-constraint tests), next: ADRs 0008/0009 and the shell patch for Lucas
 
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` changes go through a joint PR once frozen (after Phase 0.5).
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## V1.5 — Sketch constraints and dimensions (branch `contracts/sketch-constraints`, started 2026-09-22)
+
+User request (2026-09-22): the full constraint and dimensioning engine, engine first, minimal debug surface. Joint `contracts/` branch because it changes the frozen contract; Lucas reviews. Answers the eight decisions in issue #18.
+
+Decisions so far:
+- **Solver: our own, pure Python** (user decision 2026-09-22), superseding ADR 0003's planegcs. Reasons: no native build on every Mac, engine stays dependency-free, deterministic replay, DOF per entity. New ADR 0008 (Proposed); ADR 0003 itself is left as written
+- **Constraints are one generic entity** (`Constraint(type, refs)`) with a registry of relation specs in the engine, not one dataclass per kind (differs from #18 section 1; the palette can list types from the applicability query instead of the `Command` union)
+- **Dimensions keep the two V1 types** (the shell draws and edits them) plus `AngleDimension`; all three get `value: float | None` (None = driven, a number = driving), as #18 section 2 proposed. One engine-side system infers, classifies, measures and solves all seven kinds (length, distance, horizontal, vertical, radius, diameter, angle); `CreateDimension(refs, placement)` infers the kind like Onshape
+- **Solved positions are stored** (ADR 0005's open V1.5 choice, #18 section 6). The solve runs inside each command, so the solve is part of the automatic delta and undo needs nothing new
+- **Conflicting or redundant new constraints are `Rejected`**, naming the constraints involved in `Error.ids` (#18 section 4, stricter on redundancy)
+- **Debug surface is the CLI** (`inspect` shows constraints, DOF and conflicts), not `caliper/app/`, which is Stream B's
+
+Plan (markers updated as work lands):
+- [x] Contract: `Point`, `construction` flag, curve/edge features (`CURVE`, rectangle sides), `Constraint` + `ConstraintType` (14), driving `value` on dimensions, `AngleDimension`, `CreatePoint` / `CreateConstraint` / `CreateAngleDimension` / `CreateDimension`, `Error.ids`, six error codes, queries `solve_status` / `applicable_constraints` / `infer_dimension` / `dimension_type` / `suggest_constraints` / `constraints_on` / `reference_at_point`
+- [x] Solver core (`caliper/engine/constraints/`): dual-number derivatives (`ad.py`), one rank-revealing Gram-Schmidt for steps, rank, and "implied by" (`linalg.py`), unknowns per entity with feature formulas identical to queries (`model.py`), Newton with minimum-norm steps and backtracking, cluster splitting (`sketch.py`)
+- [x] Relation registry (`relations.py`): every constraint type as a table of accepted selections, each with its equations; applicability, canonical order, and "which reference moves" come from it. Pierce reports unsupported; Curvature is real G2 for line-line and arc-arc and refuses line-arc
+- [x] Bus integration (`handlers.py`): creates, edits, moves, and fillets solve the clusters they touch, in stages (nothing moves → the named mover → its entity → the cluster). Deletes cascade to constraints and never solve. Fillet drops the corner coincidence it replaces
+- [x] Conflicts: each relation dropped in turn, the ones whose removal lets the rest solve are named in `Error.ids`; when none alone does (the solver is local), every relation on the touched geometry is named. Near-collapsed geometry counts as degenerate. Redundant additions are rejected with the constraints that imply them
+- [x] DOF and solve status, per entity (null-space rank per entity's unknowns), cached per document
+- [x] Dimension inference (`dimensions.py`): one module classifies, measures, lists options, and infers the kind from selection + placement; queries' `dimension_value` now goes through it
+- [x] Constraint suggestions (`suggest.py`) + `Suggestions` session object (reject/accept/disable), never in the document
+- [x] File format v2 + migration 1→2 + fixture test; schema-1 files kept in `tests/engine/fixtures/v1/`; replay fixtures and bench expectations regenerated (diff: only the new fields and the version)
+- [x] CLI: `inspect` shows the sketch status, per-entity DOF, driving/construction/conflict markers, constraints; `replay` errors list the ids involved
+- [~] Tests: engine suite green (402); smoke-tested H/V/parallel/length/conflict/redundant/fix/undo. Next: per-constraint and per-dimension tests, DOF, conflicts, save/load, undo/redo, property tests
+- [ ] ADR 0008 (solver) and ADR 0009 (constraint model and storage), both Proposed
+- [ ] Shell follow-up for Lucas (don't edit `caliper/app/`): the palette drops any command with a field it can't render, so the new `construction` flag hides Create Line/Circle/Arc/Rectangle (11 `tests/app/test_palette.py` failures). Prepare a tested patch: skip fields that have a default
 
 ## Phase 0 — Foundation (single session, before the streams split)
 
