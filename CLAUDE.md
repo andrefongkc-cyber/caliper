@@ -2,12 +2,13 @@
 
 AI-native engineering platform. The wedge is a geometry core whose API lets an agent check
 its own work (measure, query, assert, retry) against real parametric geometry. Current scope:
-**V1, 2D sketching.** Where things stand: `WORKPLAN.md` → `docs/workplan/`. How it fits
+**V1, 2D sketching: done and on `main`, contract frozen.** Next: V1 follow-ups, then V1.5
+constraints. Where things stand: `WORKPLAN.md` → `docs/workplan/`. How it fits
 together: `docs/architecture.md`. Don't load `docs/vision.md` unless asked.
 
 ## Stack
 
-Python 3.13 · uv · OCCT via cadquery-ocp (`occt` extra) · planegcs (V1.5, Proposed) ·
+Python 3.13 · uv · OCCT via cadquery-ocp (`occt` extra) · planegcs (V1.5, Accepted) ·
 PySide6 via pyside6-essentials (`app` extra) · canonical JSON files · pytest, hypothesis,
 pytest-qt · ruff · mypy --strict on contracts + engine · GitHub Actions
 
@@ -23,7 +24,7 @@ uv run pytest && uv run ruff check && uv run ruff format --check && uv run mypy
 |---|---|
 | `caliper/engine/`, `bench/`, `tests/` (not `tests/app/`), `docs/workplan/core.md` | Stream A (core), branch `stream/core` |
 | `caliper/app/`, `tests/app/`, `docs/workplan/shell.md` | Stream B (shell), branch `stream/shell` |
-| `caliper/contracts/` | Joint. Frozen after the Phase 0.5 spike; change only on a `contracts/<topic>` branch reviewed by both. `kernel.py` stays Provisional |
+| `caliper/contracts/` | Joint. Frozen for V1 (PR #22); change only on a `contracts/<topic>` branch reviewed by both. `kernel.py` stays Provisional |
 | `CLAUDE.md`, `WORKPLAN.md`, `pyproject.toml`, `uv.lock`, `.github/`, other docs | Maintainers, on `shared/<topic>` branches. Agents: propose, don't edit |
 
 The `boundaries` CI check rejects stream branches that touch files outside their area.
@@ -50,7 +51,7 @@ The `boundaries` CI check rejects stream branches that touch files outside their
 - **Pull requests** start with a plain-language `## Summary` (what it does, what depends on the other stream, what the reviewer must decide, risk), following `.github/pull_request_template.md`. Merge with "Rebase and merge", never squash.
 - **ADRs** are immutable once Accepted. Supersede with a new ADR; don't edit.
 - **Workplan:** update your stream's file after every meaningful change, mid-task included. Its first line is `Status: doing X, next: Y`; markers are `[ ]` `[~]` `[x]`.
-- **End every response** with a one-paragraph summary, your workplan's `Status:` line, and the next 1–3 tasks with markers.
+- **End every response** with a one-paragraph summary in plain language (what happened, what it means, what's next, without jargon), your workplan's `Status:` line, and the next 1–3 tasks with markers.
 
 ## ADRs
 
