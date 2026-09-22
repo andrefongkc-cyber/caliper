@@ -5,8 +5,10 @@ headless, and return a value or an `Error`; invalid input never raises. A `Queri
 instance is bound to one immutable Document snapshot, so its answers never go stale
 mid-computation.
 
-Frozen as of V1: changing anything here needs a joint `contracts/` PR. Two conventions
-hold throughout:
+Frozen as of V1: changing anything here needs a joint `contracts/` PR. V1.5 added the
+constraint queries (`solve_status`, `applicable_constraints`, `infer_dimension`,
+`dimension_type`, `suggest_constraints`, `constraints_on`) and `reference_at_point`.
+Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
   id" below means that order, not numeric order.
@@ -16,12 +18,12 @@ hold throughout:
   finite or has min above max), because their return types carry no `Error`.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from caliper.contracts.document import EntityId, Point2, Ref
+from caliper.contracts.document import ConstraintType, EntityId, Point2, Ref
 from caliper.contracts.errors import Error
 
 # --- Result values ----------------------------------------------------------------------
@@ -115,6 +117,75 @@ class CheckResult:
     error: Error | None = None
 
 
+# --- Constraints and dimensions ---------------------------------------------------------
+
+
+class DimensionType(StrEnum):
+    """The seven dimension kinds a user sees, whichever entity type stores them."""
+
+    LENGTH = "length"
+    """A line or rectangle side, end to end."""
+    DISTANCE = "distance"
+    """Point to point (aligned), point to line, or between parallel lines."""
+    HORIZONTAL_DISTANCE = "horizontal_distance"
+    VERTICAL_DISTANCE = "vertical_distance"
+    RADIUS = "radius"
+    DIAMETER = "diameter"
+    ANGLE = "angle"
+
+
+class ConstraintState(StrEnum):
+    UNDER = "under"
+    """Some geometry can still move: `dof` > 0."""
+    FULLY = "fully"
+    """Nothing can move without breaking a constraint."""
+    OVER = "over"
+    """Every constraint holds, but some repeat what others already say."""
+    CONFLICTING = "conflicting"
+    """Some constraints don't hold. Commands never leave a document like this; a file edited
+    by hand, or solved elsewhere beyond tolerance, can arrive like it."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SolveStatus:
+    """Degrees of freedom and constraint health of the whole document."""
+
+    state: ConstraintState
+    dof: int
+    """Remaining degrees of freedom: unknowns minus independent constraint equations."""
+    entity_dof: Mapping[EntityId, int]
+    """Every geometry entity's remaining degrees of freedom; 0 means fully constrained."""
+    conflicting: tuple[EntityId, ...]
+    """Constraints and driving dimensions that don't hold, sorted."""
+    redundant: tuple[EntityId, ...]
+    """Constraints and driving dimensions implied by others, sorted."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConstraintOption:
+    """Whether one constraint or dimension type applies to a selection, and how."""
+
+    type: ConstraintType | DimensionType
+    refs: tuple[Ref, ...]
+    """The selection in the order the engine stores it, ready for `CreateConstraint`."""
+    error: Error | None = None
+    """None when it applies; otherwise why not."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Suggestion:
+    """A constraint the geometry nearly satisfies. Not a constraint until someone adds it.
+
+    Accepting means sending `CreateConstraint(type=..., refs=...)`. Rejecting, ignoring,
+    or switching suggestions off is UI or agent state; the document never records it.
+    """
+
+    type: ConstraintType
+    refs: tuple[Ref, ...]
+    deviation: float
+    """How far from exact: mm for positions, degrees for directions."""
+
+
 # --- Protocol ---------------------------------------------------------------------------
 
 
@@ -178,12 +249,12 @@ class Queries(Protocol):
         ...
 
     def dimension_value(self, id: EntityId) -> float | Error:
-        """The measured value a driven dimension displays.
+        """What a dimension measures on the stored geometry, driven or driving.
 
-        A distance dimension measures between its two feature points: the full distance when
-        ALIGNED, the absolute horizontal or vertical component otherwise. A radial dimension
-        gives the radius or the diameter. `entity.not_found` or `entity.wrong_kind` on `id`
-        when it isn't a dimension.
+        A distance dimension measures as documented on `DistanceDimension`, a radial one the
+        radius or diameter, an angle one in degrees. For a driving dimension this equals its
+        `value` once solved. `entity.not_found` or `entity.wrong_kind` on `id` when it
+        isn't a dimension.
         """
         ...
 
@@ -193,9 +264,64 @@ class Queries(Protocol):
         The only query that needs a geometry kernel, so it is the only one that can report
         `kernel.unavailable` — when no kernel is configured, or the optional OCCT extra is
         not installed. `selection.empty` for no ids, `profile.not_closed` for anything that
-        isn't one closed profile. `ixx` and `iyy` are about the centroid, and `ixy` is the
+        isn't one closed profile, `profile.construction` for construction geometry. `ixx` and `iyy` are about the centroid, and `ixy` is the
         product of inertia in the usual engineering sense (∫xy dA).
         """
+        ...
+
+    def reference_at_point(self, point: Point2, tolerance: float) -> Ref | None:
+        """The point or curve feature a click at `point` picks, for building a selection.
+
+        A point feature within `tolerance` (mm) wins, as in `nearest_feature`. Otherwise
+        the nearest curve within `tolerance`: a line, circle, or arc's CURVE, or a
+        rectangle's side; ties go to the lowest id. Invalid input matches nothing.
+        """
+        ...
+
+    def solve_status(self) -> SolveStatus:
+        """Degrees of freedom and constraint health, computed from the stored geometry."""
+        ...
+
+    def applicable_constraints(self, refs: Sequence[Ref]) -> tuple[ConstraintOption, ...]:
+        """One option per ConstraintType, then one per DimensionType, in enum order.
+
+        An option with `error` None can be created from `refs` as given. Otherwise `error`
+        says why not: `constraint.not_applicable` for the wrong kind or number of
+        references, `constraint.unsupported` for Pierce, or the reference error
+        (`entity.not_found`, `reference.invalid_feature`) for a bad reference.
+        """
+        ...
+
+    def infer_dimension(self, refs: Sequence[Ref], placement: Point2) -> DimensionType | Error:
+        """The dimension `CreateDimension(refs, placement)` would make, for a live preview.
+
+        Decided by what is selected and where the label goes, as in Onshape: one line is a
+        length, or its horizontal or vertical extent when placed above/below or beside it;
+        two points likewise; a point and a line, or two parallel lines, a distance; two
+        other lines an angle; a circle a diameter, or a radius when placed inside it; an
+        arc a radius. Circles and arcs paired with anything measure from their centres.
+        """
+        ...
+
+    def dimension_type(self, id: EntityId) -> DimensionType | Error:
+        """Which of the seven kinds a dimension entity is."""
+        ...
+
+    def suggest_constraints(
+        self, ids: Sequence[EntityId] = (), *, tolerance: float, angle_tolerance: float = 1.0
+    ) -> tuple[Suggestion, ...]:
+        """Constraints the geometry nearly satisfies but doesn't have yet.
+
+        Considers horizontal, vertical, coincident, midpoint, parallel, perpendicular, and
+        tangent. Only relationships involving `ids` (all geometry when empty), within
+        `tolerance` mm or `angle_tolerance` degrees. Skips what existing constraints
+        already say or imply. Sorted by deviation, then type, then references.
+        """
+        ...
+
+    def constraints_on(self, ids: Sequence[EntityId]) -> tuple[EntityId, ...]:
+        """Constraints and dimensions referring to any of `ids`, sorted. Unknown ids match
+        nothing."""
         ...
 
     def check(self, expectation: Expectation) -> CheckResult:
