@@ -4,6 +4,10 @@ Fields come from the entity's contract dataclass, so a new entity field shows up
 changes here. An edit commits on Return or when the field loses focus, and becomes one
 `ModifyEntity`, which is one undo step. Continuous scrubbing would need `merge_key`; the
 panel has no scrubbing yet. A `Rejected` result marks the field its `Error.field` names.
+
+A dimension's `value` (a number, or None) is a text field that may be left empty: a number
+makes the dimension driving, empty makes it driven, and while it's empty the field shows
+what the dimension measures. Flags (`construction`) are checkboxes.
 """
 
 import dataclasses
@@ -12,6 +16,7 @@ from enum import StrEnum
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -25,6 +30,7 @@ from PySide6.QtWidgets import (
 from caliper.app.session import DocumentSession
 from caliper.contracts.commands import Applied, ModifyEntity, ParamValue, Rejected
 from caliper.contracts.document import Entity, EntityId, Point2, Ref
+from caliper.contracts.errors import Error
 
 
 def format_number(value: float) -> str:
@@ -49,9 +55,11 @@ class PropertiesPanel(QWidget):
     def __init__(self, session: DocumentSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.session = session
-        self.fields: dict[str, QLineEdit | QComboBox] = {}
-        """Editable fields by path: "width", "corner.x", "orientation"."""
+        self.fields: dict[str, QLineEdit | QComboBox | QCheckBox] = {}
+        """Editable fields by path: "width", "corner.x", "orientation", "construction"."""
         self._entity_id: EntityId | None = None
+        self._optional: set[str] = set()
+        """Paths of number fields that may be left empty (None)."""
         # The panel's width must not depend on what's selected: a dock that grows when a
         # selection appears shrinks the canvas and shifts the view under the user.
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -87,6 +95,7 @@ class PropertiesPanel(QWidget):
         self._body = QWidget()
         self._layout.insertWidget(0, self._body)
         self.fields = {}
+        self._optional = set()
         self._clear_error()
         selection = self.session.selection
         entity = None
@@ -112,12 +121,21 @@ class PropertiesPanel(QWidget):
         heading.setProperty("role", "section")
         form.addRow(heading)
         for field in dataclasses.fields(entity):
-            self._add_field(form, field.name, getattr(entity, field.name))
+            value = getattr(entity, field.name)
+            if field.type == float | None:
+                form.addRow(_title(field.name), self._optional_number(field.name, value))
+            else:
+                self._add_field(form, field.name, value)
 
     def _add_field(self, form: QFormLayout, name: str, value: object) -> None:
         match value:
             case bool():
-                form.addRow(_title(name), QLabel(str(value)))
+                box = QCheckBox()
+                box.setObjectName(name)
+                box.setChecked(value)
+                box.toggled.connect(lambda checked, n=name: self._commit(n, checked))
+                self.fields[name] = box
+                form.addRow(_title(name), box)
             case float() | int():
                 form.addRow(_title(name), self._number(name, float(value)))
             case Point2():
@@ -137,10 +155,28 @@ class PropertiesPanel(QWidget):
                 )
                 self.fields[name] = combo
                 form.addRow(_title(name), combo)
-            case Ref(entity=target, feature=feature):
-                form.addRow(_title(name), QLabel(f"{target} {feature.value.replace('_', ' ')}"))
+            case Ref():
+                form.addRow(_title(name), QLabel(ref_text(value)))
+            case tuple() if all(isinstance(v, Ref) for v in value):
+                label = QLabel("\n".join(ref_text(v) for v in value))
+                form.addRow(_title(name), label)
             case _:
                 form.addRow(_title(name), QLabel(str(value)))
+
+    def _optional_number(self, path: str, value: float | None) -> QLineEdit:
+        """A number that may be left empty (None), showing the measured value while empty."""
+        edit = self._number(path, 0.0)
+        self._optional.add(path)
+        edit.setText("" if value is None else format_number(value))
+        edit.setPlaceholderText(self._measured())
+        edit.setToolTip("A number makes this dimension drive the geometry; empty follows it")
+        return edit
+
+    def _measured(self) -> str:
+        if self._entity_id is None:
+            return ""
+        value = self.session.queries.dimension_value(self._entity_id)
+        return "" if isinstance(value, Error) else f"{format_number(round(value, 6))} (driven)"
 
     def _number(self, path: str, value: float) -> QLineEdit:
         edit = QLineEdit(format_number(value))
@@ -164,7 +200,15 @@ class PropertiesPanel(QWidget):
         for path, widget in self.fields.items():
             current = _read(entity, path)
             if isinstance(widget, QLineEdit) and not widget.hasFocus():
-                widget.setText(format_number(float(current)))  # type: ignore[arg-type]
+                if current is None:
+                    widget.setText("")
+                    widget.setPlaceholderText(self._measured())
+                else:
+                    widget.setText(format_number(float(current)))  # type: ignore[arg-type]
+            elif isinstance(widget, QCheckBox) and isinstance(current, bool):
+                widget.blockSignals(True)
+                widget.setChecked(current)
+                widget.blockSignals(False)
             elif isinstance(widget, QComboBox) and isinstance(current, StrEnum):
                 widget.blockSignals(True)
                 widget.setCurrentText(current.value)
@@ -175,6 +219,11 @@ class PropertiesPanel(QWidget):
     def _commit_text(self, path: str, edit: QLineEdit) -> None:
         entity = self._entity()
         if entity is None:
+            return
+        if not edit.text().strip() and path in self._optional:
+            # An optional number left empty: driven.
+            if _read(entity, path) is not None:
+                self._commit(path, None, path)
             return
         value = parse_number(edit.text())
         if value is None:
@@ -227,6 +276,11 @@ class PropertiesPanel(QWidget):
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
         self.error.hide()
+
+
+def ref_text(ref: Ref) -> str:
+    """ "e3 bottom left", "e4 curve"."""
+    return f"{ref.entity} {ref.feature.value.replace('_', ' ')}"
 
 
 def _read(entity: Entity, path: str) -> object:

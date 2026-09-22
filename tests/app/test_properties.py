@@ -2,16 +2,25 @@
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QLineEdit
+from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QLineEdit
 
 from caliper.app.properties import format_number, parse_number
 from caliper.contracts.commands import (
+    CreateConstraint,
+    CreateDimension,
     CreateDistanceDimension,
     CreateLine,
     CreateRectangle,
     ModifyEntity,
 )
-from caliper.contracts.document import DistanceOrientation, Feature, Point2, Ref
+from caliper.contracts.document import (
+    ConstraintType,
+    DistanceOrientation,
+    Feature,
+    Line,
+    Point2,
+    Ref,
+)
 
 
 @pytest.fixture
@@ -34,7 +43,7 @@ def type_into(qtbot, field: QLineEdit, text: str) -> None:
 
 def test_fields_mirror_the_entity(window, rect) -> None:
     fields = window.properties.fields
-    assert set(fields) == {"corner.x", "corner.y", "width", "height"}
+    assert set(fields) == {"corner.x", "corner.y", "width", "height", "construction"}
     assert fields["corner.x"].text() == "10"
     assert fields["height"].text() == "50"
 
@@ -126,3 +135,89 @@ def test_selecting_does_not_resize_the_canvas(window, qtbot) -> None:
     qtbot.wait(50)
     assert window.properties.fields["width"].isVisible()
     assert window.canvas.width() == before
+
+
+# --- V1.5 fields --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def length(window) -> tuple[str, str]:
+    """A 100 mm line with a driven length dimension, the dimension selected."""
+    s = window.session
+    (line,) = s.execute(CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=0))).created_ids
+    (dim,) = s.execute(
+        CreateDimension(
+            refs=(Ref(entity=line, feature=Feature.CURVE),), placement=Point2(x=50, y=10)
+        )
+    ).created_ids
+    s.set_selection(frozenset({dim}))
+    s.bus.sent.clear()
+    return line, dim
+
+
+def test_construction_is_a_checkbox_that_sends_one_command(window, qtbot, bus, rect) -> None:
+    box = window.properties.fields["construction"]
+    assert isinstance(box, QCheckBox)
+    assert not box.isChecked()
+    box.click()
+    assert bus.sent == [ModifyEntity(id=rect, changes={"construction": True})]
+    assert window.undo_action.text() == "Undo Change Construction"
+    window.undo_action.trigger()
+    assert not window.properties.fields["construction"].isChecked()
+
+
+def test_a_driven_value_is_empty_and_shows_the_measurement(window, length) -> None:
+    field = window.properties.fields["value"]
+    assert isinstance(field, QLineEdit)
+    assert field.text() == ""
+    assert field.placeholderText() == "100 (driven)"
+
+
+def test_typing_a_value_drives_the_geometry(window, qtbot, bus, length) -> None:
+    line, dim = length
+    type_into(qtbot, window.properties.fields["value"], "120")
+    assert bus.sent == [ModifyEntity(id=dim, changes={"value": 120.0})]
+    entity = window.session.document.entities[line]
+    assert isinstance(entity, Line)
+    assert entity.end.x - entity.start.x == pytest.approx(120)
+
+
+def test_undoing_back_to_driven_refreshes_instead_of_crashing(window, qtbot, length) -> None:
+    type_into(qtbot, window.properties.fields["value"], "120")
+    window.canvas.setFocus()
+    window.undo_action.trigger()
+    field = window.properties.fields["value"]
+    assert field.text() == ""
+    assert field.placeholderText() == "100 (driven)"
+
+
+def test_clearing_a_driving_value_makes_it_driven(window, qtbot, bus, length) -> None:
+    _, dim = length
+    type_into(qtbot, window.properties.fields["value"], "120")
+    bus.sent.clear()
+    field = window.properties.fields["value"]
+    field.setFocus()
+    field.selectAll()
+    qtbot.keyClick(field, Qt.Key.Key_Delete)
+    qtbot.keyClick(field, Qt.Key.Key_Return)
+    assert bus.sent == [ModifyEntity(id=dim, changes={"value": None})]
+
+
+def test_an_empty_driven_value_sends_nothing(window, qtbot, bus, length) -> None:
+    field = window.properties.fields["value"]
+    field.setFocus()
+    qtbot.keyClick(field, Qt.Key.Key_Return)
+    assert bus.sent == []
+
+
+def test_constraint_references_read_as_text(window) -> None:
+    s = window.session
+    (a,) = s.execute(CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=1))).created_ids
+    (c,) = s.execute(
+        CreateConstraint(
+            type=ConstraintType.HORIZONTAL, refs=(Ref(entity=a, feature=Feature.CURVE),)
+        )
+    ).created_ids
+    s.set_selection(frozenset({c}))
+    texts = [label.text() for label in window.properties.findChildren(QLabel)]
+    assert f"{a} curve" in texts
