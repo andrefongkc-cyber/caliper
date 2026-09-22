@@ -60,7 +60,7 @@ driving length and the first corner fixed: one fully constrained cluster.
 Random sketches, with constraints chosen from what `applicable_constraints` offers for a
 random selection:
 
-- **On fresh geometry** (1,068 constraints, each between different entities): no conflicts.
+- **On fresh geometry** (1,048 constraints, each between different entities): no conflicts.
   The only refusals are constraints that always hold, such as two rectangles' sides made
   parallel.
 - **On sketches that build up** (400 sketches, 2,157 constraints): 1,304 applied and 853
