@@ -122,7 +122,7 @@ class SketchBrowser(QTreeWidget):
         value = summary(entity, id, queries)
         item.setText(0, f"{kind_title(entity)}  {id}")
         item.setText(1, value)
-        item.setIcon(0, icons.icon(ICON[entity.kind]))
+        item.setIcon(0, icons.icon(ICON.get(entity.kind, "select")))
         self._value_widths[id] = self.fontMetrics().horizontalAdvance(value)
 
     def _update_groups(self) -> None:

@@ -28,7 +28,9 @@ ICON: dict[str, str] = {
     "rectangle": "rectangle",
     "distance_dimension": "dimension",
     "radial_dimension": "dimension",
+    "angle_dimension": "dimension",
 }
+"""Kinds without an entry (point, constraint) show the select icon until P7 draws theirs."""
 
 
 def kind_title(entity: Entity) -> str:

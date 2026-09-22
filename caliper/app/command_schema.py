@@ -69,6 +69,8 @@ def _spec(command_type: type) -> CommandSpec | None:
             # selection rather than asking someone to type ids.
             uses_selection = True
             selection_fields.append(f.name)
+        elif f.default is not dataclasses.MISSING:
+            continue  # optional, left at its default: construction, a dimension's value
         else:
             return None
     kind: str = command_type.kind  # type: ignore[attr-defined]
