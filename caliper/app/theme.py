@@ -31,6 +31,7 @@ GRID_MAJOR = QColor(P.grid_major)
 AXIS_X = QColor(P.axis_x)
 AXIS_Y = QColor(P.axis_y)
 GEOMETRY = QColor(P.geometry)
+CONSTRUCTION = QColor(P.construction)
 HOVER = QColor(P.hover)
 SELECTED = ACCENT
 PREVIEW = QColor(P.preview)
