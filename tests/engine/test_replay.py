@@ -45,6 +45,17 @@ def test_a_fillet_replays_to_identical_bytes() -> None:
     assert second.stdout == first.stdout
 
 
+def test_a_constrained_sketch_replays_to_identical_bytes() -> None:
+    """Solve a hand-drawn plate into a fixed 100 x 50 rectangle with a tangent hole, then widen
+    it to 120 through its dimension. Only lines and circles: no trigonometry in the solve, so
+    the solved positions are the same bits on every platform."""
+    script, expected = FIXTURES / "constraints.script.json", FIXTURES / "constraints.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
 def test_replay_can_write_a_file(tmp_path: Path) -> None:
     output = tmp_path / "milestone.caliper"
     result = replay(SCRIPT, "-o", output)

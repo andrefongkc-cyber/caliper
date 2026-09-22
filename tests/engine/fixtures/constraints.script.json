@@ -1,0 +1,266 @@
+{
+  "format": "caliper.script",
+  "schema_version": 1,
+  "commands": [
+    {
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 98,
+        "y": 2
+      },
+      "construction": false,
+      "id": null,
+      "kind": "create_line"
+    },
+    {
+      "start": {
+        "x": 99,
+        "y": 1
+      },
+      "end": {
+        "x": 101,
+        "y": 48
+      },
+      "construction": false,
+      "id": null,
+      "kind": "create_line"
+    },
+    {
+      "start": {
+        "x": 100,
+        "y": 51
+      },
+      "end": {
+        "x": 1,
+        "y": 49
+      },
+      "construction": false,
+      "id": null,
+      "kind": "create_line"
+    },
+    {
+      "start": {
+        "x": -1,
+        "y": 50
+      },
+      "end": {
+        "x": 0.5,
+        "y": 1
+      },
+      "construction": false,
+      "id": null,
+      "kind": "create_line"
+    },
+    {
+      "type": "coincident",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "end"
+        },
+        {
+          "entity": "e2",
+          "feature": "start"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "coincident",
+      "refs": [
+        {
+          "entity": "e2",
+          "feature": "end"
+        },
+        {
+          "entity": "e3",
+          "feature": "start"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "coincident",
+      "refs": [
+        {
+          "entity": "e3",
+          "feature": "end"
+        },
+        {
+          "entity": "e4",
+          "feature": "start"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "coincident",
+      "refs": [
+        {
+          "entity": "e4",
+          "feature": "end"
+        },
+        {
+          "entity": "e1",
+          "feature": "start"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "horizontal",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "curve"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "vertical",
+      "refs": [
+        {
+          "entity": "e2",
+          "feature": "curve"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "horizontal",
+      "refs": [
+        {
+          "entity": "e3",
+          "feature": "curve"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "vertical",
+      "refs": [
+        {
+          "entity": "e4",
+          "feature": "curve"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "type": "fix",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "start"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "curve"
+        }
+      ],
+      "placement": {
+        "x": 50,
+        "y": -10
+      },
+      "value": 100.0,
+      "type": null,
+      "id": null,
+      "kind": "create_dimension"
+    },
+    {
+      "refs": [
+        {
+          "entity": "e2",
+          "feature": "curve"
+        }
+      ],
+      "placement": {
+        "x": 110,
+        "y": 25
+      },
+      "value": 50.0,
+      "type": null,
+      "id": null,
+      "kind": "create_dimension"
+    },
+    {
+      "center": {
+        "x": 30,
+        "y": 30
+      },
+      "radius": 8.0,
+      "construction": false,
+      "id": null,
+      "kind": "create_circle"
+    },
+    {
+      "start": {
+        "x": 50,
+        "y": -5
+      },
+      "end": {
+        "x": 50,
+        "y": 55
+      },
+      "construction": true,
+      "id": null,
+      "kind": "create_line"
+    },
+    {
+      "type": "tangent",
+      "refs": [
+        {
+          "entity": "e3",
+          "feature": "curve"
+        },
+        {
+          "entity": "e16",
+          "feature": "curve"
+        }
+      ],
+      "id": null,
+      "kind": "create_constraint"
+    },
+    {
+      "refs": [
+        {
+          "entity": "e16",
+          "feature": "curve"
+        }
+      ],
+      "placement": {
+        "x": 40,
+        "y": 30
+      },
+      "value": 20.0,
+      "type": null,
+      "id": null,
+      "kind": "create_dimension"
+    },
+    {
+      "id": "e14",
+      "changes": {
+        "value": 120.0
+      },
+      "kind": "modify_entity"
+    }
+  ]
+}
