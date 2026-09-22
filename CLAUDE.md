@@ -3,7 +3,7 @@
 AI-native engineering platform. The wedge is a geometry core whose API lets an agent check
 its own work (measure, query, assert, retry) against real parametric geometry. Current scope:
 **V1, 2D sketching: done and on `main`, contract frozen.** V1.5 sketch constraints and
-dimensions are proposed in PR #25, which reopens the contract. Where things stand:
+dimensions are proposed in PR #26, which reopens the contract. Where things stand:
 `WORKPLAN.md` → `docs/workplan/`. How it fits together: `docs/architecture.md`. Don't load
 `docs/vision.md` unless asked.
 
