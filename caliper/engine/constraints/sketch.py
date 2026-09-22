@@ -6,10 +6,11 @@ stages that each let a little more move, and the first stage that satisfies ever
 wins:
 
 1. Nothing moves (the relations may already hold).
-2. The "mover" named by the command: the reference a new constraint moves, a dimension's
-   `b` side, or an edited entity's other fields.
-3. The mover's whole entity.
-4. Everything in the cluster, except fields the command set explicitly ("held").
+2. For a new constraint or dimension value, the "mover": the reference a constraint
+   moves, or a dimension's `b` side; then that reference's whole entity. For an edit or a
+   move, first the movers of the constraints on the edited geometry (a mirror point
+   follows its twin, the axis stays), then everything except the edited geometry.
+3. Everything in the cluster, except fields the command set explicitly ("held").
 
 Within a stage, Newton steps take the smallest change that satisfies the equations, so
 unrelated geometry stays put. When no stage works, the constraints conflict: each relation
@@ -60,6 +61,12 @@ GEOMETRY = (Point, *[t for t in PARAMS if t is not Point])
 
 ITERATIONS = 64
 POLISH = 3
+RESHAPE_COST = 100.0
+"""How much more a unit change of a size (radius, width, height) costs than a unit move.
+
+Steps minimize the weighted change, so a free circle or rectangle translates to meet a
+constraint rather than shrinking or growing to reach it, as in any CAD sketcher."""
+_SIZES = frozenset({"radius", "width", "height"})
 """Extra Newton steps once within tolerance, while they still reduce the error. They take
 results to the last bit, so a width driven to 120 is stored as exactly 120.0."""
 
@@ -239,8 +246,12 @@ def _newton(
     equations = system.equations(relations, x)
     columns = {p: c for c, p in enumerate(free)}
     tolerance = _tolerance(x)
+    # Weighted minimum norm: solve for u = W Δx with J W⁻¹ u = -r, then Δx = W⁻¹ u.
+    costs = [RESHAPE_COST if system.params[p][1] in _SIZES else 1.0 for p in free]
 
     def attempt(values: list[float]) -> tuple[list[float], list[dict[int, float]], float]:
+        if not _in_domain(system, values):
+            return [], [], math.inf  # never step through a negative radius or a full turn
         try:
             r, g, _ = _evaluate(equations, system.frame(values, free))
         except (ZeroDivisionError, ValueError, OverflowError):
@@ -261,8 +272,8 @@ def _newton(
             return x, False
         basis = RowBasis(len(free))
         for i, row in enumerate(_dense(g, columns)):
-            basis.add(i, row)
-        step = basis.step(r)
+            basis.add(i, [d / cost for d, cost in zip(row, costs, strict=True)])
+        step = [u / cost for u, cost in zip(basis.step(r), costs, strict=True)]
         alpha = 1.0
         for _ in range(16):
             trial = list(x)
@@ -278,6 +289,16 @@ def _newton(
     return x, max((abs(v) for v in r), default=0.0) <= tolerance
 
 
+def _in_domain(system: System, values: Sequence[float]) -> bool:
+    """Sizes positive and arc sweeps inside (0, 360), for every unknown in the system."""
+    for (_, path), value in zip(system.params, values, strict=True):
+        if path in _SIZES and not value > 0:
+            return False
+        if path == "sweep_angle" and not 0 < value < 360:
+            return False
+    return True
+
+
 # --- Settling a command -------------------------------------------------------------------
 
 
@@ -291,6 +312,9 @@ class Request:
     """Fields the command set explicitly. They keep their new values."""
     movers: tuple[frozenset[Param], ...] = ()
     """What to try moving first, in stages; everything else in the cluster comes last."""
+    keep: frozenset[EntityId] = frozenset()
+    """Geometry to leave alone if anything else can move instead: an edited entity's other
+    fields stay put while what's connected to it follows."""
     new: frozenset[EntityId] = frozenset()
     """Relations this command adds (or turns from driven to driving): checked for redundancy."""
     edited: frozenset[EntityId] = frozenset()
@@ -324,6 +348,17 @@ def _stages(system: System, request: Request) -> list[list[int]]:
     stages: list[set[int]] = [set()]
     for movers in request.movers:
         stages.append((stages[-1] | system.indices(movers)) - held)
+    if request.keep:
+        kept = {i for id in request.keep if id in system.slots for i in system.slots[id]}
+        # First the side each adjacent constraint moves (a mirror point, a parallel line),
+        # then anything connected, then everything.
+        followers = {
+            mover(system.document, system.document.entities[id]).entity
+            for id in system.relations
+            if _geometry_of(system.document, id) & request.keep
+        } - request.keep
+        stages.append({i for id in followers for i in system.slots[id]} - held)
+        stages.append(everything - kept)
     stages.append(everything)
     unique: list[list[int]] = []
     for stage in stages:
@@ -403,6 +438,12 @@ def _conflict(system: System, request: Request) -> Error:
     subject = _subject(system.document, request)
     if not ids:
         ids = _neighbours(system, request)
+        if not ids:
+            return Error(
+                code=ErrorCode.CONSTRAINT_CONFLICT,
+                message=f"{subject} can't be satisfied by the geometry it refers to (a "
+                "rectangle can't turn, and nothing may shrink to nothing)",
+            )
         return Error(
             code=ErrorCode.CONSTRAINT_CONFLICT,
             message=f"{subject} can't hold together with {_names(system.document, ids)}; "
@@ -498,6 +539,21 @@ def _names(document: Document, ids: Sequence[EntityId]) -> str:
         return f"{id} ({entity.kind})"
 
     return ", ".join(name(id) for id in ids) or "nothing"
+
+
+def mover(document: Document, relation: Entity) -> Ref:
+    """The reference a constraint or dimension moves when it has to: the last one given for a
+    constraint (as its rule says), `b` for a distance or angle, the curve for a radius."""
+    match relation:
+        case Constraint(type=type_, refs=refs):
+            found = match(document, type_, refs)
+            assert isinstance(found, Match)
+            return found.refs[found.rule.mover]
+        case DistanceDimension(b=b) | AngleDimension(b=b):
+            return b
+        case RadialDimension(target=target):
+            return Ref(entity=target, feature=Feature.CURVE)
+    raise ValueError(f"{relation!r} isn't a constraint or dimension")
 
 
 def canonical(document: Document, constraint: Constraint) -> tuple[Ref, ...]:
