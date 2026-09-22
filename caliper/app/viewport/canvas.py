@@ -29,7 +29,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel, QWidget
 
-from caliper.app import references, solve_state, theme
+from caliper.app import solve_state, theme
 from caliper.app.agent.proposal import Proposal
 from caliper.app.panels.describe import kind_title, summary
 from caliper.app.properties import format_number
@@ -46,6 +46,7 @@ from caliper.app.viewport.annotations import (
     paint_annotations,
 )
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
+from caliper.app.viewport.highlight import paint_references
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
@@ -56,10 +57,8 @@ from caliper.contracts.document import (
     Constraint,
     DistanceDimension,
     EntityId,
-    Feature,
     Point2,
     RadialDimension,
-    Ref,
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
@@ -718,19 +717,6 @@ class Canvas(QWidget):
         glyphs.paint(qp, laid_out, colours)
         qp.restore()
 
-    def _paint_references(self, painter: ModelPainter, refs: tuple[Ref, ...]) -> None:
-        """Highlight what a constraint refers to: whole curves, rectangle sides, or points."""
-        entities = self.session.document.entities
-        queries = self.session.queries
-        for ref in refs:
-            entity = entities.get(ref.entity)
-            if ref.feature is Feature.CURVE and isinstance(entity, _GEOMETRY):
-                painter.geometry(entity)
-            elif (side := references.straight(queries, ref)) is not None:
-                painter.line(side.start, side.end)
-            elif (point := references.point(queries, ref)) is not None:
-                painter.dot(point, 3.5)
-
     def _paint_highlights(self, painter: ModelPainter) -> None:
         entities = self.session.document.entities
         selection = self.session.selection
@@ -742,7 +728,7 @@ class Canvas(QWidget):
                 painter.geometry(entity)
             elif isinstance(entity, Constraint):
                 painter.set_pen(cosmetic_pen(theme.HOVER, theme.HIGHLIGHT_WIDTH))
-                self._paint_references(painter, entity.refs)
+                paint_references(painter, self.session, entity.refs)
                 hovered = [g for g in self.constraint_glyphs if g.id == hover]
                 self._paint_glyphs(painter.painter, hovered, {hover: theme.HOVER})
             elif entity is not None:

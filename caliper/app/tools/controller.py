@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Signal
 
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Tool
+from caliper.app.tools.constrain import ConstrainTool
 from caliper.app.tools.dimension import DimensionTool
 from caliper.app.tools.fillet import FilletTool
 from caliper.app.tools.measure import MeasureTool
@@ -36,6 +37,7 @@ class ToolController(QObject):
             RectangleTool(session),
             FilletTool(session),
             DimensionTool(session),
+            ConstrainTool(session),
             MeasureTool(session),
         ]
         self.tools: dict[str, Tool] = {tool.name: tool for tool in tools}

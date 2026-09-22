@@ -91,6 +91,8 @@ def test_measure_sits_in_its_own_tool_bar_group(window) -> None:
         "Fillet",
         "Dimension",
         "|",
+        "Constrain",
+        "|",
         "Measure",
         "|",
     ]
