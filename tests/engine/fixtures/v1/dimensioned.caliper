@@ -2,7 +2,6 @@
   "document": {
     "entities": {
       "e1": {
-        "construction": false,
         "corner": {
           "x": 0.0,
           "y": 0.0
@@ -22,14 +21,13 @@
         },
         "kind": "distance_dimension",
         "offset": -10.0,
-        "orientation": "horizontal",
-        "value": null
+        "orientation": "horizontal"
       }
     },
     "next_id": 3
   },
   "format": "caliper.document",
-  "schema_version": 2,
+  "schema_version": 1,
   "units": {
     "angle": "deg",
     "length": "mm"
