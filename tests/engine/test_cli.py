@@ -97,7 +97,10 @@ def test_inspect_shows_constraints_freedom_and_driving_values() -> None:
         "  e14  distance_dimension  a e1.start, b e1.end, orientation aligned = 120.0 (driving)"
         in lines
     )
-    assert "  e16  circle              center (30.0, 41.5), radius 10.0  [dof 1]" in lines
+    assert any(
+        line.startswith("  e16  circle ") and line.endswith("radius 10.0  [dof 1]")
+        for line in lines
+    )
     assert any(line.endswith("(construction)  [dof 4]") for line in lines)
 
 

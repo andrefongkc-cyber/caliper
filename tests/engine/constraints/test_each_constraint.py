@@ -219,12 +219,33 @@ def test_concentric_with_a_point_moves_the_circle_to_it() -> None:
 # --- Horizontal and vertical ---------------------------------------------------------------
 
 
-def test_horizontal_line_levels_about_its_middle() -> None:
+def test_horizontal_line_turns_about_its_middle_and_keeps_its_length() -> None:
     bus = Bus(kernel=None)
     run(bus, CreateLine(start=pt(0, 0), end=pt(10, 4)))
     constrain(bus, ConstraintType.HORIZONTAL, curve("e1"))
-    assert line(bus, "e1") == Line(start=pt(0, 2), end=pt(10, 2))
+    half = math.sqrt(116) / 2
+    e1 = line(bus, "e1")
+    assert (e1.start.y, e1.end.y) == (2.0, 2.0)
+    assert e1.start.x == pytest.approx(5 - half, abs=TOL)
+    assert e1.end.x == pytest.approx(5 + half, abs=TOL)
     assert dof(bus) == 3
+
+
+def test_a_nearly_vertical_line_made_horizontal_turns_instead_of_shrinking() -> None:
+    bus = Bus(kernel=None)
+    run(bus, CreateLine(start=pt(0, 0), end=pt(1, 100)))
+    constrain(bus, ConstraintType.HORIZONTAL, curve("e1"))
+    assert length(line(bus, "e1")) == pytest.approx(math.hypot(1, 100), abs=1e-9)
+
+
+def test_an_exactly_perpendicular_line_still_turns() -> None:
+    """A horizontal line asked to be vertical sits on a saddle; the solver nudges off it."""
+    bus = Bus(kernel=None)
+    run(bus, CreateLine(start=pt(0, 0), end=pt(10, 0)))
+    constrain(bus, ConstraintType.VERTICAL, curve("e1"))
+    e1 = line(bus, "e1")
+    assert e1.start.x == pytest.approx(e1.end.x, abs=TOL)
+    assert length(e1) == pytest.approx(10, abs=1e-6)
 
 
 def test_horizontal_line_keeps_a_fixed_end() -> None:
@@ -232,7 +253,10 @@ def test_horizontal_line_keeps_a_fixed_end() -> None:
     run(bus, CreateLine(start=pt(0, 0), end=pt(10, 4)))
     constrain(bus, ConstraintType.FIX, ref("e1", "start"))
     constrain(bus, ConstraintType.HORIZONTAL, curve("e1"))
-    assert line(bus, "e1") == Line(start=pt(0, 0), end=pt(10, 0))
+    e1 = line(bus, "e1")
+    assert e1.start == pt(0, 0)
+    assert e1.end.y == 0.0
+    assert e1.end.x == pytest.approx(math.sqrt(116), abs=TOL)  # swung down about the fixed end
 
 
 def test_horizontal_points() -> None:
@@ -247,10 +271,11 @@ def test_vertical_line_and_its_edits() -> None:
     bus = Bus(kernel=None)
     run(bus, CreateLine(start=pt(0, 0), end=pt(4, 10)))
     constrain(bus, ConstraintType.VERTICAL, curve("e1"))
-    assert line(bus, "e1") == Line(start=pt(2, 0), end=pt(2, 10))
+    e1 = line(bus, "e1")
+    assert (e1.start.x, e1.end.x) == (2.0, 2.0)
     # Moving one end sideways takes the other with it.
     run(bus, ModifyEntity(id=EntityId("e1"), changes={"end": pt(7, 12)}))
-    assert line(bus, "e1") == Line(start=pt(7, 0), end=pt(7, 12))
+    assert line(bus, "e1") == Line(start=pt(7, e1.start.y), end=pt(7, 12))
 
 
 def test_vertical_points() -> None:
@@ -271,6 +296,26 @@ def test_rectangle_sides_are_already_level(type_: ConstraintType) -> None:
 
 
 # --- Parallel and perpendicular ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("type_", "sides"),
+    [
+        (ConstraintType.PARALLEL, ("bottom", "left")),
+        (ConstraintType.COINCIDENT, ("top", "right")),
+        (ConstraintType.PERPENDICULAR, ("bottom", "top")),
+    ],
+)
+def test_rectangle_sides_cannot_turn_to_meet_each_other(
+    type_: ConstraintType, sides: tuple[str, str]
+) -> None:
+    bus = Bus(kernel=None)
+    run(bus, CreateRectangle(corner=pt(0, 0), width=10, height=5))
+    run(bus, CreateRectangle(corner=pt(20, 0), width=10, height=5))
+    refs = (ref("e1", sides[0]), ref("e2", sides[1]))
+    error = rejected(bus.execute(CreateConstraint(type=type_, refs=refs))).errors[0]
+    assert error.code is ErrorCode.CONSTRAINT_NOT_APPLICABLE
+    assert "rectangles can't turn" in error.message
 
 
 def test_parallel_turns_the_second_line_and_stays_parallel_after_edits() -> None:
