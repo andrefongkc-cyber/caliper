@@ -62,6 +62,8 @@ class DocumentSession(QObject):
     checks_changed = Signal()
     references_changed = Signal()
     """The points and curves picked for a constraint changed (`references`)."""
+    flagged_changed = Signal()
+    """What the last rejected change named changed (`flagged`)."""
 
     def __init__(self, bus: CommandBus | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -72,6 +74,7 @@ class DocumentSession(QObject):
         self._selection: frozenset[EntityId] = frozenset()
         self._hover: EntityId | None = None
         self._references: tuple[Ref, ...] = ()
+        self._flagged: frozenset[EntityId] = frozenset()
         self._history: list[HistoryEntry] = []
         self._history_position = 0
         self._transaction_depth = 0
@@ -103,6 +106,8 @@ class DocumentSession(QObject):
         result = self._bus.execute(command)
         if isinstance(result, Rejected):
             self.message.emit("; ".join(e.message for e in result.errors))
+            named = frozenset(id for e in result.errors for id in e.ids)
+            self._set_flagged(named & self._bus.document.entities.keys())
             return result
         if isinstance(result, Applied) and (result.delta.before or result.delta.after):
             if self._transaction_depth:
@@ -187,6 +192,7 @@ class DocumentSession(QObject):
         if self._hover is not None and self._hover not in live:
             self._hover = None
             self.hover_changed.emit()
+        self._set_flagged(frozenset())  # a change went through: the rejection is history
         if any(ref.entity not in live for ref in self._references):
             self._references = tuple(r for r in self._references if r.entity in live)
             self.references_changed.emit()
@@ -214,6 +220,7 @@ class DocumentSession(QObject):
         self._selection = frozenset()
         self._hover = None
         self._references = ()
+        self._flagged = frozenset()
         self._history = []
         self._history_position = 0
         self._checks = []
@@ -223,6 +230,7 @@ class DocumentSession(QObject):
         self.selection_changed.emit()
         self.hover_changed.emit()
         self.references_changed.emit()
+        self.flagged_changed.emit()
         self.document_replaced.emit()
         self.document_changed.emit()
         self.file_changed.emit()
@@ -288,3 +296,16 @@ class DocumentSession(QObject):
         if refs != self._references:
             self._references = refs
             self.references_changed.emit()
+
+    @property
+    def flagged(self) -> frozenset[EntityId]:
+        """What the last rejected command named (`Error.ids`): the constraints in the way.
+
+        Cleared by the next change that goes through, including undo and redo.
+        """
+        return self._flagged
+
+    def _set_flagged(self, ids: frozenset[EntityId]) -> None:
+        if ids != self._flagged:
+            self._flagged = ids
+            self.flagged_changed.emit()
