@@ -1,4 +1,4 @@
-Status: batched drawing measured and rejected (slower); PR open for the real-window benchmark, pan/zoom speedup, browser edit speedup, and the docked palette, next: decide on region-limited redraws
+Status: P7 (constraints on screen) planned on local `stream/shell-p7`, next: step 0 (issue #21 test), then step 1 (draw every entity kind)
 
 # Shell workplan — Stream B
 
@@ -151,7 +151,7 @@ Proposed, awaiting the user's approval. Nothing below is built.
 | **P4: Structure panels** | Model browser (entity list synced with selection), History timeline with author, Checks panel | `check`; **contract decisions:** where expectations are stored, and an author/source on `Change` |
 | **P5: Performance** | Paint time measured at 2,000 and 10,000 entities; move the canvas onto QOpenGLWidget or cached layers only if the numbers say so; 120 Hz on ProMotion | Spatial index if hit-testing shows up in the profile |
 | **P6: AI-native surfaces** | Prompt bar, proposal review (ghost diff, accept/reject), the agent's attempts shown against checks ("✗ 100.0 → ✓ 120.0"), all driven first by a scripted stand-in agent so the UI doesn't wait for V3 | Transactions (one undo step per accepted proposal); an owner for `caliper/ai/` |
-| **P7: Constraints (V1.5)** | Constraint glyphs on geometry, degrees-of-freedom colouring (under/fully/over-constrained), conflicts highlighted where they occur | planegcs (ADR 0003) and the constraint contract |
+| **P7: Constraints (V1.5)** | Constraint glyphs on geometry, degrees-of-freedom colouring (under/fully/over-constrained), conflicts highlighted where they occur | Done on the engine side in PR #26 (our own solver, ADR 0008; contract in ADR 0009). Plan: "P7 on the V1.5 engine" below |
 
 ### The next goal, step by step: P2 + P3, "CAD-grade and keyboard-fast"
 
@@ -201,7 +201,7 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 
   Pointer move at 10,000 is the engine's linear `nearest_feature` + `entity_at_point` (profiled: 0.53 s of 20 moves inside `engine/queries.py`). A spatial index is Stream A's call.
 - [x] **P6 AI-native surfaces:** prompt bar (⌘L), proposal card (plan, commands, checks before and after, broken user checks), ghost geometry, Accept (⌘Return) as one transaction credited to Agent, Reject (Esc). Proposals run on a scratch `Bus(document)` and replay the submitted commands; accepting a stale proposal is refused. Driven by `caliper/app/agent/scripted.py`, a labelled stand-in that understands the phrasings in `EXAMPLES`; the review flow is what a V3 model would use.
-- [~] **P7 Constraints:** blocked on the contract. The shell's needs are proposed in #18 (2026-09-17); planegcs acceptance is on `shared/adr-0003-accepted`.
+- [~] **P7 Constraints:** was blocked on the contract; unblocked by PR #26 (merged 2026-09-22). Plan: "P7 on the V1.5 engine" below.
 
 ### Gaps found (for Stream A / the contract)
 
@@ -343,3 +343,70 @@ Fix order (Stream B, not started):
   - Tests: 7 in `tests/app/test_palette.py`. Verified that 5 deliberate breaks each fail a test: docked below Checks, list never loaded, enabled states not tracked, hiding after a run, and the search not cleared.
   - Not changed: no list in the app styles its scrollbar, so an overflowing list shows the native black track. That's app-wide, not specific to this panel.
 
+
+## P7 on the V1.5 engine (plan, 2026-09-22)
+
+PR #26 merged on 2026-09-22 (`ffabe2e`): constraints, driving dimensions, points, construction geometry, and our own solver, all inside the engine. Andre's shell patch came with it (the palette keeps commands that gained a defaulted field; the browser falls back to an icon for unknown kinds). The user asked for P7 to be planned, then built. Work happens on local branch `stream/shell-p7` from `main`. It has to reach GitHub as `stream/shell`, because the boundaries check only accepts that name (or `stream/shell/<topic>`, which git can't create while `stream/shell` exists).
+
+### Audit: what the shell does with a V1.5 document today
+
+Checked by driving the real engine (`Bus`) and reading the shell, not from the PR description.
+
+| Document content | What the shell does now | Why |
+|---|---|---|
+| `Point` entity | **Invisible**, but pickable (a click selects something you can't see) | `ModelPainter.geometry` and the canvas's `_GEOMETRY` tuple list four kinds |
+| `construction=True` | Drawn exactly like real geometry | Nothing reads the flag |
+| `AngleDimension` | **Not drawn, and not counted** in the "N dimensions not drawn" note | `paint_annotations` matches two dimension types |
+| Distance dimension to a line (a `CURVE` or rectangle-side ref) | Counted as "not drawn" | `feature_point` answers point features only; the shell resolves nothing else |
+| Driving vs driven dimension | Look the same | Nothing reads `value` |
+| `Constraint` entity | Invisible on the canvas; listed in the browser with the select icon | Expected: this is P7 |
+| Properties, driving dimension | Editable `Value`, but **undoing to driven crashes `refresh`** (`float(None)`) | `refresh` assumes every line edit holds a float |
+| Properties, `construction` / `supplementary` | Read-only "False" | `bool` fields render as labels |
+| Properties, `Constraint.refs` | A raw tuple repr | Only single `Ref` values are formatted |
+| Adding a constraint | No way to, except a hand-written command | Expected: this is P7 |
+| Dimension tool | Makes V1 driven dimensions from point features; can't dimension a line by clicking it, a point to a line, or an angle | Uses `nearest_feature` + the V1 create commands |
+
+Engine numbers that shape the design (this Mac, rectangles/lines/circles/arcs grid, medians not needed at these sizes):
+
+| Query | 2,000 entities, no constraints | 2,000 entities + 1,000 constraints |
+|---|---|---|
+| `solve_status` (cached per document object) | 0.26 ms | 22 ms once per change, then 0.003 ms |
+| `reference_at_point` | | 4 ms per call |
+| `applicable_constraints` (2 refs) | | 0.14 ms |
+| `CreateDimension` on a scratch `Bus(document)` (preview) | 0.84 ms | |
+| `suggest_constraints` for **one** entity | | **3.4 s** |
+
+So: DOF colouring can call `solve_status` once per document change. Live suggestions while drawing are out until the engine makes `suggest_constraints` local (for Stream A). Hover in the Constrain tool can afford `reference_at_point`.
+
+### Decisions (mine, as Stream B; reversible)
+
+1. **Constraints are offered as actions, one per `ConstraintType`, enabled by `applicable_constraints`.** They show up in Sketch → Constrain, the ⌘K palette, and the docked Commands list, with keys taken from Onshape where they exist: H horizontal, V vertical, I coincident, E equal, T tangent. This answers Andre's question 3 on PR #26: `CreateConstraint` and `CreateDimension` stay out of the palette as raw forms (a form can't hold references), and the palette offers what applies to the selection instead.
+2. **What a constraint applies to:** the references picked with the Constrain tool if there are any, else the selected entities' curves (a line, circle, or arc's `CURVE`, a point's `POINT`), in id order. A rectangle has four sides and no single curve, so selecting a whole rectangle offers nothing; the Constrain tool picks a side. Id order means the older entity stays and the newer one moves, which matches "the last reference moves".
+3. **Constrain tool (K)**: click points or curves (`reference_at_point`) to build an ordered reference list, shown on the canvas; a constraint key or action applies it; a click on a picked reference removes it; Esc clears, Esc again leaves. The reference list is UI state on the session, never in the document.
+4. **Glyphs are drawn beside the geometry**, never on it, at a fixed pixel size: a small badge per constraint reference (so a parallel pair shows one on each line). Symbols are text, from a table, and a test checks each is in the canvas font (no tofu). Hovering a glyph highlights the geometry it refers to; clicking selects the constraint, so Delete removes it. View → Show Constraints toggles them.
+5. **DOF colour:** geometry with 0 remaining degrees of freedom is drawn in a new `constrained` token; everything else keeps today's colour, so a sketch without constraints looks exactly as it does now (and the pixel baselines stand). Conflicting or redundant constraints (from `solve_status`, e.g. a hand-edited file) are drawn in `failed`. Colour is never alone: the status bar says "3 degrees of freedom", "Fully constrained" or "Conflicting: e4, e9", and only once the document has a constraint or a driving dimension.
+6. **Dimensions are driving by default,** as in Fusion, Onshape, and SolidWorks. After placing one, an entry opens with the measured value; Return creates it driving at that value, so nothing moves unless you type a different number. If the engine says it's redundant (the size is already fixed), it's added as driven instead and the status bar says why, which is the engine's own advice. Driven dimensions draw their value in parentheses, the drafting convention for reference dimensions. Double-clicking any dimension label edits its value in place; clearing a driving value in Properties makes it driven.
+7. **The Dimension tool moves to `CreateDimension`:** picks points or curves, the preview is the engine's own result on a scratch bus (as the Fillet tool does), and the kind (length, horizontal, vertical, distance, angle, radius, diameter) comes from `infer_dimension` as you move the label.
+8. **A rejected change highlights what's in the way:** the ids in `Error.ids` are drawn in `failed` until the next change, next to the engine's message in the status bar.
+9. **Q toggles construction** on the selected geometry, as in Onshape: one undo step.
+10. **Not in this pass:** suggestions (too slow above; engine issue), drag-to-solve of a single endpoint (`DragFeature` isn't in the contract; `MoveEntities` already re-solves), a Point tool (the palette's generated `Create Point` form covers it), and the agent stand-in learning constraint phrases.
+
+### Steps (each a small commit with tests; mutation-check the important ones)
+
+- [ ] **0. Issue #21:** `test_area_isnt_offered_without_a_geometry_kernel` pins "no kernel" itself; add the other direction (a fake kernel makes Area offered). *Done when* the test passes with and without the `occt` extra.
+- [ ] **1. Draw every kind:** points (a dot), construction (dashed, dimmer), dimensions to lines (foot of the perpendicular for the extension line), angle dimensions (arc between the two directions at `offset`, in the sector the engine chose), driven values in parentheses. *Done when* a document with one of each kind reports 0 dimensions not drawn, and each draws pixels where expected.
+- [ ] **2. Properties for V1.5 fields:** a Construction checkbox, the `value` field (blank = driven, showing the measured value as placeholder), undo to driven doesn't crash, readable constraint references, a Supplementary checkbox. *Done when* each commits one `ModifyEntity` and undo/redo refreshes the panel.
+- [ ] **3. Browser and icons:** point and constraint icons; titles like "Parallel", "Angle", "Point"; summaries naming the references; construction marked. *Done when* the browser shows every kind without the fallback icon.
+- [ ] **4. DOF colouring and status:** as decided above. *Done when* fixing a line's start and making it horizontal with a driving length turns it `constrained` and the status reads "Fully constrained".
+- [ ] **5. Glyphs:** layout (Qt-free, tested), painting in the cached layer, hit-testing, hover and selection, the View toggle. *Done when* clicking a glyph selects its constraint and Delete removes it.
+- [ ] **6. Constraint actions, Constrain tool, construction toggle.** *Done when* select two lines → P… → parallel via the palette, and K → click two endpoints → I makes them coincident, each one undo step.
+- [ ] **7. Dimension tool on `CreateDimension`, and editing labels.** *Done when* D → click a line → place → Return makes a driving length; D → two lines → an angle; double-click the label → 120 → Return resizes the line.
+- [ ] **8. Conflict highlighting.** *Done when* a rejected edit draws the named constraints in `failed` and the next change clears them.
+- [ ] **9. Real-window benchmark** with constraints (`bench_canvas.py`), recorded here.
+- [ ] **10. Review pass:** real-window screenshots, this file, notes for Andre (suggestion speed, `-8.6e-78` coordinates the solver leaves behind, ADRs 0008/0009 still say Proposed though #26 merged).
+
+**Don't touch:** `caliper/contracts/`, `caliper/engine/`, `tests/` outside `tests/app/`, `CLAUDE.md`, ADRs, `.github/`. Anything the shell needs from them goes to Andre as an issue.
+
+**Risks:** glyph clutter on dense sketches (mitigation: the View toggle, and glyphs stack instead of overlapping); `solve_status` at 22 ms adds to every edit once a sketch has ~1,000 constraints (measured in step 9); the pixel baselines must not move for sketches without constraints (decision 5 keeps them).
+
+**Verify:** `QT_QPA_PLATFORM=offscreen uv run pytest` (baseline on `main`: 841 passed, 16 skipped), `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`, `uv run python .github/scripts/check_boundaries.py --branch stream/shell --base origin/main --head HEAD`, then the real window.
