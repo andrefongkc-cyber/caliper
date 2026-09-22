@@ -12,7 +12,13 @@ from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 
 from caliper.app.viewport.transform import ViewTransform
-from caliper.contracts.document import Arc, Circle, Geometry, Line, Point2, Rectangle
+from caliper.contracts.document import Arc, Circle, Geometry, Line, Point, Point2, Rectangle
+
+GEOMETRY_TYPES = (Point, Line, Circle, Arc, Rectangle)
+"""Every drawable geometry kind, for isinstance checks."""
+
+POINT_RADIUS_PX = 2.5
+"""A sketch point's dot, the same size on screen at any zoom."""
 
 
 def cosmetic_pen(color: QColor, width: float, style: Qt.PenStyle = Qt.PenStyle.SolidLine) -> QPen:
@@ -76,12 +82,21 @@ class ModelPainter:
         c = self.point(p)
         self.painter.drawRect(QRectF(c.x() - size_px, c.y() - size_px, 2 * size_px, 2 * size_px))
 
+    def dot(self, p: Point2, radius_px: float = POINT_RADIUS_PX) -> None:
+        """A filled dot in the pen's colour that stays the same size on screen."""
+        pen = self.painter.pen()
+        self.painter.setBrush(pen.color())
+        self.painter.drawEllipse(self.point(p), radius_px, radius_px)
+        self.painter.setBrush(Qt.BrushStyle.NoBrush)
+
     def text(self, p: Point2, text: str, dx_px: float = 0.0, dy_px: float = 0.0) -> None:
         c = self.point(p)
         self.painter.drawText(QPointF(c.x() + dx_px, c.y() + dy_px), text)
 
     def geometry(self, entity: Geometry) -> None:
         match entity:
+            case Point(position=p):
+                self.dot(p, POINT_RADIUS_PX + (self.painter.pen().widthF() - 1.5) / 2)
             case Line(start=a, end=b):
                 self.line(a, b)
             case Circle(center=c, radius=r):

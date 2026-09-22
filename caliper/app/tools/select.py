@@ -16,9 +16,9 @@ from caliper.app import theme
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, Tool
 from caliper.app.tools.shapes import clean
-from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
+from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
 from caliper.contracts.commands import MoveEntities
-from caliper.contracts.document import Arc, Circle, EntityId, Line, Point2, Rectangle
+from caliper.contracts.document import Arc, Circle, EntityId, Point2, Rectangle
 from caliper.contracts.queries import BoundingBox
 
 
@@ -123,7 +123,7 @@ class SelectTool(Tool):
             entities = self.session.document.entities
             for id in self.session.selection:
                 entity = entities.get(id)
-                if isinstance(entity, Line | Circle | Arc | Rectangle):
+                if isinstance(entity, GEOMETRY_TYPES):
                     moved.geometry(entity)
         elif self.phase is SelectPhase.BOXING:
             a, b = self.start.raw, self.current.raw

@@ -38,18 +38,16 @@ from caliper.app.viewport.annotations import LABEL_GAP_PX, label_anchors, paint_
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
-from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
+from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
 from caliper.contracts.commands import Applied, ModifyEntity
 from caliper.contracts.document import (
-    Arc,
-    Circle,
+    AngleDimension,
+    Constraint,
     DistanceDimension,
     EntityId,
-    Line,
     Point2,
     RadialDimension,
-    Rectangle,
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
@@ -63,7 +61,7 @@ MAX_GRID_LINES = 600
 DEFAULT_VIEW_MM = 250.0
 """How many millimetres a fresh view spans across its shorter side."""
 
-_GEOMETRY = (Line, Circle, Arc, Rectangle)
+_GEOMETRY = GEOMETRY_TYPES
 
 
 class Canvas(QWidget):
@@ -169,10 +167,12 @@ class Canvas(QWidget):
         targets: set[EntityId] = set()
         for id in ids:
             match entities.get(id):
-                case DistanceDimension(a=a, b=b):
+                case DistanceDimension(a=a, b=b) | AngleDimension(a=a, b=b):
                     targets |= {a.entity, b.entity}
                 case RadialDimension(target=target):
                     targets.add(target)
+                case Constraint(refs=refs):
+                    targets |= {ref.entity for ref in refs}
                 case None:
                     pass
                 case _:
@@ -594,9 +594,13 @@ class Canvas(QWidget):
             self._paint_grid(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter = ModelPainter(qp, view)
+        construction = [e for e in document.entities.values() if _is_construction(e)]
+        painter.set_pen(cosmetic_pen(theme.CONSTRUCTION, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
+        for entity in construction:
+            painter.geometry(entity)
         painter.set_pen(cosmetic_pen(theme.GEOMETRY, theme.GEOMETRY_WIDTH))
         for entity in document.entities.values():
-            if isinstance(entity, _GEOMETRY):
+            if isinstance(entity, _GEOMETRY) and not entity.construction:
                 painter.geometry(entity)
         self.hidden_dimensions = paint_annotations(painter, self.session, frozenset())
         qp.end()
@@ -660,3 +664,7 @@ class Canvas(QWidget):
             QPointF(10.0, self.height() - 10.0),
             f"{self.hidden_dimensions} {noun} not drawn: the points they measure can't be found",
         )
+
+
+def _is_construction(entity: object) -> bool:
+    return isinstance(entity, _GEOMETRY) and entity.construction
