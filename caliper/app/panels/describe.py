@@ -4,10 +4,12 @@ Sizes shown are the entity's stored inputs; anything measured (a line's length, 
 dimension's value) comes from queries.
 """
 
-from caliper.app.properties import format_number
+from caliper.app.properties import format_number, ref_text
 from caliper.contracts.document import (
+    AngleDimension,
     Arc,
     Circle,
+    Constraint,
     DistanceDimension,
     Entity,
     EntityId,
@@ -28,9 +30,11 @@ ICON: dict[str, str] = {
     "rectangle": "rectangle",
     "distance_dimension": "dimension",
     "radial_dimension": "dimension",
-    "angle_dimension": "dimension",
+    "angle_dimension": "angle",
+    "point": "point",
+    "constraint": "constraint",
 }
-"""Kinds without an entry (point, constraint) show the select icon until P7 draws theirs."""
+"""An icon for every entity kind; `test_every_kind_has_an_icon` keeps it complete."""
 
 
 def kind_title(entity: Entity) -> str:
@@ -40,6 +44,10 @@ def kind_title(entity: Entity) -> str:
             return "Distance"
         case RadialDimension(measure=measure):
             return measure.value.capitalize()
+        case AngleDimension():
+            return "Angle"
+        case Constraint(type=type):
+            return type.value.capitalize()
     return entity.kind.replace("_", " ").capitalize()
 
 
@@ -61,11 +69,25 @@ def summary(entity: Entity, id: EntityId, queries: Queries) -> str:
             )
             return "" if isinstance(distance, Error) else f"{n(distance.value)} long"
         case DistanceDimension(orientation=orientation):
-            value = queries.dimension_value(id)
-            shown = "?" if isinstance(value, Error) else n(value)
-            return f"{shown} · {orientation.value}"
+            return f"{_value(entity, id, queries)} · {orientation.value}"
         case RadialDimension(measure=measure):
-            value = queries.dimension_value(id)
-            shown = "?" if isinstance(value, Error) else n(value)
-            return f"{'⌀' if measure is RadialMeasure.DIAMETER else 'R'}{shown}"
+            sign = "⌀" if measure is RadialMeasure.DIAMETER else "R"
+            return _value(entity, id, queries, prefix=sign)
+        case AngleDimension():
+            return _value(entity, id, queries, unit="°")
+        case Constraint(refs=refs):
+            return ", ".join(ref_text(ref) for ref in refs)
     return ""
+
+
+def _value(
+    entity: DistanceDimension | RadialDimension | AngleDimension,
+    id: EntityId,
+    queries: Queries,
+    prefix: str = "",
+    unit: str = "",
+) -> str:
+    """A dimension's value; in parentheses when it's driven, as on the canvas."""
+    value = queries.dimension_value(id)
+    shown = "?" if isinstance(value, Error) else f"{prefix}{n(value)}{unit}"
+    return f"({shown})" if entity.value is None else shown

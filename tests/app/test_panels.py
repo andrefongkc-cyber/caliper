@@ -4,17 +4,31 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from caliper.app import icons
 from caliper.app.panels.checks import describe, options
+from caliper.app.panels.describe import ICON
 from caliper.app.panels.history import POSITION_ROLE, ago
 from caliper.app.session import Author
 from caliper.contracts.commands import (
     CreateCircle,
+    CreateConstraint,
+    CreateDimension,
     CreateDistanceDimension,
+    CreateLine,
+    CreatePoint,
     CreateRadialDimension,
     CreateRectangle,
     ModifyEntity,
 )
-from caliper.contracts.document import DistanceOrientation, Feature, Point2, RadialMeasure, Ref
+from caliper.contracts.document import (
+    ConstraintType,
+    DistanceOrientation,
+    Entity,
+    Feature,
+    Point2,
+    RadialMeasure,
+    Ref,
+)
 from caliper.contracts.queries import AreaProperties, BoundingBox, Expectation, Metric
 from caliper.engine.commands.bus import Bus
 from tests.app.conftest import make_window
@@ -140,7 +154,7 @@ def test_browser_groups_dimensions_and_names_them_briefly(window, sketch) -> Non
     item = window.browser.items[dim]
     assert item.parent() is window.browser.groups["Dimensions"]
     assert item.text(0) == "Distance  e3"
-    assert item.text(1) == "120 · horizontal"
+    assert item.text(1) == "(120) · horizontal"  # driven: in parentheses, as on the canvas
 
 
 def test_ids_sort_naturally(window) -> None:
@@ -295,7 +309,7 @@ def test_a_dimension_row_follows_the_shape_it_measures(window, sketch) -> None:
     plate, _ = sketch
     dim = _width_dimension(window.session, plate)
     window.session.execute(ModifyEntity(id=plate, changes={"width": 150.0}))
-    assert window.browser.items[dim].text(1) == "150 · horizontal"
+    assert window.browser.items[dim].text(1) == "(150) · horizontal"
 
 
 def test_an_edit_refills_only_the_rows_it_changes(window, sketch, monkeypatch) -> None:
@@ -339,3 +353,55 @@ def test_the_value_column_fits_its_longest_value(window, sketch, qtbot) -> None:
     window.delete_action.trigger()
     assert wide not in browser.items
     qtbot.waitUntil(lambda: browser.header().sectionSize(1) == narrow)  # a removed row too
+
+
+# --- V1.5 kinds ---------------------------------------------------------------------------
+
+
+def test_every_kind_has_an_icon() -> None:
+
+    kinds = {t.kind for t in Entity.__args__}  # type: ignore[attr-defined]
+    assert kinds <= ICON.keys()
+    assert set(ICON.values()) <= icons.NAMES
+
+
+def test_the_browser_lists_points_constraints_and_angles(window) -> None:
+    from caliper.contracts.commands import (
+        CreateConstraint,
+        CreateLine,
+    )
+
+    s = window.session
+    (point,) = s.execute(CreatePoint(position=Point2(x=5, y=5))).created_ids
+    (a,) = s.execute(CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=2))).created_ids
+    (b,) = s.execute(
+        CreateLine(start=Point2(x=0, y=0), end=Point2(x=0, y=50), construction=True)
+    ).created_ids
+    curve_a = Ref(entity=a, feature=Feature.CURVE)
+    curve_b = Ref(entity=b, feature=Feature.CURVE)
+    (h,) = s.execute(CreateConstraint(type=ConstraintType.HORIZONTAL, refs=(curve_a,))).created_ids
+    (angle,) = s.execute(
+        CreateDimension(refs=(curve_a, curve_b), placement=Point2(x=10, y=10))
+    ).created_ids
+    items = window.browser.items
+    assert items[point].parent() is window.browser.groups["Geometry"]
+    assert items[h].parent() is window.browser.groups["Constraints"]
+    assert items[h].text(0) == f"Horizontal  {h}"
+    assert items[h].text(1) == f"{a} curve"
+    assert items[angle].parent() is window.browser.groups["Dimensions"]
+    assert items[angle].text(1) == "(90°)"
+    assert items[b].font(0).italic()  # construction
+    assert not items[a].font(0).italic()
+
+
+def test_a_constraint_offers_no_checks(window) -> None:
+
+    s = window.session
+    (a,) = s.execute(CreateLine(start=Point2(x=0, y=0), end=Point2(x=100, y=2))).created_ids
+    (h,) = s.execute(
+        CreateConstraint(
+            type=ConstraintType.HORIZONTAL, refs=(Ref(entity=a, feature=Feature.CURVE),)
+        )
+    ).created_ids
+    s.set_selection(frozenset({h}))
+    assert options(s) == []
