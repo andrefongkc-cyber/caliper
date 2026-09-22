@@ -60,6 +60,8 @@ class DocumentSession(QObject):
     """Something worth a line in the status bar."""
     history_changed = Signal()
     checks_changed = Signal()
+    references_changed = Signal()
+    """The points and curves picked for a constraint changed (`references`)."""
 
     def __init__(self, bus: CommandBus | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -69,6 +71,7 @@ class DocumentSession(QObject):
         self._path: Path | None = None
         self._selection: frozenset[EntityId] = frozenset()
         self._hover: EntityId | None = None
+        self._references: tuple[Ref, ...] = ()
         self._history: list[HistoryEntry] = []
         self._history_position = 0
         self._transaction_depth = 0
@@ -184,6 +187,9 @@ class DocumentSession(QObject):
         if self._hover is not None and self._hover not in live:
             self._hover = None
             self.hover_changed.emit()
+        if any(ref.entity not in live for ref in self._references):
+            self._references = tuple(r for r in self._references if r.entity in live)
+            self.references_changed.emit()
         self.changed.emit(change)
         self.document_changed.emit()
         self.file_changed.emit()
@@ -207,6 +213,7 @@ class DocumentSession(QObject):
         self._path = path
         self._selection = frozenset()
         self._hover = None
+        self._references = ()
         self._history = []
         self._history_position = 0
         self._checks = []
@@ -215,6 +222,7 @@ class DocumentSession(QObject):
         self.checks_changed.emit()
         self.selection_changed.emit()
         self.hover_changed.emit()
+        self.references_changed.emit()
         self.document_replaced.emit()
         self.document_changed.emit()
         self.file_changed.emit()
@@ -267,3 +275,16 @@ class DocumentSession(QObject):
         if id != self._hover:
             self._hover = id
             self.hover_changed.emit()
+
+    @property
+    def references(self) -> tuple[Ref, ...]:
+        """Points and curves picked with the Constrain tool, in the order they were picked.
+
+        UI state like the selection: a constraint action applies to these when there are any.
+        """
+        return self._references
+
+    def set_references(self, refs: tuple[Ref, ...]) -> None:
+        if refs != self._references:
+            self._references = refs
+            self.references_changed.emit()

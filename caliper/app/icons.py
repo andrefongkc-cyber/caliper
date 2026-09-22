@@ -40,8 +40,9 @@ _SHAPES: dict[str, str] = {
     # A sketch point: a dot with a small cross through it.
     "point": '<circle cx="10" cy="10" r="2.2"/><path d="M10 3.5 V6.5 M10 13.5 V16.5 '
     'M3.5 10 H6.5 M13.5 10 H16.5"/>',
-    # Two parallel strokes held by a tie: a relationship kept true.
-    "constraint": '<path d="M5 15 L11 4 M9 16 L15 5 M6.5 9.5 H13.5"/>',
+    # A right angle marked as kept: the perpendicular sign with its corner square.
+    "constraint": '<path d="M3.5 16 H16.5 M10 16 V4"/><path d="M10 12.5 H13.5 V16" '
+    'stroke-width="1.2"/>',
     # Two rays from a corner with the arc between them.
     "angle": '<path d="M3.5 16.5 H16.5 M3.5 16.5 L13 5"/><path d="M9.5 16.5 A6 6 0 0 0 7.4 11.9"/>',
     "grid": '<path d="M3.5 7.5 H16.5 M3.5 12.5 H16.5 M7.5 3.5 V16.5 M12.5 3.5 V16.5"/>',
@@ -50,6 +51,8 @@ _SHAPES: dict[str, str] = {
     "measure": '<path d="M3 13 L13 3 L17 7 L7 17 Z M6 10 L7.5 11.5 M8.5 7.5 L10 9 M11 5 '
     'L12.5 6.5"/>',
 }
+
+_SHAPES["constrain"] = _SHAPES["constraint"]  # the tool that adds them
 
 NAMES = frozenset(_SHAPES)
 SIZES = (16, 20, 32)

@@ -28,10 +28,11 @@ from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
 from caliper.app.shortcuts import ShortcutSheet
 from caliper.app.tokens import SPACE
+from caliper.app.tools.constrain import constraint_options
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
-from caliper.contracts.commands import DeleteEntities
-from caliper.contracts.document import Point2
+from caliper.contracts.commands import Applied, CreateConstraint, DeleteEntities, ModifyEntity
+from caliper.contracts.document import ConstraintType, Point2
 from caliper.contracts.errors import Error
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io.canonical import LoadError
@@ -44,6 +45,15 @@ BROWSER_WIDTH = 250
 TOOL_ICON_SIZE = 18
 COMPACT_TOOLBAR_BELOW = 980
 """Window width in logical pixels below which the tool bar drops its labels."""
+CONSTRAINT_KEYS: dict[ConstraintType, str] = {
+    ConstraintType.HORIZONTAL: "H",
+    ConstraintType.VERTICAL: "V",
+    ConstraintType.COINCIDENT: "I",
+    ConstraintType.EQUAL: "E",
+    ConstraintType.TANGENT: "T",
+}
+"""Onshape's keys, where it has one. The rest are in Sketch > Constrain and the palette."""
+NOTHING_TO_CONSTRAIN = "Select lines, circles, arcs, or points, or pick them with Constrain (K)"
 
 
 class MainWindow(QMainWindow):
@@ -83,6 +93,12 @@ class MainWindow(QMainWindow):
         self.session.file_changed.connect(self._update_title)
         self.session.document_changed.connect(self._update_edit_actions)
         self.session.document_changed.connect(self._update_solve_status)
+        for signal in (
+            self.session.document_changed,
+            self.session.selection_changed,
+            self.session.references_changed,
+        ):
+            signal.connect(self._update_constraint_actions)
         self.session.selection_changed.connect(self._update_edit_actions)
         # A committed transaction sends no Change, so refresh labels when history moves too.
         self.session.history_changed.connect(self._update_edit_actions)
@@ -92,6 +108,8 @@ class MainWindow(QMainWindow):
 
         palette_actions = [
             *self.tool_actions.values(),
+            *self.constraint_actions.values(),
+            self.construction_action,
             self.undo_action,
             self.redo_action,
             self.delete_action,
@@ -110,6 +128,7 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._update_edit_actions()
         self._update_solve_status()
+        self._update_constraint_actions()
         self._update_tool_state()
         self.resize(1280, 800)
 
@@ -181,6 +200,22 @@ class MainWindow(QMainWindow):
                 f"{tip} ({action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)})"
             )
 
+        self.constraint_actions: dict[ConstraintType, QAction] = {}
+        for type in ConstraintType:
+            action = self._action(
+                type.value.capitalize(),
+                lambda _=False, t=type: self.add_constraint(t),
+                CONSTRAINT_KEYS.get(type),
+            )
+            action.setObjectName(f"constraint-{type.value}")
+            self.constraint_actions[type] = action
+        self.construction_action = self._action(
+            "Toggle Construction", self.toggle_construction, "Q"
+        )
+        self.construction_action.setToolTip(
+            "Construction geometry is constrained like the rest but never forms a profile (Q)"
+        )
+
         group = QActionGroup(self)
         group.setExclusive(True)
         for name, tool in self.controller.tools.items():
@@ -225,6 +260,11 @@ class MainWindow(QMainWindow):
         sketch_menu = bar.addMenu("Sketch")
         for action in self.tool_actions.values():
             sketch_menu.addAction(action)
+        sketch_menu.addSeparator()
+        sketch_menu.addAction(self.construction_action)
+        constrain_menu = sketch_menu.addMenu("Constrain")
+        for action in self.constraint_actions.values():
+            constrain_menu.addAction(action)
 
         agent_menu = bar.addMenu("Agent")
         for action in (self.ask_action, self.accept_action, self.reject_action):
@@ -232,7 +272,15 @@ class MainWindow(QMainWindow):
 
         help_menu = bar.addMenu("Help")
         help_menu.addAction(self.shortcuts_action)
-        self.menus = [file_menu, edit_menu, view_menu, sketch_menu, agent_menu, help_menu]
+        self.menus = [
+            file_menu,
+            edit_menu,
+            view_menu,
+            sketch_menu,
+            constrain_menu,
+            agent_menu,
+            help_menu,
+        ]
 
     def _build_tool_bar(self) -> None:
         bar = QToolBar("Sketch")
@@ -241,8 +289,8 @@ class MainWindow(QMainWindow):
         bar.setFloatable(False)
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         bar.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
-        # Groups by category, so later categories (constrain, inspect) add a group, not a redesign.
-        for category in ("select", "create", "inspect"):
+        # Groups by category, so a later category adds a group, not a redesign.
+        for category in ("select", "create", "constrain", "inspect"):
             for name, tool in self.controller.tools.items():
                 if tool.category == category:
                     bar.addAction(self.tool_actions[name])
@@ -460,6 +508,30 @@ class MainWindow(QMainWindow):
         if self.session.selection:
             self.session.execute(DeleteEntities(ids=tuple(sorted(self.session.selection))))
 
+    def add_constraint(self, type: ConstraintType) -> None:
+        """Constrain the picked references, or else the selected curves and points."""
+        option = constraint_options(self.session).get(type.value)
+        if option is None or option.error is not None:
+            reason = option.error.message if option and option.error else NOTHING_TO_CONSTRAIN
+            self.show_message(f"Can't add {type.value}: {reason}")
+            return
+        result = self.session.execute(CreateConstraint(type=type, refs=option.refs))
+        if isinstance(result, Applied):
+            self.session.set_references(())
+            self.controller.changed.emit()  # the Constrain tool's hint counts the picks
+
+    def toggle_construction(self) -> None:
+        """Make the selected geometry construction, or real again if all of it already is."""
+        entities = self.session.document.entities
+        ids = sorted(i for i in self.session.selection if hasattr(entities.get(i), "construction"))
+        if not ids:
+            return
+        make = not all(entities[i].construction for i in ids)
+        with self.session.transaction("Toggle Construction"):
+            for id in ids:
+                if entities[id].construction != make:
+                    self.session.execute(ModifyEntity(id=id, changes={"construction": make}))
+
     def select_all(self) -> None:
         self.session.set_selection(frozenset(self.session.document.entities))
 
@@ -490,6 +562,25 @@ class MainWindow(QMainWindow):
             return
         self.solve_label.setText(solve_state.describe(self.session.queries.solve_status()))
         self.solve_label.show()
+
+    def _update_constraint_actions(self) -> None:
+        options = constraint_options(self.session)
+        for type, action in self.constraint_actions.items():
+            option = options.get(type.value)
+            usable = option is not None and option.error is None
+            if option is None:
+                tip = NOTHING_TO_CONSTRAIN
+            elif option.error is not None:
+                tip = option.error.message
+            else:
+                tip = f"Add a {type.value} constraint to {len(option.refs)} selected"
+            action.setEnabled(usable)
+            if action.toolTip() != tip:
+                action.setToolTip(tip)
+        entities = self.session.document.entities
+        self.construction_action.setEnabled(
+            any(hasattr(entities.get(i), "construction") for i in self.session.selection)
+        )
 
     def _update_tool_state(self) -> None:
         tool = self.controller.active
