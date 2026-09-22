@@ -5,23 +5,26 @@ a face for `area_properties`.
 """
 
 import math
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from caliper.contracts.document import (
+    AngleDimension,
     Arc,
     Circle,
+    Constraint,
+    ConstraintType,
     DistanceDimension,
-    DistanceOrientation,
     Document,
     Entity,
     EntityId,
     Feature,
     Geometry,
     Line,
+    Point,
     Point2,
     RadialDimension,
-    RadialMeasure,
     Rectangle,
     Ref,
 )
@@ -31,23 +34,42 @@ from caliper.contracts.queries import (
     AreaProperties,
     BoundingBox,
     CheckResult,
+    ConstraintOption,
+    DimensionType,
     Distance,
     Expectation,
     Metric,
+    SolveStatus,
+    Suggestion,
 )
 from caliper.engine.commands.validation import (
+    constraint_errors,
     feature_errors,
     normalize_enum,
     normalize_float,
     normalize_id,
+    normalize_point,
     normalize_ref,
+    normalize_refs,
 )
+from caliper.engine.constraints import dimensions, sketch
+from caliper.engine.constraints.suggest import suggest
 from caliper.engine.geometry import default_kernel
 
 if TYPE_CHECKING:
     from caliper.contracts.queries import Queries
 
-_GEOMETRY = (Line, Circle, Arc, Rectangle)
+_GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
+_SIDES = {
+    Feature.BOTTOM: (Feature.BOTTOM_LEFT, Feature.BOTTOM_RIGHT),
+    Feature.RIGHT: (Feature.BOTTOM_RIGHT, Feature.TOP_RIGHT),
+    Feature.TOP: (Feature.TOP_LEFT, Feature.TOP_RIGHT),
+    Feature.LEFT: (Feature.BOTTOM_LEFT, Feature.TOP_LEFT),
+}
+
+_STATUS: OrderedDict[int, tuple[Document, SolveStatus]] = OrderedDict()
+"""Solve status of recent documents by identity. Documents are immutable, so an entry never
+goes stale; holding the document keeps its id from being reused."""
 
 type KernelSource = Kernel | Callable[[], Kernel | None] | None
 """A kernel, no kernel, or a function that returns one when first needed."""
@@ -147,41 +169,16 @@ class DocumentQueries:
         )
 
     def dimension_value(self, id: EntityId) -> float | Error:
-        errors: list[Error] = []
-        id = normalize_id(id, "id", errors)
-        if errors:
-            return errors[0]
-        match self._document.entities.get(id):
-            case None:
-                return Error(
-                    code=ErrorCode.ENTITY_NOT_FOUND, message=f"no entity {id!r}", field="id"
-                )
-            case DistanceDimension(a=a, b=b, orientation=orientation):
-                distance = self._distance(a, b, fields=("a", "b"))
-                if isinstance(distance, Error):
-                    return distance
-                match orientation:
-                    case DistanceOrientation.ALIGNED:
-                        return distance.value
-                    case DistanceOrientation.HORIZONTAL:
-                        return abs(distance.dx)
-                    case DistanceOrientation.VERTICAL:
-                        return abs(distance.dy)
-            case RadialDimension(target=target, measure=measure):
-                curve = self._document.entities.get(target)
-                if not isinstance(curve, Circle | Arc):
-                    return Error(
-                        code=ErrorCode.ENTITY_WRONG_KIND,
-                        message=f"{target!r} is not a circle or arc",
-                        field="target",
-                    )
-                return 2 * curve.radius if measure is RadialMeasure.DIAMETER else curve.radius
-            case entity:
-                return Error(
-                    code=ErrorCode.ENTITY_WRONG_KIND,
-                    message=f"{id!r} is a {entity.kind}; only dimensions have a value",
-                    field="id",
-                )
+        found = self._dimension(id)
+        if isinstance(found, Error):
+            return found
+        return dimensions.measured(self._document, found)
+
+    def dimension_type(self, id: EntityId) -> DimensionType | Error:
+        found = self._dimension(id)
+        if isinstance(found, Error):
+            return found
+        return dimensions.classify(self._document, found)
 
     def area_properties(self, ids: Sequence[EntityId]) -> AreaProperties | Error:
         if not ids:
@@ -191,6 +188,12 @@ class DocumentQueries:
         found = self._geometry(ids, "area needs a closed profile")
         if isinstance(found, Error):
             return found
+        if any(entity.construction for entity in found):
+            return Error(
+                code=ErrorCode.PROFILE_CONSTRUCTION,
+                message="construction geometry isn't part of a profile",
+                field="ids",
+            )
         kernel = self._kernel_source() if callable(self._kernel_source) else self._kernel_source
         if kernel is None:
             return Error(
@@ -201,6 +204,89 @@ class DocumentQueries:
             return kernel.area_properties(kernel.make_face(found))
         except KernelError as e:
             return Error(code=e.code, message=str(e), field="ids")
+
+    def reference_at_point(self, point: Point2, tolerance: float) -> Ref | None:
+        """A point feature first, as `nearest_feature`; otherwise the nearest curve."""
+        if (feature := self.nearest_feature(point, tolerance)) is not None:
+            return feature
+        if not (math.isfinite(point.x) and math.isfinite(point.y)):
+            return None
+        if not (math.isfinite(tolerance) and tolerance >= 0):
+            return None
+        ranked = [
+            (distance, id, index, ref)
+            for id, entity in self._document.entities.items()
+            if isinstance(entity, _GEOMETRY)
+            for index, (ref, distance) in enumerate(_curve_distances(id, entity, point))
+            if distance <= tolerance
+        ]
+        return min(ranked)[3] if ranked else None
+
+    def solve_status(self) -> SolveStatus:
+        key = id(self._document)
+        cached = _STATUS.get(key)
+        if cached is not None and cached[0] is self._document:
+            _STATUS.move_to_end(key)
+            return cached[1]
+        result = sketch.status(self._document)
+        _STATUS[key] = (self._document, result)
+        while len(_STATUS) > 16:
+            _STATUS.popitem(last=False)
+        return result
+
+    def applicable_constraints(self, refs: Sequence[Ref]) -> tuple[ConstraintOption, ...]:
+        errors: list[Error] = []
+        normalized = normalize_refs(refs, "refs", errors)
+        for i, ref in enumerate(normalized):
+            if not errors:
+                errors += feature_errors(ref, f"refs[{i}]", self._document, curves=True)
+        options: list[ConstraintOption] = []
+        for type_ in ConstraintType:
+            problems = errors or constraint_errors(type_, normalized, self._document)
+            if problems:
+                options.append(ConstraintOption(type=type_, refs=normalized, error=problems[0]))
+                continue
+            built = Constraint(type=type_, refs=normalized)
+            ordered = sketch.canonical(self._document, built)
+            options.append(ConstraintOption(type=type_, refs=ordered))
+        fits = (
+            dimensions.options(self._document, normalized)
+            if not errors and len(set(normalized)) == len(normalized)
+            else None
+        )
+        for kind in DimensionType:
+            reason = (errors or [_repeated()])[0] if fits is None else fits[kind]
+            options.append(ConstraintOption(type=kind, refs=normalized, error=reason))
+        return tuple(options)
+
+    def infer_dimension(self, refs: Sequence[Ref], placement: Point2) -> DimensionType | Error:
+        errors: list[Error] = []
+        normalized = normalize_refs(refs, "refs", errors)
+        at = normalize_point(placement, "placement", errors)
+        for i, ref in enumerate(normalized):
+            if not errors:
+                errors += feature_errors(ref, f"refs[{i}]", self._document, curves=True)
+        if errors:
+            return errors[0]
+        if len(set(normalized)) != len(normalized):
+            return _repeated()
+        inferred = dimensions.infer(self._document, normalized, at)
+        return inferred if isinstance(inferred, Error) else inferred[0]
+
+    def suggest_constraints(
+        self, ids: Sequence[EntityId] = (), *, tolerance: float, angle_tolerance: float = 1.0
+    ) -> tuple[Suggestion, ...]:
+        return suggest(self._document, tuple(ids), tolerance, angle_tolerance)
+
+    def constraints_on(self, ids: Sequence[EntityId]) -> tuple[EntityId, ...]:
+        wanted = set(ids)
+        return tuple(
+            sorted(
+                id
+                for id, entity in self._document.entities.items()
+                if {r.entity for r in sketch.references(entity)} & wanted
+            )
+        )
 
     def check(self, expectation: Expectation) -> CheckResult:
         actual = self._evaluate(expectation)
@@ -218,6 +304,24 @@ class DocumentQueries:
         if errors:
             return errors[0]
         return _features(self._document.entities[ref.entity])[ref.feature]
+
+    def _dimension(
+        self, id: EntityId
+    ) -> DistanceDimension | RadialDimension | AngleDimension | Error:
+        errors: list[Error] = []
+        id = normalize_id(id, "id", errors)
+        if errors:
+            return errors[0]
+        entity = self._document.entities.get(id)
+        if entity is None:
+            return Error(code=ErrorCode.ENTITY_NOT_FOUND, message=f"no entity {id!r}", field="id")
+        if not isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
+            return Error(
+                code=ErrorCode.ENTITY_WRONG_KIND,
+                message=f"{id!r} is a {entity.kind}; only dimensions have a value",
+                field="id",
+            )
+        return entity
 
     def _distance(self, a: Ref, b: Ref, *, fields: tuple[str, str]) -> Distance | Error:
         start = self._point(a, fields[0])
@@ -307,6 +411,8 @@ class DocumentQueries:
 def _features(entity: Entity) -> Mapping[Feature, Point2]:
     """Every point feature of an entity, keyed as in POINT_FEATURES. Annotations have none."""
     match entity:
+        case Point(position=p):
+            return {Feature.POINT: p}
         case Line(start=a, end=b):
             mid = Point2(x=(a.x + b.x) / 2, y=(a.y + b.y) / 2)
             return {Feature.START: a, Feature.END: b, Feature.MID: mid}
@@ -374,6 +480,8 @@ def _enclosing_area(entity: Geometry, p: Point2) -> float | None:
 def _touches(entity: Geometry, box: BoundingBox) -> bool:
     """Whether the closed box meets the entity: its outline, or the inside of a closed shape."""
     match entity:
+        case Point(position=p):
+            return _inside(p, box)
         case Line(start=a, end=b):
             return _segment_touches(a, b, box)
         case Circle(center=c, radius=r):
@@ -437,6 +545,8 @@ def _circle_meets_box_edges(c: Point2, r: float, box: BoundingBox) -> Iterable[P
 
 def _bounds(entity: Geometry) -> BoundingBox:
     match entity:
+        case Point(position=p):
+            return BoundingBox(x_min=p.x, y_min=p.y, x_max=p.x, y_max=p.y)
         case Line(start=a, end=b):
             return _box((a.x, b.x), (a.y, b.y))
         case Circle(center=c, radius=r):
@@ -454,6 +564,8 @@ def _bounds(entity: Geometry) -> BoundingBox:
 def _distance(entity: Geometry, p: Point2) -> float:
     """Shortest distance from `p` to the entity's outline."""
     match entity:
+        case Point(position=q):
+            return math.hypot(p.x - q.x, p.y - q.y)
         case Line(start=a, end=b):
             return _segment_distance(p, a, b)
         case Circle(center=c, radius=r):
@@ -470,6 +582,25 @@ def _distance(entity: Geometry, p: Point2) -> float:
             if dx <= 0 and dy <= 0:  # inside: nearest edge
                 return -max(dx, dy)
             return math.hypot(max(dx, 0.0), max(dy, 0.0))
+
+
+def _curve_distances(id: EntityId, entity: Geometry, p: Point2) -> list[tuple[Ref, float]]:
+    """Each curve feature of an entity with its distance from `p`."""
+    if isinstance(entity, Point):
+        return []
+    if isinstance(entity, Rectangle):
+        corners = _features(entity)
+        return [
+            (Ref(entity=id, feature=side), _segment_distance(p, corners[a], corners[b]))
+            for side, (a, b) in _SIDES.items()
+        ]
+    return [(Ref(entity=id, feature=Feature.CURVE), _distance(entity, p))]
+
+
+def _repeated() -> Error:
+    return Error(
+        code=ErrorCode.REFERENCE_DEGENERATE, message="a reference is repeated", field="refs"
+    )
 
 
 def _segment_distance(p: Point2, a: Point2, b: Point2) -> float:

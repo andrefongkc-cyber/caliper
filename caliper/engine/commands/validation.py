@@ -14,22 +14,32 @@ from types import MappingProxyType
 from typing import get_args, get_type_hints
 
 from caliper.contracts.document import (
+    CURVE_FEATURES,
     ID_PATTERN,
     POINT_FEATURES,
+    AngleDimension,
     Arc,
     Circle,
+    Constraint,
+    ConstraintType,
     DistanceDimension,
+    DistanceOrientation,
     Document,
     Entity,
     EntityId,
     Feature,
+    Geometry,
     Line,
+    Point,
     Point2,
     RadialDimension,
     Rectangle,
     Ref,
 )
 from caliper.contracts.errors import Error, ErrorCode
+from caliper.engine.constraints.relations import Match, RefKind, match, ref_kind
+
+GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
 
 _ID = re.compile(ID_PATTERN)
 _POSITIVE_FIELDS: Mapping[type, tuple[str, ...]] = {
@@ -68,7 +78,14 @@ def build_entity(
     construct: Callable[..., Entity] = entity_type
     entity = construct(**normalized)
     problems = domain_errors(entity) + reference_errors(entity, document)
-    return problems or entity
+    if problems:
+        return problems
+    if isinstance(entity, Constraint):
+        # Stored in the order the registry uses, whatever order it was given in.
+        found = match(document, entity.type, entity.refs)
+        assert isinstance(found, Match)
+        return Constraint(type=entity.type, refs=found.refs)
+    return entity
 
 
 # --- Values -----------------------------------------------------------------------------
@@ -79,6 +96,12 @@ def build_entity(
 def normalize(tp: object, value: object, field: str, errors: list[Error]) -> object:
     if tp is float:
         return normalize_float(value, field, errors)
+    if tp == float | None:
+        return None if value is None else normalize_float(value, field, errors)
+    if tp is bool:
+        return normalize_bool(value, field, errors)
+    if tp == tuple[Ref, ...]:
+        return normalize_refs(value, field, errors)
     if tp is Point2:
         return normalize_point(value, field, errors)
     if tp is Ref:
@@ -98,6 +121,22 @@ def normalize_float(value: object, field: str, errors: list[Error]) -> float:
     if not math.isfinite(number):
         errors.append(_error(ErrorCode.VALUE_NOT_FINITE, field, f"{field} must be finite"))
     return number
+
+
+def normalize_bool(value: object, field: str, errors: list[Error]) -> bool:
+    if not isinstance(value, bool):
+        errors.append(_error(ErrorCode.VALUE_WRONG_TYPE, field, f"{field} must be true or false"))
+        return False
+    return value
+
+
+def normalize_refs(value: object, field: str, errors: list[Error]) -> tuple[Ref, ...]:
+    if not isinstance(value, tuple | list):
+        errors.append(
+            _error(ErrorCode.VALUE_WRONG_TYPE, field, f"{field} must be a list of references")
+        )
+        return ()
+    return tuple(normalize_ref(item, f"{field}[{i}]", errors) for i, item in enumerate(value))
 
 
 def normalize_point(value: object, field: str, errors: list[Error]) -> Point2:
@@ -171,19 +210,62 @@ def domain_errors(entity: Entity) -> list[Error]:
                     "sweep_angle must be between 0 and 360 degrees, exclusive",
                 )
             )
+        case DistanceDimension(value=float(v)) | RadialDimension(value=float(v)) if v <= 0:
+            errors.append(
+                _error(ErrorCode.VALUE_NOT_POSITIVE, "value", "value must be greater than 0")
+            )
+        case AngleDimension(value=float(v)) if not 0 < v < 180:
+            errors.append(
+                _error(
+                    ErrorCode.VALUE_OUT_OF_RANGE,
+                    "value",
+                    "an angle must be between 0 and 180 degrees, exclusive; use parallel "
+                    "for 0 and 180",
+                )
+            )
     return errors
 
 
 def reference_errors(entity: Entity, document: Document) -> list[Error]:
-    """Rules about what an annotation refers to."""
+    """Rules about what a dimension or constraint refers to."""
     match entity:
-        case DistanceDimension(a=a, b=b):
-            errors = feature_errors(a, "a", document) + feature_errors(b, "b", document)
+        case DistanceDimension(a=a, b=b, orientation=orientation):
+            errors = feature_errors(a, "a", document, curves=True)
+            errors += feature_errors(b, "b", document, curves=True)
+            errors += _straight_or_point(a, "a", document, errors)
+            errors += _straight_or_point(b, "b", document, errors)
             if a == b:
                 errors.append(
                     _error(
                         ErrorCode.REFERENCE_DEGENERATE, "b", "a and b must be different features"
                     )
+                )
+            if not errors and orientation is not DistanceOrientation.ALIGNED:
+                kinds = {ref_kind(document, a), ref_kind(document, b)}
+                if kinds != {RefKind.POINT}:
+                    errors.append(
+                        _error(
+                            ErrorCode.CONSTRAINT_NOT_APPLICABLE,
+                            "orientation",
+                            "horizontal and vertical distances are between two points",
+                        )
+                    )
+            return errors
+        case AngleDimension(a=a, b=b):
+            errors = feature_errors(a, "a", document, curves=True)
+            errors += feature_errors(b, "b", document, curves=True)
+            for ref, field in ((a, "a"), (b, "b")):
+                if not errors and ref_kind(document, ref) is not RefKind.LINE:
+                    errors.append(
+                        _error(
+                            ErrorCode.CONSTRAINT_NOT_APPLICABLE,
+                            f"{field}.feature",
+                            "an angle is between two lines or rectangle sides",
+                        )
+                    )
+            if not errors and a == b:
+                errors.append(
+                    _error(ErrorCode.REFERENCE_DEGENERATE, "b", "a and b must be different lines")
                 )
             return errors
         case RadialDimension(target=target):
@@ -199,31 +281,75 @@ def reference_errors(entity: Entity, document: Document) -> list[Error]:
                     )
                 ]
             return []
+        case Constraint(type=type_, refs=refs):
+            return constraint_errors(type_, refs, document)
         case _:
             return []
 
 
-def feature_errors(ref: Ref, field: str, document: Document) -> list[Error]:
-    """Whether `ref` names a feature that exists on a geometry entity in `document`."""
+def constraint_errors(
+    type_: ConstraintType, refs: tuple[Ref, ...], document: Document
+) -> list[Error]:
+    """Whether `refs` are real features that a `type_` constraint can relate."""
+    errors: list[Error] = []
+    for i, ref in enumerate(refs):
+        errors += feature_errors(ref, f"refs[{i}]", document, curves=True)
+    if errors:
+        return errors
+    if len(set(refs)) != len(refs):
+        return [_error(ErrorCode.REFERENCE_DEGENERATE, "refs", "a reference is repeated")]
+    found = match(document, type_, refs)
+    if isinstance(found, str):
+        code = (
+            ErrorCode.CONSTRAINT_UNSUPPORTED
+            if type_ is ConstraintType.PIERCE
+            else ErrorCode.CONSTRAINT_NOT_APPLICABLE
+        )
+        return [_error(code, "refs", found)]
+    return []
+
+
+def _straight_or_point(
+    ref: Ref, field: str, document: Document, errors: list[Error]
+) -> list[Error]:
+    if errors or ref_kind(document, ref) in (RefKind.POINT, RefKind.LINE):
+        return []
+    return [
+        _error(
+            ErrorCode.CONSTRAINT_NOT_APPLICABLE,
+            f"{field}.feature",
+            "a distance goes to a point or a straight curve; for a circle or arc use its center",
+        )
+    ]
+
+
+def feature_errors(
+    ref: Ref, field: str, document: Document, *, curves: bool = False
+) -> list[Error]:
+    """Whether `ref` names a feature that exists on a geometry entity in `document`.
+
+    Point features only, unless `curves` also allows curve features (CURVE, rectangle sides).
+    """
     target = document.entities.get(ref.entity)
     if target is None:
         return [_error(ErrorCode.ENTITY_NOT_FOUND, f"{field}.entity", f"no entity {ref.entity!r}")]
-    if not isinstance(target, Line | Circle | Arc | Rectangle):
+    if not isinstance(target, GEOMETRY):
         return [
             _error(
                 ErrorCode.ENTITY_WRONG_KIND,
                 f"{field}.entity",
-                f"{ref.entity!r} is a {target.kind}; dimensions attach to geometry",
+                f"{ref.entity!r} is a {target.kind}; references attach to geometry",
             )
         ]
-    features = POINT_FEATURES[type(target)]
+    kind: type[Geometry] = type(target)
+    features = POINT_FEATURES[kind] | (CURVE_FEATURES[kind] if curves else frozenset())
     if ref.feature not in features:
         options = ", ".join(sorted(features))
         return [
             _error(
                 ErrorCode.REFERENCE_INVALID_FEATURE,
                 f"{field}.feature",
-                f"a {target.kind} has no {ref.feature} feature; use one of: {options}",
+                f"a {target.kind} has no {ref.feature} feature here; use one of: {options}",
             )
         ]
     return []
