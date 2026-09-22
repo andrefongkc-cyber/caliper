@@ -90,3 +90,16 @@ class Tool:
     def commit_values(self, values: Sequence[float | None]) -> bool:
         """Finish the operation with typed values. False if they don't make a valid shape."""
         return False
+
+    commit_failure_message = "Those values don't make a shape: sizes must be above 0"
+    """Shown when `commit_values` returns False; empty if the tool has already said why."""
+
+    @property
+    def needs_entry(self) -> bool:
+        """True while the operation can't go on without the value entry, so closing the
+        entry (Esc) cancels the operation rather than just the typing."""
+        return False
+
+    entry_request: tuple[tuple[str, ...], str] | None = None
+    """Set by a tool that wants the value entry opened now: (field labels, first text).
+    The canvas opens it after the click that set it, and clears this."""

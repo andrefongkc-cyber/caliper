@@ -305,11 +305,15 @@ class Canvas(QWidget):
             else:  # the session already put the engine's message in the status bar
                 self.entry.mark_invalid(0)
             return
-        if self.controller.active.commit_values(values):
+        tool = self.controller.active
+        if tool.commit_values(values):
             self.entry.close_entry()
             self.controller.changed.emit()
         else:
-            self.session.message.emit("Those values don't make a shape: sizes must be above 0")
+            if tool.commit_failure_message:
+                self.session.message.emit(tool.commit_failure_message)
+            if self.entry.fields:
+                self.entry.mark_invalid(0)
 
     def _entry_closed(self) -> None:
         if self._editing is not None:
@@ -317,7 +321,10 @@ class Canvas(QWidget):
             self.setFocus()
             return
         tool = self.controller.active
-        tool.type_values([None] * len(tool.numeric_fields))
+        if tool.needs_entry:
+            self.controller.cancel_operation()
+        else:
+            tool.type_values([None] * len(tool.numeric_fields))
         self.setFocus()
         self.update()
 
@@ -444,7 +451,12 @@ class Canvas(QWidget):
         self.controller.cancel_operation()
         self.session.set_selection(frozenset({hit}))
         self._editing = (hit, field)
-        self.entry.open((field.capitalize(),), format_number(getattr(entity, field)), at)
+        current = getattr(entity, field)
+        if current is None:  # a driven dimension: start from what it measures
+            measured = self.session.queries.dimension_value(hit)
+            current = None if isinstance(measured, Error) else round(measured, 6)
+        text = "" if current is None else format_number(current)
+        self.entry.open((field.capitalize(),), text, at)
         self.entry.fields[0].selectAll()
         return True
 
@@ -484,8 +496,14 @@ class Canvas(QWidget):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             self._pointer = self.pointer_at(event.position(), event.modifiers())
-            self.controller.active.release(self._pointer)
+            tool = self.controller.active
+            tool.release(self._pointer)
             self.controller.changed.emit()
+            if tool.entry_request is not None:
+                fields, text = tool.entry_request
+                tool.entry_request = None
+                self.entry.open(fields, text, event.position().toPoint())
+                self.entry.fields[0].selectAll()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         pixels = event.pixelDelta()

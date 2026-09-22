@@ -13,6 +13,7 @@ parentheses, the drafting convention for a reference dimension that follows the 
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Protocol
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetricsF
@@ -35,12 +36,14 @@ from caliper.contracts.document import (
     Circle,
     DistanceDimension,
     DistanceOrientation,
+    Document,
     EntityId,
     Point2,
     RadialDimension,
     RadialMeasure,
 )
 from caliper.contracts.errors import Error
+from caliper.contracts.queries import Queries
 
 ARROW_PX = 8.0
 LABEL_GAP_PX = 24.0
@@ -50,6 +53,16 @@ DIAMETER_SIGN = "⌀"
 DEGREE_SIGN = "°"
 
 Dimension = DistanceDimension | RadialDimension | AngleDimension
+
+
+class Source(Protocol):
+    """Where a dimension is drawn from: the session, or a scratch bus for a preview."""
+
+    @property
+    def document(self) -> Document: ...
+
+    @property
+    def queries(self) -> Queries: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +83,7 @@ class DimensionDrawing:
     arc: AngleLayout | None = None
 
 
-def drawing(session: DocumentSession, id: EntityId, view: ViewTransform) -> DimensionDrawing | None:
+def drawing(session: Source, id: EntityId, view: ViewTransform) -> DimensionDrawing | None:
     """How to draw dimension `id`, or None if it isn't one or its references can't be found."""
     match session.document.entities.get(id):
         case DistanceDimension() as dim:
@@ -127,7 +140,7 @@ def paint(painter: ModelPainter, plan: DimensionDrawing, color: QColor) -> None:
     label(painter, plan.label_at, plan.text, color)
 
 
-def value_text(session: DocumentSession, id: EntityId, prefix: str = "", unit: str = "") -> str:
+def value_text(session: Source, id: EntityId, prefix: str = "", unit: str = "") -> str:
     entity = session.document.entities.get(id)
     value = session.queries.dimension_value(id)
     text = "?" if isinstance(value, Error) else f"{prefix}{value:.2f}{unit}"
@@ -136,7 +149,7 @@ def value_text(session: DocumentSession, id: EntityId, prefix: str = "", unit: s
 
 
 def _distance(
-    session: DocumentSession, id: EntityId, dim: DistanceDimension, view: ViewTransform
+    session: Source, id: EntityId, dim: DistanceDimension, view: ViewTransform
 ) -> DimensionDrawing | None:
     queries = session.queries
     ref_a, ref_b = references.anchor(queries, dim.a), references.anchor(queries, dim.b)
@@ -168,7 +181,7 @@ def _distance(
 
 
 def _radial(
-    session: DocumentSession, id: EntityId, dim: RadialDimension, view: ViewTransform
+    session: Source, id: EntityId, dim: RadialDimension, view: ViewTransform
 ) -> DimensionDrawing | None:
     target = session.document.entities.get(dim.target)
     if not isinstance(target, Circle | Arc):
@@ -196,7 +209,7 @@ def _radial(
 
 
 def _angle(
-    session: DocumentSession, id: EntityId, dim: AngleDimension, view: ViewTransform
+    session: Source, id: EntityId, dim: AngleDimension, view: ViewTransform
 ) -> DimensionDrawing | None:
     queries = session.queries
     a, b = references.straight(queries, dim.a), references.straight(queries, dim.b)

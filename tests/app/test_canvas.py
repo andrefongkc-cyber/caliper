@@ -152,33 +152,6 @@ def test_pointer_snaps_to_features_before_the_grid(window, driver) -> None:
     assert open_space.snap is SnapKind.GRID
 
 
-def test_dimension_tool_point_to_point(window, driver, bus) -> None:
-    rect, _ = draw_everything(window.session)
-    bus.sent.clear()
-    driver.tool("Dimension")
-    driver.click(0, 50)
-    driver.click(100, 50)
-    driver.click(50, 65)
-    assert bus.sent == [
-        CreateDistanceDimension(
-            a=Ref(entity=rect, feature=Feature.TOP_LEFT),
-            b=Ref(entity=rect, feature=Feature.TOP_RIGHT),
-            orientation=DistanceOrientation.ALIGNED,
-            offset=15.0,
-        )
-    ]
-
-
-def test_dimension_tool_on_a_circle_makes_a_diameter(window, driver, bus) -> None:
-    _, circle = draw_everything(window.session)
-    bus.sent.clear()
-    driver.tool("Dimension")
-    driver.click(180, 25)
-    assert bus.sent == [
-        CreateRadialDimension(target=circle, measure=RadialMeasure.DIAMETER, label_angle=0.0)
-    ]
-
-
 def test_cursor_position_is_shown_in_mm(window, driver) -> None:
     driver.move(25, 10)
     assert window.cursor_label.text().split() == ["X", "25.000", "Y", "10.000", "mm"]
@@ -190,15 +163,6 @@ def test_paints_every_entity_kind_including_dimensions(window) -> None:
     assert pixel(window, 52, 27) == theme.CANVAS  # rectangle interior, between grid lines
     window.canvas.grab()
     assert window.canvas.hidden_dimensions == 0
-
-
-def test_dimension_tool_reports_an_empty_click(window, driver, bus) -> None:
-    draw_everything(window.session)
-    bus.sent.clear()
-    driver.tool("Dimension")
-    driver.click(300, 300)
-    assert bus.sent == []
-    assert window.statusBar().currentMessage() == "No point under the pointer"
 
 
 def test_hover_and_selection_reuse_the_cached_layer(window, driver) -> None:

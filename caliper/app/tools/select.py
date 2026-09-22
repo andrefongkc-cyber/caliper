@@ -18,7 +18,16 @@ from caliper.app.tools.base import Pointer, Tool
 from caliper.app.tools.shapes import clean
 from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
 from caliper.contracts.commands import MoveEntities
-from caliper.contracts.document import Arc, Circle, EntityId, Point2, Rectangle
+from caliper.contracts.document import (
+    AngleDimension,
+    Arc,
+    Circle,
+    DistanceDimension,
+    EntityId,
+    Point2,
+    RadialDimension,
+    Rectangle,
+)
 from caliper.contracts.queries import BoundingBox
 
 
@@ -151,7 +160,9 @@ class SelectTool(Tool):
 
 
 def editable_field(entity: object, point: Point2, tolerance: float) -> str | None:
-    """The dimension a double-click near an entity's outline edits, or None.
+    """The value a double-click edits, or None.
+
+    A dimension (its label was hit) edits its `value`: typing a number makes it driving.
 
     A rectangle's top or bottom edge edits width; a side edits height. Circles and arcs edit
     radius. A line's length isn't a stored input, so there's nothing to edit in place yet.
@@ -160,6 +171,8 @@ def editable_field(entity: object, point: Point2, tolerance: float) -> str | Non
     nearer.
     """
     match entity:
+        case DistanceDimension() | RadialDimension() | AngleDimension():
+            return "value"
         case Rectangle(corner=c, width=w, height=h):
             inside_x = c.x - tolerance <= point.x <= c.x + w + tolerance
             inside_y = c.y - tolerance <= point.y <= c.y + h + tolerance
