@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from caliper.app.session import DocumentSession
 from caliper.app.viewport.painter import ModelPainter
-from caliper.contracts.document import Point2, Ref
+from caliper.contracts.document import EntityId, Point2, Ref
 
 
 class SnapKind(StrEnum):
@@ -37,6 +37,9 @@ class Pointer:
     """The user asked for a box selection even where a shape would be picked (⌘ held)."""
     guides: tuple[tuple[Point2, Point2], ...] = ()
     """Alignment guides to draw, from an acquired feature point to `point`."""
+    annotation: EntityId | None = None
+    """A dimension label or constraint glyph under the pointer. These are drawn by the shell,
+    so the shell hit-tests them; they sit on top of geometry and win a click."""
 
 
 class Tool:

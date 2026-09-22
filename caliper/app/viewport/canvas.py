@@ -11,9 +11,11 @@ Navigation, following Fusion/SolidWorks on a Mac:
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
+    QColor,
     QFontMetricsF,
     QInputDevice,
     QKeyEvent,
@@ -27,14 +29,22 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel, QWidget
 
-from caliper.app import solve_state, theme
+from caliper.app import references, solve_state, theme
 from caliper.app.agent.proposal import Proposal
+from caliper.app.panels.describe import kind_title, summary
 from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, SnapKind
 from caliper.app.tools.controller import SELECT, ToolController
 from caliper.app.tools.select import editable_field
-from caliper.app.viewport.annotations import LABEL_GAP_PX, label_anchors, paint_annotations
+from caliper.app.viewport import glyphs
+from caliper.app.viewport.annotations import (
+    LABEL_GAP_PX,
+    drawing,
+    label_anchors,
+    label_box,
+    paint_annotations,
+)
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
@@ -46,8 +56,10 @@ from caliper.contracts.document import (
     Constraint,
     DistanceDimension,
     EntityId,
+    Feature,
     Point2,
     RadialDimension,
+    Ref,
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
@@ -80,6 +92,10 @@ class Canvas(QWidget):
         self.view = ViewTransform()
         self.snap_to_grid = True
         self.show_grid = True
+        self.show_constraints = True
+        self._targets_key: tuple[object, ...] | None = None
+        self._labels: list[tuple[QRectF, EntityId]] = []
+        self._glyphs: list[glyphs.Glyph] = []
         self.hidden_dimensions = 0
         self._placed = False
         self._pan_from: QPointF | None = None
@@ -92,7 +108,7 @@ class Canvas(QWidget):
         self._layer: QPixmap | None = None
         self._layer_view: tuple[float, float, float] | None = None
         """(scale, origin_x, origin_y) the layer was drawn at."""
-        self._layer_frame: tuple[int, int, float, bool] | None = None
+        self._layer_frame: tuple[int, int, float, bool, bool] | None = None
         self._layer_document: object = None
         self._moving = False
         """True from a pan or zoom until the view has been still for SETTLE_MS."""
@@ -221,6 +237,11 @@ class Canvas(QWidget):
     # --- Pointer --------------------------------------------------------------------------
 
     def pointer_at(self, position: QPointF, modifiers: Qt.KeyboardModifier) -> Pointer:
+        pointer = self._snapped(position, modifiers)
+        annotation = self.annotation_at(position.x(), position.y())
+        return pointer if annotation is None else replace(pointer, annotation=annotation)
+
+    def _snapped(self, position: QPointF, modifiers: Qt.KeyboardModifier) -> Pointer:
         raw = self.view.to_model(position.x(), position.y())
         tolerance = self.view.length_to_model(PICK_RADIUS_PX)
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
@@ -317,7 +338,58 @@ class Canvas(QWidget):
         self.acquired = []
 
     def _hit(self, pointer: Pointer) -> EntityId | None:
+        if pointer.annotation is not None:
+            return pointer.annotation
         return self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
+
+    # --- Annotations the shell draws, and so hit-tests ------------------------------------
+
+    def annotation_at(self, x: float, y: float) -> EntityId | None:
+        """The constraint glyph or dimension label under widget point (x, y), glyphs first."""
+        labels, laid_out = self._targets()
+        found = glyphs.at(laid_out, x, y)
+        if found is not None:
+            return found
+        for rect, id in reversed(labels):
+            if rect.contains(QPointF(x, y)):
+                return id
+        return None
+
+    @property
+    def constraint_glyphs(self) -> list[glyphs.Glyph]:
+        """Constraint glyphs as laid out for the current view (empty when hidden)."""
+        return self._targets()[1]
+
+    def _targets(self) -> tuple[list[tuple[QRectF, EntityId]], list[glyphs.Glyph]]:
+        view = self.view
+        key = (
+            self.session.document,
+            view.scale,
+            view.origin_x,
+            view.origin_y,
+            self.show_constraints,
+        )
+        if key != self._targets_key:
+            document = self.session.document
+            queries = self.session.queries
+            metrics = QFontMetricsF(self.font())
+            self._labels = []
+            for id in sorted(document.entities):
+                plan = drawing(self.session, id, view)
+                if plan is not None:
+                    cx, cy = view.to_widget(plan.label_at)
+                    self._labels.append((label_box(metrics, cx, cy, plan.text), id))
+            self._glyphs = glyphs.layout(queries, document, view) if self.show_constraints else []
+            self._targets_key = key
+        return self._labels, self._glyphs
+
+    def _annotation_tip(self, id: EntityId | None) -> str:
+        entity = self.session.document.entities.get(id) if id is not None else None
+        if isinstance(entity, Constraint):
+            return f"{kind_title(entity)} {id}: {summary(entity, id, self.session.queries)}"
+        if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
+            return f"{kind_title(entity)} {id}: double-click to edit its value"
+        return ""
 
     # --- Qt events ------------------------------------------------------------------------
 
@@ -389,6 +461,9 @@ class Canvas(QWidget):
         if pointer.snap is SnapKind.FEATURE:
             self.acquired = acquire(self.acquired, pointer.point)
         self._pointer = pointer
+        tip = self._annotation_tip(pointer.annotation)
+        if tip != self.toolTip():
+            self.setToolTip(tip)
         tool = self.controller.active
         pressed = bool(event.buttons() & Qt.MouseButton.LeftButton)
         self.session.set_hover(self._hit(pointer) if tool.uses_hover and not pressed else None)
@@ -538,8 +613,14 @@ class Canvas(QWidget):
         self._moving = False
         self.update()
 
-    def _frame_key(self) -> tuple[int, int, float, bool]:
-        return (self.width(), self.height(), self.devicePixelRatioF(), self.show_grid)
+    def _frame_key(self) -> tuple[int, int, float, bool, bool]:
+        return (
+            self.width(),
+            self.height(),
+            self.devicePixelRatioF(),
+            self.show_grid,
+            self.show_constraints,
+        )
 
     def _paint_static(self, qp: QPainter) -> None:
         """Paint the static layer. While the view moves, move the last layer instead of redrawing.
@@ -622,10 +703,33 @@ class Canvas(QWidget):
         self.hidden_dimensions = paint_annotations(
             painter, self.session, frozenset(), failed=failed
         )
+        if self.show_constraints:
+            self._paint_glyphs(qp, self.constraint_glyphs, {id: theme.ERROR for id in failed})
         qp.end()
         self._layer, self._layer_view, self._layer_frame = layer, view_key, frame
         self._layer_document = document
         return layer
+
+    def _paint_glyphs(
+        self, qp: QPainter, laid_out: list[glyphs.Glyph], colours: dict[EntityId, QColor]
+    ) -> None:
+        qp.save()
+        qp.setFont(theme.font(size=theme.TYPE.caption))
+        glyphs.paint(qp, laid_out, colours)
+        qp.restore()
+
+    def _paint_references(self, painter: ModelPainter, refs: tuple[Ref, ...]) -> None:
+        """Highlight what a constraint refers to: whole curves, rectangle sides, or points."""
+        entities = self.session.document.entities
+        queries = self.session.queries
+        for ref in refs:
+            entity = entities.get(ref.entity)
+            if ref.feature is Feature.CURVE and isinstance(entity, _GEOMETRY):
+                painter.geometry(entity)
+            elif (side := references.straight(queries, ref)) is not None:
+                painter.line(side.start, side.end)
+            elif (point := references.point(queries, ref)) is not None:
+                painter.dot(point, 3.5)
 
     def _paint_highlights(self, painter: ModelPainter) -> None:
         entities = self.session.document.entities
@@ -636,12 +740,22 @@ class Canvas(QWidget):
             if isinstance(entity, _GEOMETRY):
                 painter.set_pen(cosmetic_pen(theme.HOVER, theme.HIGHLIGHT_WIDTH))
                 painter.geometry(entity)
+            elif isinstance(entity, Constraint):
+                painter.set_pen(cosmetic_pen(theme.HOVER, theme.HIGHLIGHT_WIDTH))
+                self._paint_references(painter, entity.refs)
+                hovered = [g for g in self.constraint_glyphs if g.id == hover]
+                self._paint_glyphs(painter.painter, hovered, {hover: theme.HOVER})
+            elif entity is not None:
+                paint_annotations(painter, self.session, frozenset(), [hover], theme.HOVER)
         painter.set_pen(cosmetic_pen(theme.SELECTED, theme.HIGHLIGHT_WIDTH))
         for id in selection:
             entity = entities.get(id)
             if isinstance(entity, _GEOMETRY):
                 painter.geometry(entity)
         paint_annotations(painter, self.session, selection, only=selection)
+        chosen = [g for g in self.constraint_glyphs if g.id in selection]
+        if chosen:
+            self._paint_glyphs(painter.painter, chosen, dict.fromkeys(selection, theme.SELECTED))
         self._paint_proposal(painter)
 
     def _paint_proposal(self, painter: ModelPainter) -> None:

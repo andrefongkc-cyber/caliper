@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
             self.select_all_action,
             self.fit_action,
             self.grid_action,
+            self.constraints_action,
             self.snap_action,
             self.new_action,
             self.open_action,
@@ -151,6 +152,9 @@ class MainWindow(QMainWindow):
         self.grid_action = self._action("Show Grid", self._toggle_grid, "G")
         self.grid_action.setCheckable(True)
         self.grid_action.setChecked(True)
+        self.constraints_action = self._action("Show Constraints", self._toggle_constraints)
+        self.constraints_action.setCheckable(True)
+        self.constraints_action.setChecked(True)
         self.snap_action = self._action("Snap to Grid", self._toggle_snap)
         self.snap_action.setCheckable(True)
         self.snap_action.setChecked(True)
@@ -215,6 +219,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.fit_action)
         view_menu.addSeparator()
         view_menu.addAction(self.grid_action)
+        view_menu.addAction(self.constraints_action)
         view_menu.addAction(self.snap_action)
 
         sketch_menu = bar.addMenu("Sketch")
@@ -503,6 +508,10 @@ class MainWindow(QMainWindow):
 
     def _toggle_grid(self, checked: bool) -> None:
         self.canvas.show_grid = checked
+        self.canvas.update()
+
+    def _toggle_constraints(self, checked: bool) -> None:
+        self.canvas.show_constraints = checked
         self.canvas.update()
 
     def _toggle_snap(self, checked: bool) -> None:

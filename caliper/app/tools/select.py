@@ -60,11 +60,12 @@ class SelectTool(Tool):
     def press(self, pointer: Pointer) -> None:
         # Pressing inside a closed shape picks it (as Fusion and SolidWorks do), so ⌘ is
         # how you rubber-band from inside one.
-        hit = (
-            None
-            if pointer.force_box
-            else self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
-        )
+        if pointer.force_box:
+            hit = None
+        elif pointer.annotation is not None:
+            hit = pointer.annotation
+        else:
+            hit = self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
         self.start = self.current = pointer
         self.hit = hit
         if hit is None:
