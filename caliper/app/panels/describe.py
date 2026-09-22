@@ -69,7 +69,3 @@ def summary(entity: Entity, id: EntityId, queries: Queries) -> str:
             shown = "?" if isinstance(value, Error) else n(value)
             return f"{'⌀' if measure is RadialMeasure.DIAMETER else 'R'}{shown}"
     return ""
-
-
-def ref_text(ref: Ref) -> str:
-    return f"{ref.entity} {ref.feature.value.replace('_', ' ')}"

@@ -28,8 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 from caliper.app import theme
-from caliper.app.panels.describe import n, ref_text
-from caliper.app.properties import format_number, parse_number
+from caliper.app.panels.describe import n
+from caliper.app.properties import format_number, parse_number, ref_text
 from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
 from caliper.contracts.document import (
