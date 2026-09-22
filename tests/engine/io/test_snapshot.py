@@ -179,12 +179,11 @@ def test_schema_1_files_gain_the_constraint_fields() -> None:
     }
     # Loading the old file gives the same document as the migrated bench expectation.
     current = FIXTURES.parents[2] / "bench" / "cases" / "dimension-bottom-edge"
-    assert snapshot.load(V1 / "dimensioned.caliper") == snapshot.load(
-        current / "expected.caliper"
+    assert snapshot.load(V1 / "dimensioned.caliper") == snapshot.load(current / "expected.caliper")
+    assert (
+        snapshot.dumps(snapshot.load(V1 / "dimensioned.caliper"))
+        == (current / "expected.caliper").read_text()
     )
-    assert snapshot.dumps(snapshot.load(V1 / "dimensioned.caliper")) == (
-        current / "expected.caliper"
-    ).read_text()
 
 
 def test_every_schema_version_below_the_current_one_has_a_migration() -> None:
