@@ -1,4 +1,4 @@
-Status: V1.5 constraint engine open as PR #26, all four checks green (joint, reopens the contract), next: Lucas's review; he decides whether the palette should offer constraints and dimensions
+Status: V1.5 constraint engine open as PR #26 for Lucas (all four checks passed on the engine commits; two doc-only commits after them were still running), next: his review, then flatten the branch so it can be rebase-merged
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -8,6 +8,14 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 ## V1.5 — Sketch constraints and dimensions (branch `contracts/sketch-constraints`, started 2026-09-22)
 
 User request (2026-09-22): the full constraint and dimensioning engine, engine first, minimal debug surface. Joint `contracts/` branch because it changes the frozen contract; Lucas reviews. Answers the eight decisions in issue #18.
+
+**Picking this up in a fresh session.** The work is done and pushed; nothing is half-finished in the tree.
+
+- **Where it is:** branch `contracts/sketch-constraints`, PR #26. 22 engine commits plus 3 doc commits. The branch carries a merge commit from `main`, so it must be flattened (`git rebase origin/main`, force-push) before GitHub offers "Rebase and merge"
+- **What it is:** `caliper/engine/constraints/` holds the solver (`relations.py` is the table of constraint types, `sketch.py` the solving and status, `dimensions.py` the seven dimension kinds, `suggest.py` the inference). Commands solve through `handlers.py`; the queries are on `DocumentQueries`
+- **See it work:** `uv run python -m caliper.engine inspect tests/engine/fixtures/constraints.caliper` prints a solved plate with its constraints, degrees of freedom and driving values. `uv run pytest tests/engine/constraints` runs the 129 tests for it
+- **Don't re-litigate:** the solver is ours rather than planegcs (Andre's decision, ADR 0008); constraints are one generic entity, not one type each (ADR 0009); conflicting and redundant additions are refused rather than stored
+- **Blocked on people, not code:** Lucas reviewing PR #26 and the two ADRs. He closed the identical PR #25 on 2026-09-22 without a comment, as he did with #12-#14 (issue #21); ask Andre before chasing him, since talking to Lucas means posting from Andre's account
 
 Decisions so far:
 - **Solver: our own, pure Python** (user decision 2026-09-22), superseding ADR 0003's planegcs. Reasons: no native build on every Mac, engine stays dependency-free, deterministic replay, DOF per entity. New ADR 0008 (Proposed); ADR 0003 itself is left as written

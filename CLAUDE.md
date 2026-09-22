@@ -47,7 +47,8 @@ The `boundaries` CI check rejects stream branches that touch files outside their
 - **No speculative generality.** No plugin systems, factories, or config layers for anything outside the current version. Flag it instead.
 - **Invalid input returns `Error` values** with stable `ErrorCode`s. It never raises.
 - **Contract dataclasses** are `frozen=True, slots=True, kw_only=True`. Units are mm and degrees, Y-up.
-- **Selection, hover, and previews are UI state:** never commands, never in the document.
+- **Selection, hover, previews, and constraint suggestions are UI state:** never commands, never in the document.
+- **Constraints are solved inside the command that changes them** (ADR 0009), so the solve is part of the automatic delta. A change the constraints can't allow is `Rejected`, naming them in `Error.ids`; nothing outside `caliper/engine/constraints/` knows how the solver works.
 - **Licenses:** no GPL/AGPL dependencies (ADR 0006). No secrets in git; `.env.example` only.
 - **Commits** are small, single-concern conventional commits (`feat(engine): ...`). Rebase onto `main` before every merge.
 - **Pull requests** start with a plain-language `## Summary` (what it does, what depends on the other stream, what the reviewer must decide, risk), following `.github/pull_request_template.md`. Merge with "Rebase and merge", never squash.
