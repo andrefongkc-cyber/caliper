@@ -1,7 +1,8 @@
 """Headless command line: python -m caliper.engine <command>.
 
 replay SCRIPT [-o OUTPUT] [--history]   run a command script and write the .caliper file
-inspect FILE                            summarize a .caliper file
+inspect FILE                            summarize a .caliper file: entities, dimension
+                                        values, constraints, degrees of freedom, conflicts
 export FILE [-o OUTPUT]                 write a copy that is safe to send: latest schema,
                                         no history section
 """
@@ -16,6 +17,8 @@ from pathlib import Path
 
 from caliper.contracts.commands import Command, Rejected
 from caliper.contracts.document import (
+    AngleDimension,
+    Constraint,
     DistanceDimension,
     Document,
     Entity,
@@ -23,13 +26,14 @@ from caliper.contracts.document import (
     RadialDimension,
     Ref,
 )
-from caliper.contracts.queries import BoundingBox
+from caliper.contracts.queries import BoundingBox, ConstraintState, SolveStatus
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import script, snapshot
 from caliper.engine.io.canonical import LoadError
 
-_PLACEMENT_FIELDS = frozenset({"offset", "label_angle"})
-"""Annotation fields that only position a label; inspect shows the measured value instead."""
+_HIDDEN_FIELDS = frozenset({"offset", "label_angle", "value", "construction"})
+"""Fields inspect shows another way: placement not at all, measured values after `=`, the
+driving value and construction flag as markers."""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -78,7 +82,10 @@ def _replay(script_path: Path, output: Path | None, *, history: bool) -> int:
         if isinstance(result, Rejected):
             for error in result.errors:
                 where = f" {error.field}" if error.field else ""
-                _fail(f"commands[{index}] {command.kind}:{where} [{error.code}] {error.message}")
+                ids = f" (involves {', '.join(error.ids)})" if error.ids else ""
+                _fail(
+                    f"commands[{index}] {command.kind}:{where} [{error.code}] {error.message}{ids}"
+                )
             return 1
         resolved.append(result.command)
     _write(bus.document, output, history=resolved if history else None)
@@ -106,6 +113,8 @@ def _inspect(path: Path) -> int:
     print(f"  entities        {len(document.entities)}" + (f": {counts}" if counts else ""))
     print(f"  next id         {document.next_id}")
     print(f"  bounds          {_bounds(bounds) if isinstance(bounds, BoundingBox) else 'none'}")
+    status = queries.solve_status()
+    print(f"  sketch          {_status(status)}")
     print(f"  history         {_history(read.history)}")
     if document.entities:
         print()
@@ -114,11 +123,33 @@ def _inspect(path: Path) -> int:
     for id in sorted(document.entities):
         entity = document.entities[id]
         line = f"  {id:<{id_width}}  {entity.kind:<{kind_width}}  {_fields(entity)}"
-        if isinstance(entity, DistanceDimension | RadialDimension):
+        if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
             value = queries.dimension_value(id)
             line += f" = {value!r}" if isinstance(value, float) else f" = ? ({value.message})"
+            if entity.value is not None:
+                line += " (driving)"
+        if getattr(entity, "construction", False):
+            line += " (construction)"
+        if id in status.entity_dof:
+            line += f"  [dof {status.entity_dof[id]}]"
+        if id in status.conflicting:
+            line += "  [conflicting]"
+        elif id in status.redundant:
+            line += "  [redundant]"
         print(line)
     return 0
+
+
+def _status(status: SolveStatus) -> str:
+    match status.state:
+        case ConstraintState.FULLY:
+            return "fully constrained"
+        case ConstraintState.UNDER:
+            return f"under-constrained, {status.dof} DOF remaining"
+        case ConstraintState.OVER:
+            return f"over-constrained: {', '.join(status.redundant)} repeat others"
+        case ConstraintState.CONFLICTING:
+            return f"constraint conflict: {', '.join(status.conflicting)} don't hold"
 
 
 def _export(path: Path, output: Path | None) -> int:
@@ -148,10 +179,12 @@ def _history(history: tuple[Command, ...] | None) -> str:
 
 
 def _fields(entity: Entity) -> str:
+    if isinstance(entity, Constraint):
+        return f"{entity.type.value}: {_value(entity.refs)}"
     return ", ".join(
         f"{field.name} {_value(getattr(entity, field.name))}"
         for field in fields(entity)
-        if field.name not in _PLACEMENT_FIELDS
+        if field.name not in _HIDDEN_FIELDS
     )
 
 
@@ -161,6 +194,8 @@ def _value(value: object) -> str:
             return f"({x!r}, {y!r})"
         case Ref(entity=entity, feature=feature):
             return f"{entity}.{feature}"
+        case tuple():
+            return ", ".join(_value(item) for item in value)
         case StrEnum():
             return value.value
         case float():
