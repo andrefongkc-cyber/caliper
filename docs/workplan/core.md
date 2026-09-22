@@ -1,10 +1,29 @@
-Status: V1 on main; freeze PR #22 and the restored maintainer PRs #12-#14 open for Lucas, next: the six deferred contract decisions once the freeze lands
+Status: V1 engine done and on main (PR #15), contract frozen (PR #22), next: a position Metric so check can verify where things are
 
 # Core workplan — Stream A
 
-Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` changes go through a joint PR once frozen (after Phase 0.5).
+Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Start here (2026-09-21)
+
+**Where things stand.** The V1 engine is finished and on `main`: every command (create, modify, move, delete, fillet), transactions and merge keys, the full query API including `check`, OCCTKernel behind the `occt` extra (used by default when installed), the optional file history, and the `replay` / `inspect` / `export` CLI. The contract is frozen (PR #22). CI runs the OCCT conformance suite (PR #12); ADRs 0003 and 0007 are Accepted. No open PRs. On `main` with every extra installed: 698 passed, 1 failed (below), bench 6/6.
+
+Branch names in the history below (`stream/core/queries` and so on) are historical: all of them merged through PR #15 and were deleted.
+
+**Loose end:** issue #21. `tests/app/test_panels.py::test_area_isnt_offered_without_a_geometry_kernel` assumes no kernel is installed, so it fails on any machine with the `occt` extra (CI's app job doesn't install it). A tested fix is in the issue; it's Lucas's file, and he hasn't replied yet.
+
+**Next, in order.** The six contract decisions deferred from PR #22, each with a recommendation there, plus the next milestone:
+
+- [ ] **A position `Metric`** (contract gap 10). `check` can verify "120 wide" but not "moved 30 mm right"; `bench/cases/move-right-30` can only compare the whole file. Joint `contracts/` PR, since it adds to `Metric`
+- [ ] **Normalize `Arc.start_angle` to [0, 360)** (deferred decision 2). Two identical-looking arcs compare unequal today. It changes stored values, so it needs a decision on existing files and a fixture test
+- [ ] **Move `LoadError` into `contracts/`** (decision 3). Every caller that opens a file imports an engine module to catch it; the change touches the shell's imports
+- [ ] The other three deferred decisions, recommended "not yet" in PR #22: `Error` returns for the pickers, an author on `Change`, a document revision counter
+- [ ] **V1.5: constraints with planegcs** (ADR 0003). Needs a constraint contract designed with Lucas first; his screen side is phase P7 in `shell.md`. Decided already: an unconstrained rectangle keeps its bottom-left corner fixed when resized
+- [ ] Spatial index for hit-testing: only if profiles demand it. Lucas measured ~19 ms per pointer move at 10,000 entities, all in `nearest_feature` + `entity_at_point`
+
+**How work lands.** Engine work on `stream/core/<topic>` branches; anything touching `caliper/contracts/` on a `contracts/<topic>` branch reviewed by both. Every PR needs Lucas's approval and "Rebase and merge"; branches must be linear (no merge commits) or GitHub offers no way to merge. Talking to Lucas means a GitHub issue or comment posted from Andre's account, so ask Andre first.
 
 ## Phase 0 — Foundation (single session, before the streams split)
 
@@ -68,7 +87,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Hit-testing measures distance to the outline (a rectangle's interior misses); arcs use endpoints + axis crossings for tight bounds
   - Bench marks each unimplemented `check` as pending; both cases still pass with 2 pending expectations each
   - Tests: `tests/engine/test_queries.py` (unit + hypothesis: tight arc bounds, translation, edge hits); verified they fail on a dropped axis crossing and on interior hits
-- [~] Contract gaps the spike surfaces (engine side so far; Lucas adds the shell side). For the freeze PR:
+- [x] Contract gaps the spike surfaces (both sides; resolved or deferred in the freeze, PR #22):
   1. `entity_at_point` / `nearest_feature` / `entities_in_box` can't return `Error`, so invalid input (NaN point, negative tolerance, inverted box) has no way to say so. Engine returns "no match" for now. Decide: add `| Error`, or document "invalid input matches nothing"
   2. `entity_at_point` doesn't say outline vs interior. Engine uses the outline; the docstring should say so
   3. "Ties broken by id" is string order, so `e10` sorts before `e2`. Say so explicitly
@@ -80,7 +99,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
 - [x] PR #2 merged 2026-09-15 (Lucas, squashed into `7ac0543`); PR #3 (milestone + V1 shell) rebase-merged the same day. Tests on `main` with the app extra: 293 passed
 - [x] PR #4 (PR summary template, "Rebase and merge" rule) rebase-merged 2026-09-15 as `88a23df`. Deleted the old `stream/core` branch (local and remote; its content is `7ac0543` on main). Stream A now works on `stream/core/<topic>` branches
 - [ ] Engine pieces the shell already calls through `caliper/app/engine_gaps.py`, in its order (shell.md):
-  - [~] `feature_point` + `nearest_feature` (snapping, dimension tool, drawing distance dimensions). Branch `stream/core/feature-queries`, not pushed
+  - [x] `feature_point` + `nearest_feature` (snapping, dimension tool, drawing distance dimensions). Merged as PR #8, 2026-09-16
     - Engine side done: every POINT_FEATURES entry for all four types (arc points exact at multiples of 90°); bad refs reuse the command validator's errors (`ref.entity` / `ref.feature`); tests include a hypothesis round-trip (arc feature → snap → same point, on the arc), verified to fail on a wrong arc mid, a reversed tie-break, and a wrong rectangle center
     - Blocked on Stream B: `tests/app/test_canvas.py` has 3 tests that assert these queries are missing (`test_paints_every_entity_kind` expects 1 hidden dimension, `test_without_point_queries_the_pointer_snaps_to_the_grid`, `test_dimension_tool_reports_missing_point_picking`). They fail on this branch, and `app (macOS)` is required. `CompletedQueries` in `tests/app/conftest.py` can drop its two stand-ins once this lands
     - Sent Lucas issue #7 (2026-09-15) with a tested patch: a `missing_point_queries=True` bus marker for those 3 tests. Verified 81 app tests pass with it on `main` (`88a23df`) and on this branch. Dropping the stand-ins must wait until this PR merges: on current `main` that breaks 3 `complete_queries` tests. Not pushing until the fix is on `main`
@@ -99,7 +118,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
     - Contract gap 2 resolved this way; `queries.py` docstring ("Nearest ... ties broken by id") needs rewording in the freeze PR
     - Shell impact (Stream B): `test_selection.py::test_click_selects_the_outline_and_empty_space_clears` and `::test_hover_follows_the_pointer_in_select_mode_only` assert inside-clicks miss, so they fail on this branch; a drag starting inside a shape now moves it instead of box-selecting
   - [x] Rectangle resize keeps the bottom-left corner fixed: already how ModifyEntity works (`test_changing_width_keeps_the_corner`). V1.5 solver default: pin that corner unless a constraint says otherwise
-  - [~] Zoom-to-fit must not clip dimension labels. Engine `bounding_box` stays geometry-only, because `check`/bench BBOX metrics use it and text size is a rendering detail; see the recommendation for the shell
+  - [x] Zoom-to-fit must not clip dimension labels. Engine `bounding_box` stays geometry-only, because `check`/bench BBOX metrics use it and text size is a rendering detail. Done shell-side in PR #15: Zoom to Fit measures labels at the fitted scale and fits again
 - [x] `FilletCorner` (user request, 2026-09-15). Landed with the shell's Fillet tool in PR #15
   - Contract: `FilletCorner(a, b, radius, id=None)` in `commands.py`, so this is a joint change that needs Stream B's review; a `contracts/` branch is unrestricted by the boundaries check
   - V1 rounds a drawn corner: the two lines must already share an endpoint (exact match). Lines that would only meet if extended are rejected, per the user's decision
@@ -109,16 +128,16 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Tests: exact right-angle values, all four shared-endpoint orders, undo/redo, resolved-command replay, a golden headless replay fixture, every error case, and a 1,000-example property test (tangency, sweep = 180° - corner angle, far ends kept). Verified the tests catch 5 deliberate breaks. Bench case `fillet-corner-10mm`
 - [x] PR #15 (Lucas, 2026-09-17) landed the whole stack plus interior picking, FilletCorner, and the shell's V1 work in one joint PR, rebased to a linear 41 commits. On main with every extra installed: 679 passed, 1 failed (below); bench 6/6; the three replay fixtures are byte-identical
   - `tests/app/test_panels.py::test_area_isnt_offered_without_a_geometry_kernel` assumes no kernel is installed, so it fails wherever the occt extra is (CI's app job doesn't install it). Tested fix: make the test pin "no kernel" itself
-  - PRs #12 (OCCT CI job), #13 (ADR 0007, pyproject correction, QML ban) and #14 (ADR 0003 Accepted) were closed by Lucas before #15 and are not in it; all three still apply cleanly
-- [~] Exit: freeze `commands.py`, `document.py`, `queries.py`, `errors.py` → split streams
-  - PR #22 drafts it as documentation only: both gap lists (core 1-10, shell 1-12) written into the four files, each marked frozen. No signatures or behaviour changed
-  - Six gaps need a real decision and are deferred with a recommendation each: `Error` returns for the pickers, normalizing `Arc.start_angle`, moving `LoadError` into contracts, an author on `Change`, a position `Metric`, a document revision counter
-  - Reopened and rebased #12 (OCCT CI job), #13 (ADR 0007 + pyproject), #14 (ADR 0003 Accepted); issue #21 asks Lucas why they were closed and carries the tested fix for the one test that fails outside CI
+  - PRs #12 (OCCT CI job), #13 (ADR 0007, pyproject correction, QML ban) and #14 (ADR 0003 Accepted) were closed by Lucas before #15 and weren't in it. Reopened, rebased, and merged 2026-09-17
+- [x] Exit: freeze `commands.py`, `document.py`, `queries.py`, `errors.py` → split streams. PR #22 merged 2026-09-17
+  - PR #22 did it as documentation only: both gap lists (core 1-10, shell 1-12) written into the four files, each marked frozen. No signatures or behaviour changed
+  - Six gaps needed a real decision and are deferred with a recommendation each (now listed under Start here): `Error` returns for the pickers, normalizing `Arc.start_angle`, moving `LoadError` into contracts, an author on `Change`, a position `Metric`, a document revision counter
+  - Issue #21 asks Lucas why #12-#14 were closed and carries the tested fix for the one test that fails outside CI (no reply as of 2026-09-21)
 
 ## V1 — Core
 
-- [ ] Document model: entities, IDs, dirty tracking (no spatial index; revisit at >2,000 entities or hit-testing in a profile)
-- [~] Commands: create/move/delete line, circle, rectangle, arc; modify dimension (done). "Compound" is transactions, below
+- [x] Document model: entities, IDs (no spatial index; revisit if hit-testing shows up in a profile). Dirty tracking lives in the shell's session
+- [x] Commands: create/move/delete line, circle, rectangle, arc; modify; fillet. "Compound" is transactions, below
 - [x] Command bus: validation, execution, automatic deltas, batch transactions, unrecorded mode (branch `stream/core/transactions`, local)
   - Net-delta commit, rollback (immediate, and never commits afterwards), exceptions roll back, nesting folds into the outermost (inner rollback reverts only its block), undo/redo inside a transaction raise
   - `merge_key`: one entry per run of same-key executes; dragging back to the start leaves none
@@ -130,7 +149,7 @@ Steps are numbered 1–8 to avoid confusion with Phase 0.5, the milestone spike.
   - Faces: polygon wire (rectangle) or circular edge (circle) → planar face; GProp area/centroid/inertia (products of inertia negated back); `AddOptimal` bounds; `BRepCheck` validity
   - Conformance property tests also pass at 3,000 examples each (verified 3,000 faces built). A test runs `area_properties` through `Bus(kernel=OCCTKernel())`
   - OCP has no type information; one `from OCP import (...)  # type: ignore[import-not-found, import-untyped, unused-ignore]` keeps mypy clean with and without the extra (checked both)
-  - **For maintainers:** no CI job installs the `occt` extra and runs tests, so OCCT conformance only runs locally. Proposal: add `--extra occt` to `core.yml` or a small `occt` job running `tests/engine/geometry`
+  - CI: the `occt (Linux)` job runs `tests/engine/geometry` against real OCCT on every PR (PR #12)
   - [x] Default kernel (user decision, 2026-09-15; branch `stream/core/default-kernel`): `caliper.engine.geometry.default_kernel()` returns OCCTKernel when the extra is installed, else None; cached, and only looked up by queries that need a kernel. `Bus(kernel=...)` / `DocumentQueries` default to it; `kernel=None` means none
 - [x] Serialization: snapshot save/load, schema version, migration framework, history section off by default + stripped on export (branch `stream/core/files-cli`, local)
   - The migration framework already existed (chain, newer-file refusal, ordering test). Added a guard that every version below `SCHEMA_VERSION` has a migration
