@@ -87,6 +87,37 @@ def test_inspect_summarizes_a_file(tmp_path: Path) -> None:
     ]
 
 
+def test_inspect_shows_constraints_freedom_and_driving_values() -> None:
+    result = run("inspect", FIXTURES / "constraints.caliper")
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.decode().splitlines()
+    assert "  sketch          under-constrained, 5 DOF remaining" in lines
+    assert "  e13  constraint          fix: e1.start" in lines
+    assert (
+        "  e14  distance_dimension  a e1.start, b e1.end, orientation aligned = 120.0 (driving)"
+        in lines
+    )
+    assert "  e16  circle              center (30.0, 41.5), radius 10.0  [dof 1]" in lines
+    assert any(line.endswith("(construction)  [dof 4]") for line in lines)
+
+
+def test_replay_names_the_constraints_behind_a_rejection(tmp_path: Path) -> None:
+    data = json.loads((FIXTURES / "constraints.script.json").read_text())
+    data["commands"].append(
+        {
+            "kind": "create_constraint",
+            "type": "vertical",
+            "refs": [{"entity": "e1", "feature": "curve"}],
+        }
+    )
+    script = tmp_path / "over.script.json"
+    script.write_text(json.dumps(data))
+    result = run("replay", script)
+    assert result.returncode == 1
+    assert b"[constraint.conflict]" in result.stderr
+    assert b"(involves " in result.stderr
+
+
 def test_inspect_an_empty_document(tmp_path: Path) -> None:
     path = tmp_path / "empty.caliper"
     path.write_text(snapshot.dumps(Document.empty()))
