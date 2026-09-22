@@ -27,7 +27,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel, QWidget
 
-from caliper.app import theme
+from caliper.app import solve_state, theme
 from caliper.app.agent.proposal import Proposal
 from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
@@ -594,15 +594,34 @@ class Canvas(QWidget):
             self._paint_grid(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter = ModelPainter(qp, view)
-        construction = [e for e in document.entities.values() if _is_construction(e)]
+        construction = [
+            e for e in document.entities.values() if isinstance(e, _GEOMETRY) and e.construction
+        ]
         painter.set_pen(cosmetic_pen(theme.CONSTRUCTION, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
         for entity in construction:
             painter.geometry(entity)
+        fixed: frozenset[EntityId] = frozenset()
+        failed: frozenset[EntityId] = frozenset()
+        if solve_state.is_constrained(document):
+            status = self.session.queries.solve_status()
+            fixed, failed = solve_state.fully_constrained(status), solve_state.unhealthy(status)
+        real = [
+            (id, e)
+            for id, e in document.entities.items()
+            if isinstance(e, _GEOMETRY) and not e.construction
+        ]
         painter.set_pen(cosmetic_pen(theme.GEOMETRY, theme.GEOMETRY_WIDTH))
-        for entity in document.entities.values():
-            if isinstance(entity, _GEOMETRY) and not entity.construction:
+        for id, entity in real:
+            if id not in fixed:
                 painter.geometry(entity)
-        self.hidden_dimensions = paint_annotations(painter, self.session, frozenset())
+        if fixed:
+            painter.set_pen(cosmetic_pen(theme.CONSTRAINED, theme.GEOMETRY_WIDTH))
+            for id, entity in real:
+                if id in fixed:
+                    painter.geometry(entity)
+        self.hidden_dimensions = paint_annotations(
+            painter, self.session, frozenset(), failed=failed
+        )
         qp.end()
         self._layer, self._layer_view, self._layer_frame = layer, view_key, frame
         self._layer_document = document
@@ -664,7 +683,3 @@ class Canvas(QWidget):
             QPointF(10.0, self.height() - 10.0),
             f"{self.hidden_dimensions} {noun} not drawn: the points they measure can't be found",
         )
-
-
-def _is_construction(entity: object) -> bool:
-    return isinstance(entity, _GEOMETRY) and entity.construction

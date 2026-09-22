@@ -35,6 +35,8 @@ class Palette:
     geometry: str
     construction: str
     """Construction geometry: real and constrained, but not part of any profile."""
+    constrained: str
+    """Geometry with no degrees of freedom left (the status bar says so in words too)."""
     hover: str
     preview: str
     dimension: str
@@ -62,6 +64,7 @@ DARK = Palette(
     axis_y="#3b7a4a",
     geometry="#d4d6db",
     construction="#8a8f99",
+    constrained="#56b6c2",
     hover="#8fc1ff",
     preview="#e3b341",
     dimension="#9fb4c8",
