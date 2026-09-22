@@ -1,4 +1,4 @@
-Status: doing V1.5 sketch constraints on `contracts/sketch-constraints` (engine works end to end; writing the per-constraint tests), next: ADRs 0008/0009 and the shell patch for Lucas
+Status: V1.5 constraint engine built and tested on local branch `contracts/sketch-constraints` (not pushed), next: Andre's go-ahead to push and open the joint PR with Lucas's shell patch
 Status: V1 engine done and on main (PR #15), contract frozen (PR #22), next: a position Metric so check can verify where things are
 
 # Core workplan — Stream A
@@ -21,18 +21,89 @@ Decisions so far:
 
 Plan (markers updated as work lands):
 - [x] Contract: `Point`, `construction` flag, curve/edge features (`CURVE`, rectangle sides), `Constraint` + `ConstraintType` (14), driving `value` on dimensions, `AngleDimension`, `CreatePoint` / `CreateConstraint` / `CreateAngleDimension` / `CreateDimension`, `Error.ids`, six error codes, queries `solve_status` / `applicable_constraints` / `infer_dimension` / `dimension_type` / `suggest_constraints` / `constraints_on` / `reference_at_point`
-- [x] Solver core (`caliper/engine/constraints/`): dual-number derivatives (`ad.py`), one rank-revealing Gram-Schmidt for steps, rank, and "implied by" (`linalg.py`), unknowns per entity with feature formulas identical to queries (`model.py`), Newton with minimum-norm steps and backtracking, cluster splitting (`sketch.py`)
-- [x] Relation registry (`relations.py`): every constraint type as a table of accepted selections, each with its equations; applicability, canonical order, and "which reference moves" come from it. Pierce reports unsupported; Curvature is real G2 for line-line and arc-arc and refuses line-arc
-- [x] Bus integration (`handlers.py`): creates, edits, moves, and fillets solve the clusters they touch, in stages (nothing moves → the named mover → its entity → the cluster). Deletes cascade to constraints and never solve. Fillet drops the corner coincidence it replaces
-- [x] Conflicts: each relation dropped in turn, the ones whose removal lets the rest solve are named in `Error.ids`; when none alone does (the solver is local), every relation on the touched geometry is named. Near-collapsed geometry counts as degenerate. Redundant additions are rejected with the constraints that imply them
-- [x] DOF and solve status, per entity (null-space rank per entity's unknowns), cached per document
-- [x] Dimension inference (`dimensions.py`): one module classifies, measures, lists options, and infers the kind from selection + placement; queries' `dimension_value` now goes through it
-- [x] Constraint suggestions (`suggest.py`) + `Suggestions` session object (reject/accept/disable), never in the document
-- [x] File format v2 + migration 1→2 + fixture test; schema-1 files kept in `tests/engine/fixtures/v1/`; replay fixtures and bench expectations regenerated (diff: only the new fields and the version)
-- [x] CLI: `inspect` shows the sketch status, per-entity DOF, driving/construction/conflict markers, constraints; `replay` errors list the ids involved
-- [~] Tests: engine suite green (402); smoke-tested H/V/parallel/length/conflict/redundant/fix/undo. Next: per-constraint and per-dimension tests, DOF, conflicts, save/load, undo/redo, property tests
-- [ ] ADR 0008 (solver) and ADR 0009 (constraint model and storage), both Proposed
-- [ ] Shell follow-up for Lucas (don't edit `caliper/app/`): the palette drops any command with a field it can't render, so the new `construction` flag hides Create Line/Circle/Arc/Rectangle (11 `tests/app/test_palette.py` failures). Prepare a tested patch: skip fields that have a default
+- [x] Solver core (`caliper/engine/constraints/`): dual-number derivatives (`ad.py`), one rank-revealing Gram-Schmidt for steps, rank, and "implied by" (`linalg.py`), unknowns per entity with feature formulas identical to queries (`model.py`), weighted minimum-norm Newton with backtracking, cluster splitting (`sketch.py`)
+- [x] Relation registry (`relations.py`): every constraint type is a table of accepted selections with their equations; applicability, canonical order, which reference moves, and whether it turns lines all come from it
+- [x] Bus integration (`handlers.py`): creates, edits, moves, and fillets solve the clusters they touch, in stages (nothing moves → the named mover or the edited entity's followers → more → the cluster; then a nudged retry). Deletes cascade and never solve. Fillet drops the corner coincidence it replaces
+- [x] Solver behaviour tuned against random sketches: reshaping costs 100× moving (free shapes translate, not shrink); steps never pass through invalid geometry; near-collapse is failure; direction constraints turn lines (lengths held on the first attempts) instead of shrinking them; a nudged retry gets off 90° saddles
+- [x] Conflicts: QuickXplain finds the smallest set of existing constraints that can't hold with the change (6.5 s → 0.34 s at 160 unknowns; every conflict in 400 random chained sketches names its culprits). Redundant additions rejected with the constraints that imply them. Impossible rectangle-side requests refused up front as not applicable
+- [x] DOF and solve status: per cluster (unknowns − rank) and per entity (null-space rank), four states, cached per document
+- [x] Dimension system (`dimensions.py`): classify / measure / options / infer from selection + placement; `dimension_value` goes through it
+- [x] Suggestions (`suggest.py`) + `Suggestions` session object (reject, accept, ignore, disable), never in the document
+- [x] File format v2, migration 1→2 with a fixture test; schema-1 files kept in `tests/engine/fixtures/v1/`
+- [x] CLI `inspect`: sketch status, per-entity DOF, driving/construction/conflict markers, constraints; `replay` errors list the ids involved
+- [x] Tests (531 engine-side, all green; `tests/engine/constraints/` has 127): every constraint type, all seven dimension kinds, applicability, DOF and the four states, conflicts and redundancy, suggestions, construction, picking, fillets, files, transactions, solver building blocks, and hypothesis property tests over random constrained sketches (200 examples each). Golden replay fixture `constraints.*` (byte-identical: lines and circles only). Bench case `constrained-plate-width-120`; bench 7/7
+- [x] ADR 0008 (our own solver, supersedes 0003's choice) and ADR 0009 (constraints in the document; settles ADR 0005's V1.5 storage question), both Proposed
+- [~] Shell follow-up for Lucas. Not committed here (`caliper/app/` is Stream B's). Without it, 11 `tests/app/test_palette.py` tests fail (the palette drops any command with a field it can't render, so `construction` hides the create commands) and the Sketch browser raises `KeyError` for `point`, `constraint`, `angle_dimension` icons. With it, all 307 shell tests pass and the app opens `tests/engine/fixtures/constraints.caliper` with no exceptions (verified offscreen 2026-09-22):
+
+```diff
+diff --git a/caliper/app/command_schema.py b/caliper/app/command_schema.py
+index bd3b088..cd9b674 100644
+--- a/caliper/app/command_schema.py
++++ b/caliper/app/command_schema.py
+@@ -69,6 +69,8 @@ def _spec(command_type: type) -> CommandSpec | None:
+             # selection rather than asking someone to type ids.
+             uses_selection = True
+             selection_fields.append(f.name)
++        elif f.default is not dataclasses.MISSING:
++            continue  # optional, left at its default: construction, a dimension's value
+         else:
+             return None
+     kind: str = command_type.kind  # type: ignore[attr-defined]
+diff --git a/caliper/app/panels/browser.py b/caliper/app/panels/browser.py
+index bffc9b2..697d840 100644
+--- a/caliper/app/panels/browser.py
++++ b/caliper/app/panels/browser.py
+@@ -122,7 +122,7 @@ class SketchBrowser(QTreeWidget):
+         value = summary(entity, id, queries)
+         item.setText(0, f"{kind_title(entity)}  {id}")
+         item.setText(1, value)
+-        item.setIcon(0, icons.icon(ICON[entity.kind]))
++        item.setIcon(0, icons.icon(ICON.get(entity.kind, "select")))
+         self._value_widths[id] = self.fontMetrics().horizontalAdvance(value)
+ 
+     def _update_groups(self) -> None:
+diff --git a/caliper/app/panels/describe.py b/caliper/app/panels/describe.py
+index a9c9bb2..c541c4c 100644
+--- a/caliper/app/panels/describe.py
++++ b/caliper/app/panels/describe.py
+@@ -28,7 +28,9 @@ ICON: dict[str, str] = {
+     "rectangle": "rectangle",
+     "distance_dimension": "dimension",
+     "radial_dimension": "dimension",
++    "angle_dimension": "dimension",
+ }
++"""Kinds without an entry (point, constraint) show the select icon until P7 draws theirs."""
+ 
+ 
+ def kind_title(entity: Entity) -> str:
+diff --git a/tests/app/test_palette.py b/tests/app/test_palette.py
+index 206fde7..44138ab 100644
+--- a/tests/app/test_palette.py
++++ b/tests/app/test_palette.py
+@@ -46,6 +46,9 @@ def test_every_command_type_is_listed_or_deliberately_left_out() -> None:
+     assert {t.__name__ for t in left_out} == {
+         "CreateDistanceDimension",  # needs feature references: the Dimension tool picks them
+         "CreateRadialDimension",
++        "CreateAngleDimension",
++        "CreateDimension",  # a selection and a placement: the Dimension tool, via infer_dimension
++        "CreateConstraint",  # offered per selection from queries.applicable_constraints
+         "ModifyEntity",  # the properties panel and on-canvas editing
+     }
+ 
+```
+
+Partial or blocked, deliberately:
+- **Pierce**: needs 3D curves referenced from outside the sketch. The type exists and is reported `constraint.unsupported` everywhere (applicability, commands); no equations
+- **Curvature**: real G2 for line-line (collinear and joined) and arc-arc (same circle, joined); refused for line-arc (impossible). Its real use, splines, doesn't exist yet
+- **Performance**: dense linear algebra in Python. Commands are fast to ~160 unknowns per cluster (56 ms per edit); a 60 Hz drag preview would fit ~100. Sparse elimination or planegcs behind the same seam if profiles demand it
+- **Local solver**: a change needing a large jump can fail where a global method would succeed; it then reports a conflict with ids, never a wrong result
+- **Cross-platform bits**: solves with lines and circles are bit-identical everywhere; with arcs or angles, identical on a platform and possibly different in the last bits across platforms (ADR 0008)
+- **Not built**: a `DragFeature` command (issue #18 decision 6), expressions/variables for dimension values (the `value` field leaves room), constraint glyph placement (UI state by design), a spatial index
+
+Next, in order:
+- [ ] Andre: push `contracts/sketch-constraints`, open the joint PR, and post the shell patch above for Lucas (on issue #18 or the PR). Needs Andre's go-ahead: it's outward-facing
+- [ ] Maintainers (propose only): CLAUDE.md stack line "planegcs (V1.5, Accepted)" → "own solver (ADR 0008, Proposed)"; ADR table rows for 0008/0009; `docs/architecture.md` gains a "Constraints" section (relation registry → solve in commands → status queries)
+- [ ] After review: `DragFeature` + a drag-preview timing budget, then sparse elimination if clusters past ~100 unknowns show up
 ## Start here (2026-09-21)
 
 **Where things stand.** The V1 engine is finished and on `main`: every command (create, modify, move, delete, fillet), transactions and merge keys, the full query API including `check`, OCCTKernel behind the `occt` extra (used by default when installed), the optional file history, and the `replay` / `inspect` / `export` CLI. The contract is frozen (PR #22). CI runs the OCCT conformance suite (PR #12); ADRs 0003 and 0007 are Accepted. No open PRs. On `main` with every extra installed: 698 passed, 1 failed (below), bench 6/6.
