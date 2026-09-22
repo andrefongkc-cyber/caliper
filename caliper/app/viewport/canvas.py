@@ -142,6 +142,7 @@ class Canvas(QWidget):
         session.document_changed.connect(self._forget_acquired)
         session.selection_changed.connect(self.update)
         session.hover_changed.connect(self.update)
+        session.flagged_changed.connect(self.update)
         controller.changed.connect(self.update)
         controller.changed.connect(self._sync_entry)
 
@@ -735,6 +736,23 @@ class Canvas(QWidget):
         glyphs.paint(qp, laid_out, colours)
         qp.restore()
 
+    def _paint_flagged(self, painter: ModelPainter) -> None:
+        """What a rejected change named, in the error colour, until the next change."""
+        flagged = self.session.flagged
+        if not flagged:
+            return
+        entities = self.session.document.entities
+        painter.set_pen(cosmetic_pen(theme.ERROR, theme.HIGHLIGHT_WIDTH))
+        for id in sorted(flagged):
+            entity = entities.get(id)
+            if isinstance(entity, _GEOMETRY):
+                painter.geometry(entity)
+            elif isinstance(entity, Constraint):
+                paint_references(painter, self.session, entity.refs)
+        paint_annotations(painter, self.session, frozenset(), flagged, theme.ERROR)
+        named = [g for g in self.constraint_glyphs if g.id in flagged]
+        self._paint_glyphs(painter.painter, named, dict.fromkeys(flagged, theme.ERROR))
+
     def _paint_highlights(self, painter: ModelPainter) -> None:
         entities = self.session.document.entities
         selection = self.session.selection
@@ -756,6 +774,7 @@ class Canvas(QWidget):
             entity = entities.get(id)
             if isinstance(entity, _GEOMETRY):
                 painter.geometry(entity)
+        self._paint_flagged(painter)
         paint_annotations(painter, self.session, selection, only=selection)
         chosen = [g for g in self.constraint_glyphs if g.id in selection]
         if chosen:
