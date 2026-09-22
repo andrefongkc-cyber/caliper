@@ -2,7 +2,7 @@
 
 import dataclasses
 import re
-from types import MappingProxyType
+from types import MappingProxyType, NoneType, UnionType
 from typing import get_args, get_type_hints
 
 import pytest
@@ -10,6 +10,7 @@ import pytest
 from caliper.contracts import commands, document, queries
 from caliper.contracts.commands import Command, Delta, ModifyEntity, ParamValue
 from caliper.contracts.document import (
+    CURVE_FEATURES,
     POINT_FEATURES,
     Circle,
     Document,
@@ -30,6 +31,9 @@ VALUE_TYPES = (
     queries.AreaProperties,
     queries.Expectation,
     queries.CheckResult,
+    queries.SolveStatus,
+    queries.ConstraintOption,
+    queries.Suggestion,
     commands.Delta,
     commands.Applied,
     commands.Rejected,
@@ -72,15 +76,29 @@ def test_every_entity_has_a_create_command_with_matching_fields(entity: type) ->
 def test_every_entity_field_is_editable_by_modify_entity(entity: type) -> None:
     allowed = set(get_args(ParamValue))
     for field in dataclasses.fields(entity):
-        assert get_type_hints(entity)[field.name] in allowed, (
+        hint = get_type_hints(entity)[field.name]
+        # An optional field (`value: float | None`) is settable when each alternative is.
+        members = set(get_args(hint)) if isinstance(hint, UnionType) else {hint}
+        assert members <= allowed, (
             f"{entity.__name__}.{field.name} can't be set through ModifyEntity"
         )
+        if NoneType in members:
+            assert field.default is None, "an optional field defaults to None"
     assert "changes" in {f.name for f in dataclasses.fields(ModifyEntity)}
 
 
 def test_every_geometry_type_declares_its_features() -> None:
     assert set(POINT_FEATURES) == set(get_args(Geometry))
+    assert set(CURVE_FEATURES) == set(get_args(Geometry))
     assert all(POINT_FEATURES.values())
+    for geometry in get_args(Geometry):
+        assert not POINT_FEATURES[geometry] & CURVE_FEATURES[geometry]
+
+
+def test_every_geometry_can_be_construction_geometry() -> None:
+    for geometry in get_args(Geometry):
+        construction = {f.name: f for f in dataclasses.fields(geometry)}["construction"]
+        assert construction.default is False
 
 
 def test_error_codes_are_unique_and_dotted() -> None:

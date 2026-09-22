@@ -15,6 +15,8 @@ every caller that branches on it, and needs a joint `contracts/` PR.
 from dataclasses import dataclass
 from enum import StrEnum
 
+from caliper.contracts.document import EntityId
+
 
 class ErrorCode(StrEnum):
     """Stable, machine-readable error codes.
@@ -38,6 +40,19 @@ class ErrorCode(StrEnum):
     SELECTION_EMPTY = "selection.empty"
     PROFILE_NOT_CLOSED = "profile.not_closed"
     KERNEL_UNAVAILABLE = "kernel.unavailable"
+    PROFILE_CONSTRUCTION = "profile.construction"
+    """Construction geometry was offered as a profile."""
+    CONSTRAINT_NOT_APPLICABLE = "constraint.not_applicable"
+    """This constraint or dimension type doesn't fit the references given."""
+    CONSTRAINT_UNSUPPORTED = "constraint.unsupported"
+    """The type exists but needs something the engine doesn't have yet (Pierce)."""
+    CONSTRAINT_CONFLICT = "constraint.conflict"
+    """The constraints can't all hold at once. `Error.ids` names the ones involved: removing
+    or changing any one of them would let the rest hold."""
+    CONSTRAINT_REDUNDANT = "constraint.redundant"
+    """A new constraint adds nothing: the ones in `Error.ids` already imply it."""
+    SOLVER_NO_CONVERGENCE = "solver.no_convergence"
+    """The solver ran out of iterations without either solving or proving a conflict."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -49,3 +64,5 @@ class Error:
     """Human-readable, for display."""
     field: str | None = None
     """The offending input field, e.g. "width", so a properties panel can highlight it."""
+    ids: tuple[EntityId, ...] = ()
+    """The entities the error is about, sorted, e.g. the constraints in a conflict."""
