@@ -92,6 +92,9 @@ class Rule:
     check: Check | None = None
     """Extra conditions on the actual references; returns why they don't apply."""
     impossible: str = ""
+    turns: bool = False
+    """It sets a direction, so when it is added, lines it refers to turn rather than
+    shrink: the first attempts hold their lengths."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +197,8 @@ def _concentric(f: Frame, r: tuple[Ref, ...], _: Setting) -> list[Dual]:
 
 
 def _level(axis: int) -> Equations:
+    """Horizontal (axis 1) or vertical (axis 0): a line's ends, or two points, level."""
+
     def equations(f: Frame, r: tuple[Ref, ...], _: Setting) -> list[Dual]:
         if len(r) == 1:
             line = f.straight(r[0])
@@ -325,6 +330,25 @@ def _not_rectangle_side(document: Document, refs: tuple[Ref, ...]) -> str | None
     return None
 
 
+_LEVEL_SIDES = frozenset({Feature.BOTTOM, Feature.TOP})
+
+
+def _sides(same: bool) -> Check:
+    """Two rectangle sides are fixed directions; a rule needing them (not) parallel checks it."""
+
+    def check(document: Document, refs: tuple[Ref, ...]) -> str | None:
+        sides = [r for r in refs if isinstance(document.entities[r.entity], Rectangle)]
+        if len(sides) < 2:
+            return None
+        parallel = (sides[0].feature in _LEVEL_SIDES) == (sides[1].feature in _LEVEL_SIDES)
+        if parallel != same:
+            which = "parallel" if parallel else "at right angles"
+            return f"these rectangle sides are {which} already, and rectangles can't turn"
+        return None
+
+    return check
+
+
 def _whole_lines(document: Document, refs: tuple[Ref, ...]) -> str | None:
     if any(not isinstance(document.entities[r.entity], Line) for r in refs):
         return "curvature joins the ends of lines or arcs; a rectangle side has no free end"
@@ -345,7 +369,7 @@ SPECS: Mapping[ConstraintType, Spec] = {
         (
             Rule((POINT, POINT), _coincident_points),
             Rule((CURVE, POINT), _point_on_curve),
-            Rule((LINE, LINE), _collinear),
+            Rule((LINE, LINE), _collinear, check=_sides(same=True)),
             Rule((ROUND, ROUND), _same_circle),
         ),
     ),
@@ -359,14 +383,25 @@ SPECS: Mapping[ConstraintType, Spec] = {
     ),
     ConstraintType.HORIZONTAL: Spec(
         "one line, or two points",
-        (Rule((LINE,), _level(1), check=_not_rectangle_side), Rule((POINT, POINT), _level(1))),
+        (
+            Rule((LINE,), _level(1), check=_not_rectangle_side, turns=True),
+            Rule((POINT, POINT), _level(1)),
+        ),
     ),
     ConstraintType.VERTICAL: Spec(
         "one line, or two points",
-        (Rule((LINE,), _level(0), check=_not_rectangle_side), Rule((POINT, POINT), _level(0))),
+        (
+            Rule((LINE,), _level(0), check=_not_rectangle_side, turns=True),
+            Rule((POINT, POINT), _level(0)),
+        ),
     ),
-    ConstraintType.PARALLEL: Spec("two lines", (Rule((LINE, LINE), _parallel),)),
-    ConstraintType.PERPENDICULAR: Spec("two lines", (Rule((LINE, LINE), _perpendicular),)),
+    ConstraintType.PARALLEL: Spec(
+        "two lines", (Rule((LINE, LINE), _parallel, turns=True, check=_sides(same=True)),)
+    ),
+    ConstraintType.PERPENDICULAR: Spec(
+        "two lines",
+        (Rule((LINE, LINE), _perpendicular, turns=True, check=_sides(same=False)),),
+    ),
     ConstraintType.TANGENT: Spec(
         "a line and a circle or arc, or two circles or arcs",
         (
