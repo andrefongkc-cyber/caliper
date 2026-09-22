@@ -66,6 +66,7 @@ from caliper.engine.constraints.sketch import (
     ref_params,
     references,
     settle,
+    turning,
 )
 
 CreateCommand = (
@@ -221,11 +222,13 @@ def _create_dimension(document: Document, command: CreateDimension) -> Handled |
 
 def _relation_solve(document: Document, id: EntityId, *, new: bool) -> Request:
     """Solve for a constraint or driving dimension, moving the reference it names last."""
-    moving = mover(document, document.entities[id])
+    relation = document.entities[id]
+    moving = mover(document, relation)
     return Request(
         touched=frozenset({id}),
         movers=(ref_params(document, moving), entity_params(document, moving.entity)),
         new=frozenset({id}) if new else frozenset(),
+        turning=turning(document, relation),
     )
 
 
