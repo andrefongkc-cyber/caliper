@@ -1,9 +1,29 @@
-Status: V1.5 constraint engine open as PR #26 for Lucas (all four checks passed on the engine commits; two doc-only commits after them were still running), next: his review, then flatten the branch so it can be rebase-merged
+Status: post-V1 contract fixes committed on `contracts/post-v1-fixes` (five commits, not pushed), next: push and open the joint PR for Lucas when Andre says so
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Post-V1 contract fixes (branch `contracts/post-v1-fixes`, 2026-09-22)
+
+User request (2026-09-22): finish the post-V1 contract cleanup before `DragFeature` or the AI work: the three PR #22 decisions recommended "yes", then the next ready gap in the `Change` and undo bookkeeping. Joint `contracts/` branch, so Lucas reviews. No constraint, solver, or shell code changed.
+
+**State:** all four done, tested, and committed as five commits (one per item, plus this file); not pushed, no PR yet (Andre's call). 880 passed, 16 skipped (the OCCT extra isn't installed here); ruff, format, and mypy clean; bench 7/7.
+
+- [x] **Position metrics** (gap 10, PR #22 decision 5). `Metric.POSITION_X` and `POSITION_Y`: `refs=(point,)`, the point feature's signed coordinate, with `feature_point`'s validation and errors on `refs[0]`. Two metrics, not one, because `Expectation.expected` is one float; they mirror `DISTANCE_X` and `DISTANCE_Y`. `bench/cases/move-right-30` now checks where the rectangle ended up, and a test shows a 25 mm move used to pass on width and height alone
+- [x] **`Arc.start_angle` in [0, 360)** (decision 2). `build_entity` reduces it with `canonical_angle`, which also catches `%` rounding a tiny negative angle up to exactly 360.0, so commands, resolved commands, replay, and file loading agree. `handle()` does the same for solved geometry, which skips `build_entity`. No schema bump: every reader already accepts these values, and loading normalizes old files (fixture `v1/arcs.caliper` loads to `arcs.caliper`). A bump is a reviewer decision if wanted anyway
+- [x] **`LoadError` in `contracts/errors.py`** (decision 3). Same class, message, and `errors`. `caliper.engine.io.canonical.LoadError` is still the same class, re-exported, so the shell works unchanged
+- [x] **Commit notice** (core gap 9, issue #17 item 2). `ChangeReason.COMMIT`, sent once by the outermost transaction when it recorded an entry or cleared the stacks, after the labels changed. Its delta is empty, not the net delta #17 proposed: every Change's delta is what changed since the previous one, and the commands inside already announced theirs. With the net delta, `SketchBrowser._apply` would insert every entity a transaction created a second time. The state machine test now keeps a subscriber that mirrors the document from deltas and the labels from Changes, and checks both after every step
+- Not taken: an author on `Change` (decision 4) is new API with a working shell stamp; a revision counter (decision 6) has no profile asking for it. Both stay deferred
+
+For Lucas (Stream B files, not edited here):
+- `caliper/app/main_window.py:38` can import `LoadError` from `caliper.contracts.errors`; `session.py:242`'s docstring names the old module
+- `DocumentSession._on_change` clears the flagged (red) ids on every Change, so a COMMIT would clear a rejection flagged inside a transaction that still commits. Neither shell transaction can reject today (agent proposals apply only when error-free; Toggle Construction only flips a flag); skipping `ChangeReason.COMMIT` there would keep it that way
+- `caliper/app/panels/checks.py` `describe()` has no case for the position metrics, so a position check reaching the Checks panel would fail on an unbound `subject`. Nothing in the shell creates one yet
+
+Found, not fixed (the solver is out of scope here):
+- `caliper/engine/constraints/sketch.py:434` writes `new %= 360.0`, which stores exactly 360.0 for a tiny negative angle; the constraint property tests found one. `_arcs_in_range` in `handlers.py` covers it now. The proper fix is `canonical_angle` there, after which `_arcs_in_range` can go
 
 ## V1.5 — Sketch constraints and dimensions (branch `contracts/sketch-constraints`, started 2026-09-22)
 
@@ -11,11 +31,11 @@ User request (2026-09-22): the full constraint and dimensioning engine, engine f
 
 **Picking this up in a fresh session.** The work is done and pushed; nothing is half-finished in the tree.
 
-- **Where it is:** branch `contracts/sketch-constraints`, PR #26. 22 engine commits plus 3 doc commits. The branch carries a merge commit from `main`, so it must be flattened (`git rebase origin/main`, force-push) before GitHub offers "Rebase and merge"
+- **Where it is:** on `main`, merged as PR #26 on 2026-09-22 with "Rebase and merge", after flattening out a merge commit (the flattened tree was identical to the approved head)
 - **What it is:** `caliper/engine/constraints/` holds the solver (`relations.py` is the table of constraint types, `sketch.py` the solving and status, `dimensions.py` the seven dimension kinds, `suggest.py` the inference). Commands solve through `handlers.py`; the queries are on `DocumentQueries`
 - **See it work:** `uv run python -m caliper.engine inspect tests/engine/fixtures/constraints.caliper` prints a solved plate with its constraints, degrees of freedom and driving values. `uv run pytest tests/engine/constraints` runs the 129 tests for it
 - **Don't re-litigate:** the solver is ours rather than planegcs (Andre's decision, ADR 0008); constraints are one generic entity, not one type each (ADR 0009); conflicting and redundant additions are refused rather than stored
-- **Blocked on people, not code:** Lucas reviewing PR #26 and the two ADRs. He closed the identical PR #25 on 2026-09-22 without a comment, as he did with #12-#14 (issue #21); ask Andre before chasing him, since talking to Lucas means posting from Andre's account
+- **Still open:** ADRs 0008 and 0009 are marked Proposed in their files. Talking to Lucas means posting from Andre's account, so ask Andre first
 
 Decisions so far:
 - **Solver: our own, pure Python** (user decision 2026-09-22), superseding ADR 0003's planegcs. Reasons: no native build on every Mac, engine stays dependency-free, deterministic replay, DOF per entity. New ADR 0008 (Proposed); ADR 0003 itself is left as written
@@ -51,14 +71,15 @@ Partial or blocked, deliberately:
 - **Not built**: a `DragFeature` command (issue #18 decision 6), expressions/variables for dimension values (the `value` field leaves room), constraint glyph placement (UI state by design), a spatial index
 
 Next, in order:
-- [ ] Lucas's review of PR #26: ADRs 0008 and 0009 to Accepted or revisited, and the palette question above
-- [ ] Before merging: flatten the branch onto `main` (it carries a merge commit, so GitHub won't rebase-merge it). PR #25 was the same work; Lucas closed it on 2026-09-22 without a comment, as he did with #12-#14 (issue #21)
+- [x] Lucas's review of PR #26: approved, and merged on 2026-09-22
+- [x] Before merging: flatten the branch onto `main` (done 2026-09-22; same tree as the approved head)
+- [ ] ADRs 0008 and 0009 from Proposed to Accepted (maintainer files)
 - [ ] Maintainers (propose only): `docs/architecture.md` gains a "Constraints" section (relation registry → solve in commands → status queries)
 - [ ] After review: `DragFeature` + a drag-preview timing budget, then sparse elimination if clusters past ~100 unknowns show up
 ## Start here (2026-09-21)
 
-**Where things stand (updated 2026-09-22).** V1.5 constraints are open as PR #26; the
-section above is the current work. What follows describes `main`. The V1 engine is
+**Where things stand (updated 2026-09-22).** V1.5 constraints are on `main` (PR #26); the
+post-V1 fixes at the top are the current work. What follows describes `main` before V1.5. The V1 engine is
 finished and on `main`: every command (create, modify, move, delete, fillet), transactions and merge keys, the full query API including `check`, OCCTKernel behind the `occt` extra (used by default when installed), the optional file history, and the `replay` / `inspect` / `export` CLI. The contract is frozen (PR #22). CI runs the OCCT conformance suite (PR #12); ADRs 0003 and 0007 are Accepted. On `main` with every extra installed: 698 passed, 1 failed (below), bench 6/6.
 
 Branch names in the history below (`stream/core/queries` and so on) are historical: all of them merged through PR #15 and were deleted.
@@ -67,9 +88,10 @@ Branch names in the history below (`stream/core/queries` and so on) are historic
 
 **Next, in order.** The six contract decisions deferred from PR #22, each with a recommendation there, plus the next milestone:
 
-- [ ] **A position `Metric`** (contract gap 10). `check` can verify "120 wide" but not "moved 30 mm right"; `bench/cases/move-right-30` can only compare the whole file. Joint `contracts/` PR, since it adds to `Metric`
-- [ ] **Normalize `Arc.start_angle` to [0, 360)** (deferred decision 2). Two identical-looking arcs compare unequal today. It changes stored values, so it needs a decision on existing files and a fixture test
-- [ ] **Move `LoadError` into `contracts/`** (decision 3). Every caller that opens a file imports an engine module to catch it; the change touches the shell's imports
+- [x] **A position `Metric`** (contract gap 10). Done on `contracts/post-v1-fixes`: `POSITION_X` and `POSITION_Y`
+- [x] **Normalize `Arc.start_angle` to [0, 360)** (deferred decision 2). Done on `contracts/post-v1-fixes`, no schema bump
+- [x] **Move `LoadError` into `contracts/`** (decision 3). Done on `contracts/post-v1-fixes`; the old engine name still works
+- [x] **Announce a transaction commit** (core gap 9, issue #17 item 2). Done on `contracts/post-v1-fixes`: `ChangeReason.COMMIT` with an empty delta
 - [ ] The other three deferred decisions, recommended "not yet" in PR #22: `Error` returns for the pickers, an author on `Change`, a document revision counter
 - [x] **V1.5: constraints.** Done in PR #26, with our own solver instead of planegcs (ADRs 0008 and 0009, both Proposed). Lucas's screen side is still phase P7 in `shell.md`
 - [ ] Spatial index for hit-testing: only if profiles demand it. Lucas measured ~19 ms per pointer move at 10,000 entities, all in `nearest_feature` + `entity_at_point`
