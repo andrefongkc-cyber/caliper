@@ -39,6 +39,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.queries import ConstraintState, DimensionType
 from caliper.engine.commands.bus import Bus
+from caliper.engine.constraints import sketch
 from caliper.engine.constraints.sketch import GEOMETRY
 from caliper.engine.io import codec, script, snapshot
 
@@ -194,3 +195,30 @@ def test_undoing_everything_and_redoing_it_is_exact(session: tuple[Bus, list[Com
     for expected in reversed(documents[:-1]):
         bus.redo()
         assert bus.document == expected
+
+
+@PROPERTIES
+@given(session=sessions())
+def test_the_status_after_every_step_matches_one_computed_from_scratch(
+    session: tuple[Bus, list[Command]],
+) -> None:
+    """`status` redoes only the clusters a change touched, reusing the previous document's.
+    Whatever the change (geometry, constraints, dimensions, deletes, undo, redo), the answer
+    must equal the one computed with nothing to reuse."""
+    _, history = session
+    bus = Bus(kernel=None)
+
+    def check() -> None:
+        kept = sketch.status(bus.document)
+        sketch._LAST.clear()
+        fresh = sketch.status(bus.document)
+        assert kept == fresh
+        assert list(kept.entity_dof.items()) == list(fresh.entity_dof.items())  # sorted too
+
+    for command in history:
+        assert isinstance(bus.execute(command), Applied), command
+        check()
+    while bus.undo() is not None:
+        check()
+    while bus.redo() is not None:
+        check()

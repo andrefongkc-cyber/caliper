@@ -676,34 +676,53 @@ def implied(document: Document, constraint: Constraint, id: EntityId) -> bool:
 # --- Status -------------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class _Health:
+    """What `status` learns from one cluster. It depends on nothing outside the cluster."""
+
+    rank: int
+    free: tuple[int, ...]
+    """Each geometry entity's remaining degrees of freedom, in `Cluster.geometry` order."""
+    conflicting: frozenset[EntityId]
+    redundant: frozenset[EntityId]
+
+
+@dataclass(frozen=True, slots=True)
+class _Solved:
+    """One document's status, in the pieces the next document's status can reuse."""
+
+    document: Document
+    clusters: tuple[Cluster, ...]
+    health: tuple[_Health, ...]
+    """One per cluster, in the same order."""
+    where: Mapping[EntityId, int]
+    """The cluster of every clustered entity, geometry and relations alike."""
+    unknowns: int
+    """Parameters of all the geometry: the degrees of freedom before any relation."""
+    entity_dof: Mapping[EntityId, int]
+    """Sorted by id, and never changed once built: the next status copies it."""
+
+
+_LAST: list[_Solved] = []
+"""The last document `status` saw. Documents share the entity objects an edit didn't change,
+so the next one is compared by identity, and only the clusters an edit touched are redone."""
+
+
 def status(document: Document) -> SolveStatus:
     """Degrees of freedom and constraint health of the stored geometry."""
-    entity_dof: dict[EntityId, int] = {
-        id: len(PARAMS[type(e)]) for id, e in document.entities.items() if isinstance(e, GEOMETRY)
-    }
-    dof = sum(entity_dof.values())
-    conflicting: list[EntityId] = []
-    redundant: list[EntityId] = []
-    for cluster in clusters(document):
-        if not cluster.relations:
-            continue
-        system = System.build(document, cluster)
-        values = system.values
-        everything = list(range(len(values)))
-        equations = system.equations(system.relations, values)
-        residuals, gradients, owners = _evaluate(equations, system.frame(values, everything))
-        tolerance = 1e3 * _tolerance(values)
-        broken = {owners[i] for i, r in enumerate(residuals) if abs(r) > tolerance}
-        basis = RowBasis(len(values))
-        for i, row in enumerate(_dense(gradients, {i: i for i in everything})):
-            basis.add(i, row)
-        conflicting += broken
-        redundant += {owners[i] for i in basis.dependent} - broken
-        # Entities in a cluster can each still move without moving independently (two lines
-        # joined at a corner), so the cluster counts as unknowns minus rank, not a sum.
-        dof -= basis.rank
-        for id in cluster.geometry:
-            entity_dof[id] = basis.free_dimensions(system.slots[id])
+    last = _LAST[0] if _LAST else None
+    if last is None:
+        solved = _solved(document, None)
+    else:
+        changed = _changed(last.document, document)
+        if _any_relation(changed, last.document, document):
+            solved = _solved(document, last)  # clusters may have joined or split
+        else:
+            solved = _updated(last, document, changed)
+    _LAST[:] = [solved]
+    dof = solved.unknowns - sum(h.rank for h in solved.health)
+    conflicting = sorted(id for h in solved.health for id in h.conflicting)
+    redundant = sorted(id for h in solved.health for id in h.redundant)
     if conflicting:
         state = ConstraintState.CONFLICTING
     elif redundant:
@@ -715,7 +734,101 @@ def status(document: Document) -> SolveStatus:
     return SolveStatus(
         state=state,
         dof=dof,
-        entity_dof=MappingProxyType(dict(sorted(entity_dof.items()))),
-        conflicting=tuple(sorted(conflicting)),
-        redundant=tuple(sorted(redundant)),
+        entity_dof=MappingProxyType(solved.entity_dof),
+        conflicting=tuple(conflicting),
+        redundant=tuple(redundant),
+    )
+
+
+def _solved(document: Document, last: _Solved | None) -> _Solved:
+    """Everything from the clusters up, reusing any cluster whose entities are unchanged."""
+    found = tuple(c for c in clusters(document) if c.relations)
+    before = (
+        {} if last is None else {c.geometry + c.relations: i for i, c in enumerate(last.clusters)}
+    )
+    health: list[_Health] = []
+    where: dict[EntityId, int] = {}
+    for index, cluster in enumerate(found):
+        members = cluster.geometry + cluster.relations
+        reused = before.get(members)
+        if (
+            last is not None
+            and reused is not None
+            and all(last.document.entities[id] is document.entities[id] for id in members)
+        ):
+            health.append(last.health[reused])
+        else:
+            health.append(_health(document, cluster))
+        where.update(dict.fromkeys(members, index))
+    entity_dof = {
+        id: len(PARAMS[type(e)]) for id, e in document.entities.items() if isinstance(e, GEOMETRY)
+    }
+    unknowns = sum(entity_dof.values())
+    for cluster, h in zip(found, health, strict=True):
+        entity_dof.update(zip(cluster.geometry, h.free, strict=True))
+    return _Solved(
+        document, found, tuple(health), where, unknowns, dict(sorted(entity_dof.items()))
+    )
+
+
+def _updated(last: _Solved, document: Document, changed: set[EntityId]) -> _Solved:
+    """`last`, after an edit that changed geometry only, so every cluster keeps its members."""
+    touched = {last.where[id] for id in changed if id in last.where}
+    health = list(last.health)
+    for index in touched:
+        health[index] = _health(document, last.clusters[index])
+    entity_dof = dict(last.entity_dof)
+    unknowns = last.unknowns
+    added = False
+    for id in changed:
+        old, new = last.document.entities.get(id), document.entities.get(id)
+        if isinstance(old, GEOMETRY):
+            unknowns -= len(PARAMS[type(old)])
+            if not isinstance(new, GEOMETRY):
+                del entity_dof[id]
+        if isinstance(new, GEOMETRY):
+            unknowns += len(PARAMS[type(new)])
+            added = added or id not in entity_dof
+            entity_dof[id] = len(PARAMS[type(new)])
+    for index in touched:
+        entity_dof.update(zip(last.clusters[index].geometry, health[index].free, strict=True))
+    if added:
+        entity_dof = dict(sorted(entity_dof.items()))
+    return _Solved(document, last.clusters, tuple(health), last.where, unknowns, entity_dof)
+
+
+def _changed(before: Document, after: Document) -> set[EntityId]:
+    """Ids whose entity was added, removed, or replaced, compared by identity."""
+    old = before.entities
+    changed = {id for id, e in after.entities.items() if old.get(id) is not e}
+    if len(old) != len(after.entities) - sum(1 for id in changed if id not in old):
+        changed.update(id for id in old if id not in after.entities)
+    return changed
+
+
+def _any_relation(ids: Iterable[EntityId], before: Document, after: Document) -> bool:
+    return any(
+        is_relation(entity)
+        for id in ids
+        for entity in (before.entities.get(id), after.entities.get(id))
+        if entity is not None
+    )
+
+
+def _health(document: Document, cluster: Cluster) -> _Health:
+    system = System.build(document, cluster)
+    values = system.values
+    everything = list(range(len(values)))
+    equations = system.equations(system.relations, values)
+    residuals, gradients, owners = _evaluate(equations, system.frame(values, everything))
+    tolerance = 1e3 * _tolerance(values)
+    broken = {owners[i] for i, r in enumerate(residuals) if abs(r) > tolerance}
+    basis = RowBasis(len(values))
+    for i, row in enumerate(_dense(gradients, {i: i for i in everything})):
+        basis.add(i, row)
+    return _Health(
+        rank=basis.rank,
+        free=tuple(basis.free_dimensions(system.slots[id]) for id in cluster.geometry),
+        conflicting=frozenset(broken),
+        redundant=frozenset({owners[i] for i in basis.dependent} - broken),
     )
