@@ -9,6 +9,10 @@ and times the frames a user actually causes, against a 120 Hz budget:
 - redraw after a pan: the one full rebuild once the view has settled
 - one edit: `ModifyEntity` through the session, then the repaint
 
+`--constrained` makes every line horizontal, fixed at its start, and constrained that way
+(two constraints per line, about 1,000 at 2,000 entities), so the frames also pay for
+`solve_status`, degrees-of-freedom colouring, and constraint glyphs.
+
 Run it once as is (Cocoa, Retina) and once with `QT_QPA_PLATFORM=offscreen` to compare.
 Times are CPU time to handle the event and paint into Qt's backing store; they do not
 include the compositor presenting the frame.
@@ -34,6 +38,8 @@ from caliper.contracts.commands import ModifyEntity
 from caliper.contracts.document import (
     Arc,
     Circle,
+    Constraint,
+    ConstraintType,
     DistanceDimension,
     DistanceOrientation,
     Document,
@@ -52,9 +58,14 @@ BUDGET_60_HZ = 1000 / 60
 CELL_MM = 20.0
 
 
-def sketch(count: int) -> Document:
-    """`count` entities on a square grid: rectangles, circles, lines, arcs; 1 in 20 a dimension."""
+def sketch(count: int, constrained: bool = False) -> Document:
+    """`count` entities on a square grid: rectangles, circles, lines, arcs; 1 in 20 a dimension.
+
+    Constrained, every line is horizontal with a horizontal and a fix constraint added after
+    the `count` entities.
+    """
     entities: dict[EntityId, Entity] = {}
+    constraints: list[Constraint] = []
     side = math.ceil(math.sqrt(count))
     n = 0
     last_rectangle: EntityId | None = None
@@ -77,6 +88,17 @@ def sketch(count: int) -> Document:
                 last_rectangle = eid
             case 1:
                 entities[eid] = Circle(center=Point2(x=x + 10, y=y + 10), radius=6.0)
+            case 2 if constrained:
+                entities[eid] = Line(start=Point2(x=x + 2, y=y + 9), end=Point2(x=x + 17, y=y + 9))
+                constraints += [
+                    Constraint(
+                        type=ConstraintType.HORIZONTAL,
+                        refs=(Ref(entity=eid, feature=Feature.CURVE),),
+                    ),
+                    Constraint(
+                        type=ConstraintType.FIX, refs=(Ref(entity=eid, feature=Feature.START),)
+                    ),
+                ]
             case 2:
                 entities[eid] = Line(start=Point2(x=x + 2, y=y + 3), end=Point2(x=x + 17, y=y + 16))
             case _:
@@ -86,7 +108,10 @@ def sketch(count: int) -> Document:
                     start_angle=15.0,
                     sweep_angle=150.0,
                 )
-    return Document(entities=MappingProxyType(entities), next_id=count + 1)
+    for constraint in constraints:
+        n += 1
+        entities[EntityId(f"e{n}")] = constraint
+    return Document(entities=MappingProxyType(entities), next_id=n + 1)
 
 
 def timed(action: Callable[[], None]) -> float:
@@ -109,7 +134,9 @@ def verdict(ms: float) -> str:
     return "drops frames"
 
 
-def bench(app: QApplication, count: int, runs: int, warmup: int) -> list[tuple[str, list[float]]]:
+def bench(
+    app: QApplication, count: int, runs: int, warmup: int, constrained: bool = False
+) -> list[tuple[str, list[float]]]:
     session = DocumentSession()
     window = MainWindow(session)
     session.setParent(window)
@@ -123,7 +150,7 @@ def bench(app: QApplication, count: int, runs: int, warmup: int) -> list[tuple[s
             raise SystemExit("the window never became visible")
     canvas = window.canvas
 
-    session.replace(Bus(sketch(count)), None)
+    session.replace(Bus(sketch(count, constrained)), None)
     app.processEvents()
     canvas.zoom_to_fit()
     app.processEvents()
@@ -245,6 +272,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--sizes", type=int, nargs="+", default=[2000, 10000])
     parser.add_argument("--runs", type=int, default=40)
     parser.add_argument("--warmup", type=int, default=5)
+    parser.add_argument("--constrained", action="store_true")
     args = parser.parse_args(argv)
 
     app = QApplication([sys.argv[0]])
@@ -258,8 +286,9 @@ def main(argv: list[str]) -> int:
     print(f"budget: {BUDGET_120_HZ:.2f} ms per frame at 120 Hz, {BUDGET_60_HZ:.2f} ms at 60 Hz\n")
 
     for count in args.sizes:
-        rows = bench(app, count, args.runs, args.warmup)
-        print(f"{count:,} entities")
+        rows = bench(app, count, args.runs, args.warmup, args.constrained)
+        extra = " + 2 constraints per line" if args.constrained else ""
+        print(f"{count:,} entities{extra}")
         print(f"  {'frame':<24}{'median':>10}{'p95':>10}   verdict (median)")
         for name, samples in rows:
             median, p95 = summary(samples)

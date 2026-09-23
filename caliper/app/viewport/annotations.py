@@ -297,6 +297,51 @@ def label(painter: ModelPainter, at: Point2, text: str, color: QColor) -> None:
     qp.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
 
 
+@dataclass(frozen=True, slots=True)
+class LabelSpot:
+    """Where a dimension's label is, independent of the view, for hit-testing."""
+
+    id: EntityId
+    at: Point2
+    """In model coordinates."""
+    shift: tuple[float, float]
+    """Then this far in widget pixels (a radial label sits a fixed gap past the rim)."""
+    text: str
+
+
+def label_spot(source: Source, id: EntityId) -> LabelSpot | None:
+    """Where dimension `id`'s label is, or None if it isn't a drawable dimension."""
+    document = source.document
+    entity = document.entities.get(id)
+    if isinstance(entity, RadialDimension):
+        target = document.entities.get(entity.target)
+        if not isinstance(target, Circle | Arc):
+            return None
+        ux = math.cos(math.radians(entity.label_angle))
+        uy = math.sin(math.radians(entity.label_angle))
+        c, r = target.center, target.radius
+        rim = Point2(x=c.x + ux * r, y=c.y + uy * r)
+        prefix = DIAMETER_SIGN if entity.measure is RadialMeasure.DIAMETER else "R"
+        text = value_text(source, id, prefix=prefix)
+        return LabelSpot(id, rim, (ux * LABEL_GAP_PX, -uy * LABEL_GAP_PX), text)
+    if isinstance(entity, Dimension):
+        # Distance and angle labels don't depend on the view; any view places them.
+        plan = drawing(source, id, ViewTransform())
+        if plan is not None:
+            return LabelSpot(id, plan.label_at, (0.0, 0.0), plan.text)
+    return None
+
+
+def measures(entity: object, ids: frozenset[EntityId]) -> bool:
+    """True if `entity` is a dimension whose value or position depends on one of `ids`."""
+    match entity:
+        case DistanceDimension(a=a, b=b) | AngleDimension(a=a, b=b):
+            return a.entity in ids or b.entity in ids
+        case RadialDimension(target=target):
+            return target in ids
+    return False
+
+
 def label_anchors(session: DocumentSession, view: ViewTransform) -> list[tuple[Point2, str]]:
     """Where each visible dimension's label sits, and its text, for Zoom to Fit padding."""
     anchors_: list[tuple[Point2, str]] = []

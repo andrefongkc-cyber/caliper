@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from caliper.app import icons, theme
 from caliper.app.panels.describe import ICON, kind_title, summary
 from caliper.app.session import DocumentSession
+from caliper.app.viewport.annotations import measures
 from caliper.contracts.commands import Change
 from caliper.contracts.document import (
     AngleDimension,
@@ -105,7 +106,7 @@ class SketchBrowser(QTreeWidget):
             self._fill(self.items[id], id, queries)
         if changed:
             for id, entity in document.entities.items():
-                if id not in delta.modified and id in self.items and _measures(entity, changed):
+                if id not in delta.modified and id in self.items and measures(entity, changed):
                     self._fill(self.items[id], id, queries)
         self._update_groups()
         del blocker
@@ -195,13 +196,3 @@ def _group(entity: Entity) -> str:
         case Constraint():
             return "Constraints"
     return "Geometry"
-
-
-def _measures(entity: Entity, ids: frozenset[EntityId]) -> bool:
-    """True if `entity` is a dimension whose value depends on one of `ids`."""
-    match entity:
-        case DistanceDimension(a=a, b=b) | AngleDimension(a=a, b=b):
-            return a.entity in ids or b.entity in ids
-        case RadialDimension(target=target):
-            return target in ids
-    return False
