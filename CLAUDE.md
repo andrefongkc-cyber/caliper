@@ -2,15 +2,14 @@
 
 AI-native engineering platform. The wedge is a geometry core whose API lets an agent check
 its own work (measure, query, assert, retry) against real parametric geometry. Current scope:
-**V1, 2D sketching: done and on `main`, contract frozen.** V1.5 sketch constraints and
-dimensions are proposed in PR #26, which reopens the contract. Where things stand:
-`WORKPLAN.md` → `docs/workplan/`. How it fits together: `docs/architecture.md`. Don't load
-`docs/vision.md` unless asked.
+**V1 (2D sketching) and V1.5 (sketch constraints and dimensions) are done and on `main`,
+and the contract is frozen again.** Where things stand: `WORKPLAN.md` → `docs/workplan/`.
+How it fits together: `docs/architecture.md`. Don't load `docs/vision.md` unless asked.
 
 ## Stack
 
 Python 3.13 · uv · OCCT via cadquery-ocp (`occt` extra) · our own constraint solver, pure
-Python, no dependency (ADR 0008, Proposed; replaces planegcs) · PySide6 via
+Python, no dependency (ADR 0008; replaced planegcs) · PySide6 via
 pyside6-essentials (`app` extra) · canonical JSON files · pytest, hypothesis, pytest-qt ·
 ruff · mypy --strict on contracts + engine · GitHub Actions
 
@@ -62,10 +61,10 @@ The `boundaries` CI check rejects stream branches that touch files outside their
 |---|---|---|
 | [0001](docs/adr/0001-geometry-kernel-occt.md) | Geometry kernel: OCCT behind a provisional Kernel protocol | Accepted |
 | [0002](docs/adr/0002-command-bus-and-snapshot-document.md) | Command bus with automatic deltas; snapshot document | Accepted |
-| [0003](docs/adr/0003-constraint-solver-planegcs.md) | Constraint solver: planegcs | Accepted, superseded by 0008 once that is |
+| [0003](docs/adr/0003-constraint-solver-planegcs.md) | Constraint solver: planegcs | Superseded by 0008 |
 | [0004](docs/adr/0004-desktop-shell-pyside6-mac-first.md) | Desktop shell: PySide6, Mac-first | Accepted |
 | [0005](docs/adr/0005-file-format-and-schema-versioning.md) | File format and schema versioning | Accepted |
 | [0006](docs/adr/0006-license-policy-no-gpl.md) | License policy: no GPL/AGPL | Accepted |
 | [0007](docs/adr/0007-qt-gpl-modules-out-of-the-bundle.md) | Keep the GPL-only Qt modules out of the app bundle | Accepted |
-| [0008](docs/adr/0008-constraint-solver-our-own.md) | Constraint solver: our own, in Python | Proposed |
-| [0009](docs/adr/0009-sketch-constraints-in-the-document.md) | Sketch constraints and dimensions in the document | Proposed |
+| [0008](docs/adr/0008-constraint-solver-our-own.md) | Constraint solver: our own, in Python | Accepted |
+| [0009](docs/adr/0009-sketch-constraints-in-the-document.md) | Sketch constraints and dimensions in the document | Accepted |

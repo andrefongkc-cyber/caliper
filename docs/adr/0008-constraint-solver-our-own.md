@@ -1,6 +1,6 @@
 # ADR 0008: 2D constraint solver is our own, in Python
 
-- **Status:** Proposed. Supersedes ADR 0003's choice of planegcs once Accepted.
+- **Status:** Accepted. Supersedes ADR 0003's choice of planegcs.
 - **Date:** 2026-09-22
 - **Implementation:** `caliper/engine/constraints/`
 - **Related:** ADR 0003 (planegcs), ADR 0009 (how constraints live in the document)

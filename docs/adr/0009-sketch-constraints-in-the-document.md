@@ -1,6 +1,6 @@
 # ADR 0009: Sketch constraints and dimensions in the document
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-22
 - **Contract:** `caliper/contracts/document.py`, `commands.py`, `queries.py`, `errors.py`
 - **Related:** ADR 0002 (commands and deltas), ADR 0005 (file format; this settles its V1.5

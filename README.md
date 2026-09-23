@@ -145,7 +145,7 @@ Read more in [docs/architecture.md](docs/architecture.md) and the
 |---|---|
 | [0001](docs/adr/0001-geometry-kernel-occt.md) Geometry kernel | OpenCascade (OCCT) behind a swappable protocol |
 | [0002](docs/adr/0002-command-bus-and-snapshot-document.md) Changes and undo | Command bus with automatic deltas; snapshot document |
-| [0003](docs/adr/0003-constraint-solver-planegcs.md) Constraint solver | planegcs (proposed) |
+| [0008](docs/adr/0008-constraint-solver-our-own.md) Constraint solver | Our own, in Python (replaced planegcs, [0003](docs/adr/0003-constraint-solver-planegcs.md)) |
 | [0004](docs/adr/0004-desktop-shell-pyside6-mac-first.md) Desktop app | PySide6, Mac-first |
 | [0005](docs/adr/0005-file-format-and-schema-versioning.md) File format | Canonical JSON with schema versions |
 | [0006](docs/adr/0006-license-policy-no-gpl.md) Licenses | No GPL or AGPL dependencies |
