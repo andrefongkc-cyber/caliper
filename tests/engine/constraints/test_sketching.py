@@ -27,13 +27,12 @@ from caliper.contracts.document import (
     Point2,
     Ref,
 )
-from caliper.contracts.errors import ErrorCode
+from caliper.contracts.errors import ErrorCode, LoadError
 from caliper.contracts.queries import AreaProperties, Suggestion
 from caliper.engine.commands.bus import Bus
 from caliper.engine.constraints.suggest import Suggestions
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from caliper.engine.io import snapshot
-from caliper.engine.io.canonical import LoadError
 
 E = EntityId
 C = ConstraintType

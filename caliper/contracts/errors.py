@@ -5,13 +5,16 @@ Caliper itself (or API misuse such as undoing inside an open transaction).
 
 Two things are deliberately outside this rule. Queries whose return type carries no
 `Error` report unusable input as "no match" (see `queries.py`). And opening a file raises
-`LoadError` from `caliper.engine.io.canonical`, carrying these same `Error` values in
-`errors`, because a file is a document that may be wrong in many ways at once.
+`LoadError`, defined here, carrying these same `Error` values in `errors`, because a file
+is a document that may be wrong in many ways at once.
 
 Frozen as of V1: adding a code is a normal change, but renaming or repurposing one breaks
-every caller that branches on it, and needs a joint `contracts/` PR.
+every caller that branches on it, and needs a joint `contracts/` PR. `LoadError` moved here
+from `caliper.engine.io.canonical` after V1, so callers that open files catch it without
+importing the engine; the old name still refers to this same class.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -66,3 +69,17 @@ class Error:
     """The offending input field, e.g. "width", so a properties panel can highlight it."""
     ids: tuple[EntityId, ...] = ()
     """The entities the error is about, sorted, e.g. the constraints in a conflict."""
+
+
+class LoadError(ValueError):
+    """An input file isn't valid. `errors` lists validation problems, if there were any.
+
+    Raised by everything that reads a file or script: not valid JSON, not a Caliper file,
+    a newer schema, or entities a command couldn't have created. The message joins the
+    errors for display; `errors` keeps them structured, with each field's path in the file.
+    """
+
+    def __init__(self, message: str, errors: Sequence[Error] = ()) -> None:
+        details = "; ".join(f"{e.field}: {e.message}" if e.field else e.message for e in errors)
+        super().__init__(f"{message}: {details}" if details else message)
+        self.errors = tuple(errors)

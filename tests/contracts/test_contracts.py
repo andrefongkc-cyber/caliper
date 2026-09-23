@@ -19,7 +19,7 @@ from caliper.contracts.document import (
     Geometry,
     Point2,
 )
-from caliper.contracts.errors import ErrorCode
+from caliper.contracts.errors import Error, ErrorCode, LoadError
 from caliper.contracts.queries import Metric
 
 ENTITY_TYPES = get_args(Entity)
@@ -106,6 +106,19 @@ def test_error_codes_are_unique_and_dotted() -> None:
     values = [code.value for code in ErrorCode]
     assert len(values) == len(set(values))
     assert all(re.fullmatch(r"[a-z]+\.[a-z_]+", v) for v in values)
+
+
+def test_load_error_is_part_of_the_contract() -> None:
+    # Callers that open files catch it from here, without importing the engine.
+    problem = Error(
+        code=ErrorCode.VALUE_NOT_POSITIVE, message="width must be greater than 0", field="width"
+    )
+    error = LoadError("invalid document", [problem, Error(code=ErrorCode.ID_TAKEN, message="x")])
+    assert isinstance(error, ValueError)
+    assert error.errors == (problem, Error(code=ErrorCode.ID_TAKEN, message="x"))
+    assert str(error) == "invalid document: width: width must be greater than 0; x"
+    assert str(LoadError("not a Caliper document")) == "not a Caliper document"
+    assert LoadError("not a Caliper document").errors == ()
 
 
 def test_metric_names_are_stable() -> None:

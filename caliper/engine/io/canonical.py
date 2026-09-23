@@ -1,21 +1,12 @@
 """Canonical JSON: the exact byte encoding every Caliper file uses (ADR 0005)."""
 
 import json
-from collections.abc import Sequence
 from typing import NoReturn
 
-from caliper.contracts.errors import Error
+# Re-exported: it lived here until after V1, and the shell still imports it from here.
+from caliper.contracts.errors import LoadError as LoadError
 
 type JSON = bool | int | float | str | list[JSON] | dict[str, JSON] | None
-
-
-class LoadError(ValueError):
-    """An input file isn't valid. `errors` lists validation problems, if there were any."""
-
-    def __init__(self, message: str, errors: Sequence[Error] = ()) -> None:
-        details = "; ".join(f"{e.field}: {e.message}" if e.field else e.message for e in errors)
-        super().__init__(f"{message}: {details}" if details else message)
-        self.errors = tuple(errors)
 
 
 def dumps(data: JSON) -> str:
