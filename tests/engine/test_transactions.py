@@ -24,6 +24,7 @@ from caliper.contracts.commands import (
 )
 from caliper.contracts.document import Document, EntityId, Point2, Rectangle
 from caliper.engine.commands.bus import Bus
+from caliper.engine.document.delta import apply
 from caliper.engine.io import snapshot
 
 E1, E2, E3 = EntityId("e1"), EntityId("e2"), EntityId("e3")
@@ -68,7 +69,7 @@ def test_a_transaction_commits_as_one_undo_entry() -> None:
         applied(bus.execute(ModifyEntity(id=E2, changes={"width": 5.0})))
         assert bus.undo_label == "Create Rectangle"  # nothing recorded yet
     assert bus.undo_label == "Add Mounting Holes"
-    assert [reason for reason, _ in changes] == [ChangeReason.EXECUTE] * 3
+    assert [reason for reason, _ in changes] == [ChangeReason.EXECUTE] * 3 + [ChangeReason.COMMIT]
     after = bus.document
 
     undone = bus.undo()
@@ -115,6 +116,66 @@ def test_a_committed_change_clears_redo() -> None:
     with bus.transaction("Batch"):
         applied(bus.execute(rectangle(width=7.0)))
     assert bus.redo_label is None
+
+
+def test_committing_announces_the_new_labels() -> None:
+    """Contract gap 9: the commit changed the labels without a Change, so a menu reading
+    "Redo Create Rectangle" stayed stale until the next edit."""
+    bus = Bus()
+    applied(bus.execute(rectangle()))
+    applied(bus.execute(rectangle()))
+    bus.undo()
+    heard: list[tuple[Change, str | None, str | None]] = []
+
+    def listen(change: Change) -> None:
+        heard.append((change, bus.undo_label, bus.redo_label))
+
+    bus.subscribe(listen)
+    with bus.transaction("Add Mounting Holes"):
+        applied(bus.execute(rectangle(width=7.0)))
+    assert [change.reason for change, _, _ in heard] == [ChangeReason.EXECUTE, ChangeReason.COMMIT]
+    commit, undo_label, redo_label = heard[-1]
+    assert commit.label == "Add Mounting Holes"
+    assert (undo_label, redo_label) == ("Add Mounting Holes", None)  # current on arrival
+    # The execute already announced the new rectangle; the commit announces no entity twice.
+    assert (dict(commit.delta.before), dict(commit.delta.after)) == ({}, {})
+    assert commit.delta.next_id_before == commit.delta.next_id_after == bus.document.next_id
+
+
+def test_nested_transactions_announce_one_commit_from_the_outermost() -> None:
+    bus = Bus()
+    changes = recording(bus)
+    with bus.transaction("Outer"):
+        with bus.transaction("Inner"):
+            applied(bus.execute(rectangle()))
+        applied(bus.execute(rectangle()))
+    assert changes == [
+        (ChangeReason.EXECUTE, "Create Rectangle"),
+        (ChangeReason.EXECUTE, "Create Rectangle"),
+        (ChangeReason.COMMIT, "Outer"),
+    ]
+
+
+def test_no_commit_is_announced_when_the_labels_stay_the_same() -> None:
+    bus = Bus()
+    applied(bus.execute(rectangle()))
+    changes = recording(bus)
+    with bus.transaction("Nothing"):  # the edits cancel out: nothing is recorded
+        applied(bus.execute(ModifyEntity(id=E1, changes={"width": 90.0})))
+        applied(bus.execute(ModifyEntity(id=E1, changes={"width": 100.0})))
+    with bus.transaction("Attempt") as transaction:
+        applied(bus.execute(rectangle()))
+        transaction.rollback()
+
+    def fail() -> None:
+        with bus.transaction("Optimizer"):
+            applied(bus.execute(rectangle()))
+            raise ZeroDivisionError
+
+    with pytest.raises(ZeroDivisionError):
+        fail()
+    assert ChangeReason.COMMIT not in [reason for reason, _ in changes]
+    assert bus.undo_label == "Create Rectangle"
 
 
 def test_a_rejected_command_does_not_roll_back() -> None:
@@ -246,6 +307,23 @@ def test_an_unrecorded_transaction_clears_undo_and_redo() -> None:
     assert width(bus) == 49.0
     assert (bus.undo_label, bus.redo_label) == (None, None)
     assert bus.undo() is None
+
+
+def test_an_unrecorded_commit_announces_the_cleared_history() -> None:
+    bus = Bus()
+    applied(bus.execute(rectangle()))
+    heard: list[tuple[ChangeReason, str, str | None]] = []
+
+    def listen(change: Change) -> None:
+        heard.append((change.reason, change.label, bus.undo_label))
+
+    bus.subscribe(listen)
+    with bus.transaction("Optimize", undoable=False):
+        applied(bus.execute(ModifyEntity(id=E1, changes={"width": 5.0})))
+    assert heard == [
+        (ChangeReason.EXECUTE, "Change Width", "Create Rectangle"),
+        (ChangeReason.COMMIT, "Optimize", None),
+    ]
 
 
 def test_an_unrecorded_transaction_that_changes_nothing_keeps_history() -> None:
@@ -384,13 +462,22 @@ class BusHistory(RuleBasedStateMachine):
     """Random commands, undo/redo, merge keys, and nested transactions never corrupt history.
 
     After any sequence, with every transaction closed, undoing everything and redoing
-    as many steps returns to the same document, and every snapshot reloads.
+    as many steps returns to the same document, and every snapshot reloads. Throughout, a
+    subscriber that knows only the Changes it heard has the right document and labels.
     """
 
     @initialize()
     def start(self) -> None:
         self.bus = Bus(undo_limit=25)
         self.open: list[tuple[Transaction, Document]] = []
+        self.mirror = self.bus.document
+        self.heard: tuple[str | None, str | None] = (None, None)
+        self.bus.subscribe(self.hear)
+
+    def hear(self, change: Change) -> None:
+        # How a view tracks the bus: apply each delta in turn, and read the labels now.
+        self.mirror = apply(self.mirror, change.delta)
+        self.heard = (self.bus.undo_label, self.bus.redo_label)
 
     def ids(self) -> list[EntityId]:
         return sorted(self.bus.document.entities)
@@ -449,6 +536,12 @@ class BusHistory(RuleBasedStateMachine):
     def snapshot_reloads(self) -> None:
         if hasattr(self, "bus"):
             assert snapshot.loads(snapshot.dumps(self.bus.document)) == self.bus.document
+
+    @invariant()
+    def subscribers_are_never_stale(self) -> None:
+        if hasattr(self, "bus"):
+            assert self.mirror == self.bus.document
+            assert self.heard == (self.bus.undo_label, self.bus.redo_label)
 
     def teardown(self) -> None:
         if not hasattr(self, "bus"):
