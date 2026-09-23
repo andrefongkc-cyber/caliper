@@ -9,7 +9,6 @@ accept one), for the shell and an agent alike. It is session state: never saved,
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
-from itertools import combinations
 
 from caliper.contracts.commands import CreateConstraint
 from caliper.contracts.document import (
@@ -29,6 +28,7 @@ from caliper.contracts.queries import Suggestion
 from caliper.engine.constraints.dimensions import frame
 from caliper.engine.constraints.relations import Match, match
 from caliper.engine.constraints.sketch import clusters, implied
+from caliper.engine.spatial import around, grid
 
 _GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
 _ENDS = {
@@ -58,16 +58,18 @@ def suggest(
     geometry = sorted(i for i, e in document.entities.items() if isinstance(e, _GEOMETRY))
     scope = set(ids) & set(geometry) if ids else set(geometry)
     sine = math.sin(math.radians(angle_tolerance))
+    near = _Near(document, tolerance)
     candidates = [
         *_levels(document, scope, angle_tolerance),
-        *_coincidences(document, geometry, scope, tolerance),
+        *_coincidences(document, near, scope, tolerance),
         *_pairs_of_lines(document, geometry, scope, sine),
-        *_tangencies(document, geometry, scope, tolerance),
+        *_tangencies(document, near, scope, tolerance),
     ]
     existing = {
         (e.type, frozenset(e.refs)) for e in document.entities.values() if isinstance(e, Constraint)
     }
-    constrained = {g for c in clusters(document) for g in c.geometry}
+    joins = {g: c for c in clusters(document) for g in c.geometry}
+    free = _free_id(document)
     seen: set[tuple[ConstraintType, frozenset[Ref]]] = set()
     found: list[Suggestion] = []
     for type_, refs, deviation in candidates:
@@ -78,8 +80,8 @@ def suggest(
         fitted = match(document, type_, refs)
         if not isinstance(fitted, Match):
             continue
-        if {r.entity for r in refs} & constrained and implied(
-            document, Constraint(type=type_, refs=fitted.refs), _free_id(document)
+        if {r.entity for r in refs} & joins.keys() and implied(
+            document, Constraint(type=type_, refs=fitted.refs), free, joins
         ):
             continue
         found.append(Suggestion(type=type_, refs=fitted.refs, deviation=deviation + 0.0))
@@ -88,6 +90,28 @@ def suggest(
 
 
 type Candidate = tuple[ConstraintType, tuple[Ref, ...], float]
+
+
+class _Near:
+    """Geometry within reach of a point or an entity, from the document's grid, and each
+    entity's points, worked out once. Only narrows a search: every pair is still tested."""
+
+    def __init__(self, document: Document, tolerance: float) -> None:
+        self._document = document
+        self._grid = grid(document)
+        self.tolerance = tolerance
+        self._points: dict[EntityId, list[tuple[Ref, float, float]]] = {}
+
+    def point(self, x: float, y: float) -> list[EntityId]:
+        return self._grid.near(x, y, self.tolerance)
+
+    def entity(self, id: EntityId) -> list[EntityId]:
+        return self._grid.overlapping(around(self._grid.boxes[id], self.tolerance))
+
+    def points(self, id: EntityId) -> list[tuple[Ref, float, float]]:
+        if id not in self._points:
+            self._points[id] = list(_points(self._document, [id]))
+        return self._points[id]
 
 
 def _levels(document: Document, scope: Iterable[EntityId], limit: float) -> Iterator[Candidate]:
@@ -115,31 +139,66 @@ def _points(document: Document, ids: Iterable[EntityId]) -> Iterator[tuple[Ref, 
 
 
 def _coincidences(
-    document: Document, geometry: Sequence[EntityId], scope: set[EntityId], tolerance: float
+    document: Document, near: _Near, scope: set[EntityId], tolerance: float
 ) -> Iterator[Candidate]:
-    points = list(_points(document, geometry))
-    for (a, ax, ay), (b, bx, by) in combinations(points, 2):
-        if a.entity == b.entity or not {a.entity, b.entity} & scope:
-            continue
-        if (gap := math.hypot(bx - ax, by - ay)) <= tolerance:
-            yield ConstraintType.COINCIDENT, (a, b), gap
-    for ref, x, y in points:
-        for id in geometry:
-            if id == ref.entity or not {id, ref.entity} & scope:
-                continue
-            entity = document.entities[id]
-            if isinstance(entity, Line):
-                mid = ((entity.start.x + entity.end.x) / 2, (entity.start.y + entity.end.y) / 2)
-                if (gap := math.hypot(x - mid[0], y - mid[1])) <= tolerance:
-                    yield ConstraintType.MIDPOINT, (Ref(entity=id, feature=Feature.CURVE), ref), gap
+    """Pairs with at least one entity in scope: points that meet, and points on or at the
+    middle of a curve. A pair tested once from each side is reported once."""
+    pairs: set[tuple[Ref, Ref]] = set()
+    for id in sorted(scope):
+        for a, ax, ay in near.points(id):
+            for other in near.point(ax, ay):
+                if other == id:
                     continue
-            reach = _to_curve(entity, x, y)
-            near_end = any(
-                math.hypot(x - px, y - py) <= tolerance for _, px, py in _points(document, [id])
-            )
-            if reach is not None and reach <= tolerance and not near_end:
-                on = Ref(entity=id, feature=Feature.CURVE)
-                yield ConstraintType.COINCIDENT, (on, ref), reach
+                for b, bx, by in near.points(other):
+                    # The two belong to different entities: the lower id first, as in a list of
+                    # every point by id, so the gap is the same number whichever side found it.
+                    (p, px, py), (q, qx, qy) = sorted(
+                        ((a, ax, ay), (b, bx, by)), key=lambda point: point[0].entity
+                    )
+                    if (p, q) in pairs:
+                        continue
+                    pairs.add((p, q))
+                    if (gap := math.hypot(qx - px, qy - py)) <= tolerance:
+                        yield ConstraintType.COINCIDENT, (p, q), gap
+    tested: set[tuple[Ref, EntityId]] = set()
+    for id in sorted(scope):
+        for ref, x, y in near.points(id):  # this entity's points against curves near them
+            for other in near.point(x, y):
+                if other != id and (ref, other) not in tested:
+                    tested.add((ref, other))
+                    yield from _on_curve(document, near, ref, x, y, other, tolerance)
+        if not isinstance(document.entities[id], Line | Circle | Arc):
+            continue
+        for other in near.entity(id):  # this curve against the points near it
+            if other == id:
+                continue
+            for ref, x, y in near.points(other):
+                if (ref, id) not in tested:
+                    tested.add((ref, id))
+                    yield from _on_curve(document, near, ref, x, y, id, tolerance)
+
+
+def _on_curve(
+    document: Document,
+    near: _Near,
+    ref: Ref,
+    x: float,
+    y: float,
+    id: EntityId,
+    tolerance: float,
+) -> Iterator[Candidate]:
+    """A point at the middle of line `id`, or on curve `id` away from its ends."""
+    entity = document.entities[id]
+    if isinstance(entity, Line):
+        mid = ((entity.start.x + entity.end.x) / 2, (entity.start.y + entity.end.y) / 2)
+        if (gap := math.hypot(x - mid[0], y - mid[1])) <= tolerance:
+            yield ConstraintType.MIDPOINT, (Ref(entity=id, feature=Feature.CURVE), ref), gap
+            return
+    reach = _to_curve(entity, x, y)
+    near_end = any(math.hypot(x - px, y - py) <= tolerance for _, px, py in near.points(id))
+    if reach is not None and reach <= tolerance and not near_end:
+        on = Ref(entity=id, feature=Feature.CURVE)
+        yield ConstraintType.COINCIDENT, (on, ref), reach
 
 
 def _to_curve(entity: object, x: float, y: float) -> float | None:
@@ -174,49 +233,68 @@ def _straights(document: Document, ids: Iterable[EntityId]) -> Iterator[tuple[Re
 def _pairs_of_lines(
     document: Document, geometry: Sequence[EntityId], scope: set[EntityId], sine: float
 ) -> Iterator[Candidate]:
-    for (a, ax, ay), (b, bx, by) in combinations(list(_straights(document, geometry)), 2):
-        if a.entity == b.entity or not {a.entity, b.entity} & scope:
-            continue
-        la, lb = math.hypot(ax, ay), math.hypot(bx, by)
-        cross, dot = (ax * by - ay * bx) / (la * lb), (ax * bx + ay * by) / (la * lb)
-        if abs(cross) <= sine:
-            yield ConstraintType.PARALLEL, (a, b), math.degrees(math.asin(min(1.0, abs(cross))))
-        if abs(dot) <= sine:
-            yield ConstraintType.PERPENDICULAR, (a, b), math.degrees(math.asin(min(1.0, abs(dot))))
+    """Parallel and perpendicular don't depend on distance, so every straight is a partner,
+    but only for straights in scope."""
+    straights = list(_straights(document, geometry))
+    mine = [ref.entity in scope for ref, _, _ in straights]
+    for i in (i for i, yes in enumerate(mine) if yes):
+        # A pair of two straights in scope is taken once, from its first straight.
+        for j in (j for j in range(len(straights)) if j != i and not (mine[j] and j < i)):
+            (a, ax, ay), (b, bx, by) = straights[min(i, j)], straights[max(i, j)]
+            if a.entity == b.entity:
+                continue
+            la, lb = math.hypot(ax, ay), math.hypot(bx, by)
+            cross, dot = (ax * by - ay * bx) / (la * lb), (ax * bx + ay * by) / (la * lb)
+            if abs(cross) <= sine:
+                angle = math.degrees(math.asin(min(1.0, abs(cross))))
+                yield ConstraintType.PARALLEL, (a, b), angle
+            if abs(dot) <= sine:
+                angle = math.degrees(math.asin(min(1.0, abs(dot))))
+                yield ConstraintType.PERPENDICULAR, (a, b), angle
 
 
 def _tangencies(
-    document: Document, geometry: Sequence[EntityId], scope: set[EntityId], tolerance: float
+    document: Document, near: _Near, scope: set[EntityId], tolerance: float
 ) -> Iterator[Candidate]:
-    rounds = [i for i in geometry if isinstance(document.entities[i], Circle | Arc)]
-    for id in rounds:
-        curve = document.entities[id]
-        assert isinstance(curve, Circle | Arc)
-        c, r = curve.center, curve.radius
-        ref = Ref(entity=id, feature=Feature.CURVE)
-        for line_id in geometry:
-            line = document.entities[line_id]
-            if not isinstance(line, Line) or not {id, line_id} & scope:
+    """A line and a circle or arc, or two circles or arcs, at least one of them in scope."""
+    pairs: set[tuple[EntityId, EntityId]] = set()
+    for id in sorted(scope):
+        for other in near.entity(id):
+            first, second = sorted((id, other))
+            if other == id or (first, second) in pairs:
                 continue
-            ex, ey = line.end.x - line.start.x, line.end.y - line.start.y
-            length = math.hypot(ex, ey)
-            t = ((c.x - line.start.x) * ex + (c.y - line.start.y) * ey) / (length * length)
-            if not 0.0 <= t <= 1.0:
-                continue  # touching the extension only
-            gap = abs(abs(ex * (c.y - line.start.y) - ey * (c.x - line.start.x)) / length - r)
-            if gap <= tolerance:
-                yield ConstraintType.TANGENT, (Ref(entity=line_id, feature=Feature.CURVE), ref), gap
-        for other in rounds:
-            if other <= id or not {id, other} & scope:
-                continue
-            second = document.entities[other]
-            assert isinstance(second, Circle | Arc)
-            apart = math.hypot(second.center.x - c.x, second.center.y - c.y)
-            if apart == 0.0:
-                continue
-            gap = min(abs(apart - (r + second.radius)), abs(apart - abs(r - second.radius)))
-            if gap <= tolerance:
-                yield ConstraintType.TANGENT, (ref, Ref(entity=other, feature=Feature.CURVE)), gap
+            pairs.add((first, second))
+            a, b = document.entities[first], document.entities[second]
+            if isinstance(a, Circle | Arc) and isinstance(b, Line):
+                yield from _line_tangent(second, b, first, a, tolerance)
+            elif isinstance(a, Line) and isinstance(b, Circle | Arc):
+                yield from _line_tangent(first, a, second, b, tolerance)
+            elif isinstance(a, Circle | Arc) and isinstance(b, Circle | Arc):
+                apart = math.hypot(b.center.x - a.center.x, b.center.y - a.center.y)
+                if apart == 0.0:
+                    continue
+                gap = min(abs(apart - (a.radius + b.radius)), abs(apart - abs(a.radius - b.radius)))
+                if gap <= tolerance:
+                    curves = (
+                        Ref(entity=first, feature=Feature.CURVE),
+                        Ref(entity=second, feature=Feature.CURVE),
+                    )
+                    yield ConstraintType.TANGENT, curves, gap
+
+
+def _line_tangent(
+    line_id: EntityId, line: Line, id: EntityId, curve: Circle | Arc, tolerance: float
+) -> Iterator[Candidate]:
+    c, r = curve.center, curve.radius
+    ex, ey = line.end.x - line.start.x, line.end.y - line.start.y
+    length = math.hypot(ex, ey)
+    t = ((c.x - line.start.x) * ex + (c.y - line.start.y) * ey) / (length * length)
+    if not 0.0 <= t <= 1.0:
+        return  # touching the extension only
+    gap = abs(abs(ex * (c.y - line.start.y) - ey * (c.x - line.start.x)) / length - r)
+    if gap <= tolerance:
+        refs = (Ref(entity=line_id, feature=Feature.CURVE), Ref(entity=id, feature=Feature.CURVE))
+        yield ConstraintType.TANGENT, refs, gap
 
 
 def _free_id(document: Document) -> EntityId:

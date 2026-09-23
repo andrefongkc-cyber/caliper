@@ -19,7 +19,7 @@ lets the rest solve are reported.
 """
 
 import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
@@ -661,16 +661,48 @@ def ref_params(document: Document, ref: Ref) -> frozenset[Param]:
     return frozenset((ref.entity, paths[i]) for i in system.depends(ref))
 
 
-def implied(document: Document, constraint: Constraint, id: EntityId) -> bool:
-    """Whether `constraint`, added to `document` under `id`, would be redundant there."""
+def implied(
+    document: Document, constraint: Constraint, id: EntityId, joins: Mapping[EntityId, Cluster]
+) -> bool:
+    """Whether `constraint`, added to `document` under `id`, would be redundant there.
+
+    `joins` is each clustered geometry entity's cluster in `document`, as `clusters` finds
+    them, worked out once for many questions. The constraint joins the clusters of what it
+    refers to into one, members sorted as `clusters` sorts them, so the answer is the one a
+    whole new document's clusters would give.
+    """
+    geometry: set[EntityId] = set()
+    relations = {id}
+    for entity in {r.entity for r in constraint.refs}:
+        joined = joins.get(entity)
+        if joined is None:
+            geometry.add(entity)
+        else:
+            geometry.update(joined.geometry)
+            relations.update(joined.relations)
     with_it = Document(
-        entities=MappingProxyType({**document.entities, id: constraint}), next_id=document.next_id
+        entities=_Adding(document.entities, id, constraint), next_id=document.next_id
     )
-    for cluster in clusters(with_it):
-        if id in cluster.relations:
-            system = System.build(with_it, cluster)
-            return _redundancy(system, system.values, frozenset({id})) is not None
-    return False
+    system = System.build(with_it, Cluster(tuple(sorted(geometry)), tuple(sorted(relations))))
+    return _redundancy(system, system.values, frozenset({id})) is not None
+
+
+class _Adding(Mapping[EntityId, Entity]):
+    """A document's entities plus one more, without copying them."""
+
+    def __init__(self, entities: Mapping[EntityId, Entity], id: EntityId, entity: Entity) -> None:
+        self._entities, self._id, self._entity = entities, id, entity
+
+    def __getitem__(self, key: EntityId) -> Entity:
+        return self._entity if key == self._id else self._entities[key]
+
+    def __iter__(self) -> Iterator[EntityId]:
+        yield from self._entities
+        if self._id not in self._entities:
+            yield self._id
+
+    def __len__(self) -> int:
+        return len(self._entities) + (self._id not in self._entities)
 
 
 # --- Status -------------------------------------------------------------------------------
