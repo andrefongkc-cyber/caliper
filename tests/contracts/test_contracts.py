@@ -20,6 +20,7 @@ from caliper.contracts.document import (
     Point2,
 )
 from caliper.contracts.errors import ErrorCode
+from caliper.contracts.queries import Metric
 
 ENTITY_TYPES = get_args(Entity)
 COMMAND_TYPES = get_args(Command)
@@ -105,6 +106,21 @@ def test_error_codes_are_unique_and_dotted() -> None:
     values = [code.value for code in ErrorCode]
     assert len(values) == len(set(values))
     assert all(re.fullmatch(r"[a-z]+\.[a-z_]+", v) for v in values)
+
+
+def test_metric_names_are_stable() -> None:
+    # Bench cases and agents store these strings: adding one is fine, renaming one isn't.
+    assert [metric.value for metric in Metric] == [
+        "distance",
+        "distance_x",
+        "distance_y",
+        "position_x",
+        "position_y",
+        "bbox_width",
+        "bbox_height",
+        "area",
+        "dimension_value",
+    ]
 
 
 def test_delta_sets_and_inversion() -> None:

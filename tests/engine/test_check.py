@@ -12,6 +12,7 @@ from caliper.contracts.commands import (
     CreateLine,
     CreateRectangle,
     ModifyEntity,
+    MoveEntities,
 )
 from caliper.contracts.document import DistanceOrientation, EntityId, Feature, Point2, Ref
 from caliper.contracts.errors import ErrorCode
@@ -79,6 +80,8 @@ def check(bus: Bus, **fields: object) -> CheckResult:
             },
             50.0,
         ),
+        ({"metric": Metric.POSITION_X, "refs": (corner(Feature.TOP_RIGHT),)}, 120.0),
+        ({"metric": Metric.POSITION_Y, "refs": (corner(Feature.TOP_RIGHT),)}, 50.0),
         ({"metric": Metric.AREA, "ids": (E1,)}, 6000.0),
         ({"metric": Metric.DIMENSION_VALUE, "ids": (E2,)}, 120.0),
     ],
@@ -96,6 +99,54 @@ def test_the_tolerance_is_inclusive() -> None:
     bus = milestone()
     assert check(bus, metric=Metric.BBOX_WIDTH, expected=119.0, tolerance=1.0).passed
     assert not check(bus, metric=Metric.BBOX_WIDTH, expected=118.9, tolerance=1.0).passed
+
+
+def test_a_position_is_signed_unlike_a_distance() -> None:
+    bus = bus_with(CreateCircle(center=Point2(x=-30.0, y=-12.5), radius=1.0))
+    center = (Ref(entity=E1, feature=Feature.CENTER),)
+    x = check(bus, metric=Metric.POSITION_X, refs=center, expected=-30.0, tolerance=0.0)
+    y = check(bus, metric=Metric.POSITION_Y, refs=center, expected=-12.5, tolerance=0.0)
+    assert (x.passed, x.actual, y.passed, y.actual) == (True, -30.0, True, -12.5)
+    assert not check(
+        bus, metric=Metric.POSITION_X, refs=center, expected=30.0, tolerance=0.0
+    ).passed
+
+
+def test_a_position_tolerance_is_inclusive() -> None:
+    bus = milestone()
+    right = (corner(Feature.BOTTOM_RIGHT),)
+    assert check(bus, metric=Metric.POSITION_X, refs=right, expected=119.5, tolerance=0.5).passed
+    assert not check(
+        bus, metric=Metric.POSITION_X, refs=right, expected=119.4, tolerance=0.5
+    ).passed
+
+
+def test_a_move_is_checked_by_where_the_geometry_ended_up() -> None:
+    """Contract gap 10: a width can't tell "moved 30 mm right" from "didn't move"."""
+    bus = bus_with(CreateRectangle(corner=ORIGIN, width=120.0, height=50.0))
+    moved_right_30 = [
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120.0, tolerance=1e-9),
+        Expectation(
+            metric=Metric.POSITION_X,
+            refs=(corner(Feature.BOTTOM_LEFT),),
+            expected=30.0,
+            tolerance=1e-9,
+        ),
+        Expectation(
+            metric=Metric.POSITION_Y,
+            refs=(corner(Feature.BOTTOM_LEFT),),
+            expected=0.0,
+            tolerance=1e-9,
+        ),
+    ]
+    before = [bus.queries.check(e) for e in moved_right_30]
+    assert [r.passed for r in before] == [True, False, True]  # the width alone would pass
+
+    assert isinstance(bus.execute(MoveEntities(ids=(E1,), dx=30.0, dy=0.0)), Applied)
+    assert all(bus.queries.check(e).passed for e in moved_right_30)
+
+    bus.undo()
+    assert [bus.queries.check(e).passed for e in moved_right_30] == [True, False, True]
 
 
 def test_a_circle_area_passes_within_tolerance() -> None:
@@ -142,6 +193,40 @@ def test_a_circle_area_passes_within_tolerance() -> None:
             ErrorCode.ENTITY_NOT_FOUND,
             "refs[1].entity",
         ),
+        (milestone, {"metric": Metric.POSITION_X}, ErrorCode.VALUE_OUT_OF_RANGE, "refs"),
+        (
+            milestone,
+            {
+                "metric": Metric.POSITION_Y,
+                "refs": (corner(Feature.CENTER), corner(Feature.TOP_LEFT)),
+            },
+            ErrorCode.VALUE_OUT_OF_RANGE,
+            "refs",
+        ),
+        (
+            milestone,
+            {"metric": Metric.POSITION_X, "refs": (Ref(entity=E3, feature=Feature.CENTER),)},
+            ErrorCode.ENTITY_NOT_FOUND,
+            "refs[0].entity",
+        ),
+        (
+            milestone,
+            {"metric": Metric.POSITION_X, "refs": (Ref(entity=E2, feature=Feature.CENTER),)},
+            ErrorCode.ENTITY_WRONG_KIND,
+            "refs[0].entity",
+        ),
+        (
+            milestone,
+            {"metric": Metric.POSITION_Y, "refs": (corner(Feature.BOTTOM),)},
+            ErrorCode.REFERENCE_INVALID_FEATURE,
+            "refs[0].feature",
+        ),
+        (
+            lambda: bus_with(CreateCircle(center=ORIGIN, radius=1.0)),
+            {"metric": Metric.POSITION_X, "refs": (Ref(entity=E1, feature=Feature.START),)},
+            ErrorCode.REFERENCE_INVALID_FEATURE,
+            "refs[0].feature",
+        ),
         (
             milestone,
             {"metric": Metric.BBOX_WIDTH, "ids": (E2,)},
@@ -187,6 +272,12 @@ def test_a_circle_area_passes_within_tolerance() -> None:
         "text tolerance",
         "one ref",
         "missing ref",
+        "position without a ref",
+        "position with two refs",
+        "position of a missing entity",
+        "position of a dimension",
+        "position of a rectangle side",
+        "position of a feature the entity lacks",
         "annotation bbox",
         "no dimension id",
         "missing dimension",
