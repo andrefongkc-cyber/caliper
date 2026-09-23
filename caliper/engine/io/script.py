@@ -9,8 +9,8 @@ Commands are decoded structurally; the bus reports bad values as Rejected errors
 from pathlib import Path
 
 from caliper.contracts.commands import Command
+from caliper.contracts.errors import LoadError
 from caliper.engine.io import canonical
-from caliper.engine.io.canonical import LoadError
 from caliper.engine.io.codec import DecodeError, decode_command
 
 FORMAT = "caliper.script"

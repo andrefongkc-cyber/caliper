@@ -26,10 +26,10 @@ from caliper.contracts.document import (
     RadialDimension,
     Ref,
 )
+from caliper.contracts.errors import LoadError
 from caliper.contracts.queries import BoundingBox, ConstraintState, SolveStatus
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import script, snapshot
-from caliper.engine.io.canonical import LoadError
 
 _HIDDEN_FIELDS = frozenset({"offset", "label_angle", "value", "construction"})
 """Fields inspect shows another way: placement not at all, measured values after `=`, the

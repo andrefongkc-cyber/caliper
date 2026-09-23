@@ -24,9 +24,9 @@ from caliper.contracts.document import (
     Rectangle,
     Ref,
 )
+from caliper.contracts.errors import ErrorCode, LoadError
 from caliper.engine.commands.bus import Bus
-from caliper.engine.io import snapshot
-from caliper.engine.io.canonical import LoadError
+from caliper.engine.io import canonical, script, snapshot
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 V1 = FIXTURES / "v1"
@@ -134,6 +134,21 @@ def mutated(change: str) -> str:
 def test_invalid_files_are_refused_with_a_reason(text: str, message: str) -> None:
     with pytest.raises(LoadError, match=message.replace("(", r"\(").replace(")", r"\)")):
         snapshot.loads(text)
+
+
+def test_files_and_scripts_raise_the_contract_load_error() -> None:
+    # The old engine name is the same class, so a caller catching either catches both.
+    assert canonical.LoadError is LoadError
+    with pytest.raises(LoadError) as raised:
+        snapshot.loads(mutated("negative-width"))
+    assert type(raised.value) is LoadError
+    assert [(e.code, e.field) for e in raised.value.errors] == [
+        (ErrorCode.VALUE_NOT_POSITIVE, "document.entities.e1.width")
+    ]
+    for bad in ("{not json", '{"format": "caliper.script", "schema_version": 9}'):
+        with pytest.raises(LoadError) as raised:
+            script.loads(bad)
+        assert type(raised.value) is LoadError
 
 
 def test_migrations_run_in_order_on_load(monkeypatch: pytest.MonkeyPatch) -> None:

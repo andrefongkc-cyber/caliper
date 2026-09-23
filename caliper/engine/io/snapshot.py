@@ -12,10 +12,10 @@ from types import MappingProxyType
 
 from caliper.contracts.commands import Command
 from caliper.contracts.document import Document, Entity, EntityId
-from caliper.contracts.errors import Error
+from caliper.contracts.errors import Error, LoadError
 from caliper.engine.commands.validation import build_entity, field_types, normalize_id
 from caliper.engine.io import canonical
-from caliper.engine.io.canonical import JSON, LoadError
+from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import DecodeError, decode_command, decode_document, encode
 
 FORMAT = "caliper.document"
