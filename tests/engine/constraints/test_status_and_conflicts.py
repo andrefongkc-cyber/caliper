@@ -5,6 +5,7 @@ cluster and per entity. Nothing here is counted from UI state.
 """
 
 import json
+from types import MappingProxyType
 
 import pytest
 
@@ -23,7 +24,16 @@ from caliper.contracts.commands import (
     ModifyEntity,
     Rejected,
 )
-from caliper.contracts.document import ConstraintType, EntityId, Feature, Point2, Ref
+from caliper.contracts.document import (
+    Constraint,
+    ConstraintType,
+    Document,
+    EntityId,
+    Feature,
+    Line,
+    Point2,
+    Ref,
+)
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import ConstraintState, DimensionType
 from caliper.engine.commands.bus import Bus
@@ -225,6 +235,35 @@ def test_a_file_whose_constraints_do_not_hold_opens_as_conflicting() -> None:
     assert opened.queries.feature_point(ref("e1", "end")) == pt(10, 3)
     run(opened, ModifyEntity(id=E("e1"), changes={"start": pt(0, 1)}))
     assert opened.queries.solve_status().state is ConstraintState.UNDER
+
+
+@pytest.mark.parametrize(
+    "elsewhere", [False, True], ids=["line only", "and a constraint elsewhere"]
+)
+def test_a_changed_line_is_re_solved_though_its_cluster_kept_its_members(elsewhere: bool) -> None:
+    # The status of the next document reuses every cluster the change left alone. Replacing the
+    # line keeps its cluster's members, so the cluster must still be solved again: on its own,
+    # or in one step with a constraint added to another cluster (a transaction, or its undo).
+    bus = Bus(kernel=None)
+    run(bus, CreateLine(start=pt(0, 0), end=pt(10, 0)))
+    constrain(bus, C.HORIZONTAL, curve("e1"))
+    run(bus, CreateCircle(center=pt(30, 0), radius=4))
+    constrain(bus, C.FIX, ref("e3", "center"))
+    level = bus.queries.solve_status()
+    assert (level.state, level.entity_dof[E("e1")], level.entity_dof[E("e3")]) == (
+        ConstraintState.UNDER,
+        3,
+        1,
+    )
+    entities = dict(bus.document.entities)
+    entities[E("e1")] = Line(start=pt(0, 0), end=pt(10, 3))  # as a hand-edited file might
+    if elsewhere:
+        entities[E("e5")] = Constraint(type=C.FIX, refs=(curve("e3"),))
+    tilted = Document(entities=MappingProxyType(entities), next_id=6)
+    status = Bus(tilted, kernel=None).queries.solve_status()
+    assert (status.state, status.conflicting) == (ConstraintState.CONFLICTING, (E("e2"),))
+    assert status.entity_dof[E("e1")] == 3
+    assert status.entity_dof[E("e3")] == (0 if elsewhere else 1)
 
 
 # --- Applicability -------------------------------------------------------------------------------
