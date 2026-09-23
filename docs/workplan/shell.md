@@ -1,4 +1,4 @@
-Status: P7 built on local `stream/shell-p7` (steps 0-10 done, 936 tests pass), next: publish it as `stream/shell` (needs a user-run force-push) and open the PR; send Andre the findings below
+Status: P7 open as PR #27 (CI green, awaiting Andre), findings filed as #28, next: Andre's review, then the H/V offset rule and ADR 0008/0009 acceptance
 
 # Shell workplan — Stream B
 
