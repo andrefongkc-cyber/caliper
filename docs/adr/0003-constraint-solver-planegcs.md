@@ -1,6 +1,7 @@
 # ADR 0003: 2D constraint solver is planegcs
 
-- **Status:** Accepted, after the Phase 0.5 build test (see the result below).
+- **Status:** Superseded by [ADR 0008](0008-constraint-solver-our-own.md). It had been
+  Accepted after the Phase 0.5 build test (see the result below).
 - **Date:** 2026-09-14
 - **Related:** ADR 0005 (determinism scope for solved geometry), ADR 0006 (license policy)
 
