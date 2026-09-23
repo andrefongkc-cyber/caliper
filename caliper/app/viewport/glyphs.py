@@ -15,9 +15,10 @@ are in pixels so glyphs stay readable at any zoom; every location comes from que
 
 import math
 from dataclasses import dataclass
+from functools import cache
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPixmap
 
 from caliper.app import references, theme
 from caliper.app.viewport.painter import cosmetic_pen
@@ -53,8 +54,8 @@ SYMBOL: dict[ConstraintType, str] = {
 }
 """One short symbol per type. A test checks every one is in the canvas font."""
 
-GAP_PX = 11.0
-"""From the geometry to the glyph's centre."""
+GAP_PX = 14.0
+"""From the geometry to the glyph's centre: 6.5 px clear of the line."""
 SIZE_PX = 15.0
 """A glyph's side; stacked glyphs are this far apart."""
 SAME_SPOT_PX = 2.0
@@ -100,25 +101,48 @@ def anchor(queries: Queries, document: Document, ref: Ref) -> Hang | None:
     return point, (math.sqrt(0.5), math.sqrt(0.5))
 
 
-def layout(queries: Queries, document: Document, view: ViewTransform) -> list[Glyph]:
-    """Every constraint's glyphs, in id order, stacked where they'd overlap."""
+@dataclass(frozen=True, slots=True)
+class Hanging:
+    """A constraint's glyph symbol and the places it hangs from, in model coordinates.
+
+    Depends only on the document, so it's worked out once per change; a new view only
+    transforms and stacks (`place`).
+    """
+
+    id: EntityId
+    symbol: str
+    hangs: tuple[Hang, ...]
+
+
+def hanging(queries: Queries, document: Document, id: EntityId) -> Hanging | None:
+    """Where constraint `id`'s glyphs hang from, or None if it isn't a constraint."""
+    constraint = document.entities.get(id)
+    if not isinstance(constraint, Constraint):
+        return None
+    hangs = tuple(
+        found for ref in constraint.refs if (found := anchor(queries, document, ref)) is not None
+    )
+    return Hanging(id=id, symbol=SYMBOL[constraint.type], hangs=hangs)
+
+
+def hangs_from(entity: object, ids: frozenset[EntityId]) -> bool:
+    """True if `entity` is a constraint whose glyphs sit on one of `ids`."""
+    return isinstance(entity, Constraint) and any(ref.entity in ids for ref in entity.refs)
+
+
+def place(hangings: list[Hanging], view: ViewTransform) -> list[Glyph]:
+    """Glyphs for the view, in the order given (id order), stacked where they'd overlap."""
     glyphs: list[Glyph] = []
     taken: dict[tuple[int, int], int] = {}
     """How many glyphs already hang from each spot (in rounded pixels)."""
-    for id in sorted(document.entities):
-        constraint = document.entities[id]
-        if not isinstance(constraint, Constraint):
-            continue
-        placed: list[QPointF] = []
-        for ref in constraint.refs:
-            found = anchor(queries, document, ref)
-            if found is None:
-                continue
-            at, (dx, dy) = found
+    half = SIZE_PX / 2
+    for item in hangings:
+        placed: list[tuple[float, float]] = []
+        for at, (dx, dy) in item.hangs:
             wx, wy = view.to_widget(at)
-            if any(math.hypot(p.x() - wx, p.y() - wy) < SAME_SPOT_PX for p in placed):
+            if any(math.hypot(px - wx, py - wy) < SAME_SPOT_PX for px, py in placed):
                 continue
-            placed.append(QPointF(wx, wy))
+            placed.append((wx, wy))
             key = (round(wx / SAME_SPOT_PX), round(wy / SAME_SPOT_PX))
             n = taken.get(key, 0)
             taken[key] = n + 1
@@ -127,21 +151,47 @@ def layout(queries: Queries, document: Document, view: ViewTransform) -> list[Gl
             ox, oy = dx, -dy
             cx = wx + ox * GAP_PX + -oy * SIZE_PX * n
             cy = wy + oy * GAP_PX + ox * SIZE_PX * n
-            half = SIZE_PX / 2
             rect = QRectF(cx - half, cy - half, SIZE_PX, SIZE_PX)
-            glyphs.append(Glyph(id=id, symbol=SYMBOL[constraint.type], rect=rect))
+            glyphs.append(Glyph(id=item.id, symbol=item.symbol, rect=rect))
     return glyphs
 
 
+def layout(queries: Queries, document: Document, view: ViewTransform) -> list[Glyph]:
+    """Every constraint's glyphs, in id order, stacked where they'd overlap."""
+    ids = sorted(id for id, e in document.entities.items() if isinstance(e, Constraint))
+    hangings = [h for id in ids if (h := hanging(queries, document, id)) is not None]
+    return place(hangings, view)
+
+
 def paint(qp: QPainter, glyphs: list[Glyph], colours: dict[EntityId, QColor]) -> None:
-    """Draw glyphs; `colours` overrides the default for some constraints."""
+    """Draw glyphs; `colours` overrides the default for some constraints.
+
+    Each badge is rendered once per symbol, colour, and pixel ratio, then stamped: laying
+    out text for a thousand glyphs on every redraw would cost more than the geometry.
+    """
+    ratio = qp.device().devicePixelRatioF() if qp.device() is not None else 1.0
     for glyph in glyphs:
         colour = colours.get(glyph.id, theme.GLYPH)
-        qp.fillRect(glyph.rect, theme.CANVAS)
-        qp.setPen(cosmetic_pen(colour, theme.GUIDE_WIDTH))
-        qp.setBrush(Qt.BrushStyle.NoBrush)
-        qp.drawRect(glyph.rect.adjusted(0.5, 0.5, -0.5, -0.5))
-        qp.drawText(glyph.rect, Qt.AlignmentFlag.AlignCenter, glyph.symbol)
+        qp.drawPixmap(glyph.rect.topLeft(), _badge(glyph.symbol, colour.rgba(), ratio))
+
+
+@cache
+def _badge(symbol: str, rgba: int, ratio: float) -> QPixmap:
+    size = round(SIZE_PX * ratio)
+    image = QPixmap(size, size)
+    image.setDevicePixelRatio(ratio)
+    image.fill(theme.CANVAS)
+    qp = QPainter(image)
+    qp.setRenderHint(QPainter.RenderHint.Antialiasing)
+    qp.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    qp.setFont(theme.font(size=theme.TYPE.caption))
+    colour = QColor.fromRgba(rgba)
+    qp.setPen(cosmetic_pen(colour, theme.GUIDE_WIDTH))
+    rect = QRectF(0, 0, SIZE_PX, SIZE_PX)
+    qp.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+    qp.drawText(rect, Qt.AlignmentFlag.AlignCenter, symbol)
+    qp.end()
+    return image
 
 
 def at(glyphs: list[Glyph], x: float, y: float) -> EntityId | None:

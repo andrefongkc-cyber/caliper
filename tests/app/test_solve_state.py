@@ -44,7 +44,7 @@ def _drawn_in(window, x: float, y: float) -> str:
     image = window.canvas.grab().toImage()
     ratio = window.canvas.devicePixelRatioF()
     wx, wy = window.canvas.view.to_widget(P(x=x, y=y))
-    column = [image.pixelColor(round(wx * ratio), round(wy * ratio) + d) for d in range(-3, 4)]
+    column = [image.pixelColor(round(wx * ratio), round(wy * ratio) + d) for d in range(-2, 3)]
     brightest = max(column, key=lambda c: c.lightness())
     assert brightest.lightness() > theme.CANVAS.lightness() + 40, "no line there"
     return "constrained" if brightest.blue() - brightest.red() > 40 else "geometry"

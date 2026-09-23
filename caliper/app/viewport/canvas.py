@@ -40,9 +40,11 @@ from caliper.app.tools.select import editable_field
 from caliper.app.viewport import glyphs
 from caliper.app.viewport.annotations import (
     LABEL_GAP_PX,
-    drawing,
+    LabelSpot,
     label_anchors,
     label_box,
+    label_spot,
+    measures,
     paint_annotations,
 )
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
@@ -51,7 +53,7 @@ from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import ViewTransform
-from caliper.contracts.commands import Applied, ModifyEntity
+from caliper.contracts.commands import Applied, Change, ModifyEntity
 from caliper.contracts.document import (
     AngleDimension,
     Constraint,
@@ -92,9 +94,14 @@ class Canvas(QWidget):
         self.snap_to_grid = True
         self.show_grid = True
         self.show_constraints = True
-        self._targets_key: tuple[object, ...] | None = None
+        self._spots: dict[EntityId, LabelSpot] = {}
+        self._spots_document: object = None
+        """The document `_spots` describes; None forces a full rebuild."""
+        self._labels_key: tuple[object, ...] | None = None
         self._labels: list[tuple[QRectF, EntityId]] = []
+        self._glyphs_key: tuple[object, ...] | None = None
         self._glyphs: list[glyphs.Glyph] = []
+        self._hangings: dict[EntityId, glyphs.Hanging] = {}
         self.hidden_dimensions = 0
         self._placed = False
         self._pan_from: QPointF | None = None
@@ -143,6 +150,8 @@ class Canvas(QWidget):
         session.selection_changed.connect(self.update)
         session.hover_changed.connect(self.update)
         session.flagged_changed.connect(self.update)
+        session.changed.connect(self._update_spots)
+        session.document_replaced.connect(self._forget_spots)
         controller.changed.connect(self.update)
         controller.changed.connect(self._sync_entry)
 
@@ -352,43 +361,106 @@ class Canvas(QWidget):
     # --- Annotations the shell draws, and so hit-tests ------------------------------------
 
     def annotation_at(self, x: float, y: float) -> EntityId | None:
-        """The constraint glyph or dimension label under widget point (x, y), glyphs first."""
-        labels, laid_out = self._targets()
-        found = glyphs.at(laid_out, x, y)
+        """The constraint glyph or dimension label under widget point (x, y), glyphs first.
+
+        Nothing while the view is moving: the layer on screen is a moved copy, and laying out
+        glyphs for every frame of a pan would cost more than the frame.
+        """
+        if self._moving:
+            return None
+        found = glyphs.at(self.constraint_glyphs, x, y)
         if found is not None:
             return found
-        for rect, id in reversed(labels):
+        for rect, id in reversed(self._label_rects()):
             if rect.contains(QPointF(x, y)):
                 return id
         return None
 
+    def _view_key(self) -> tuple[object, ...]:
+        view = self.view
+        return (self.session.document, view.scale, view.origin_x, view.origin_y)
+
     @property
     def constraint_glyphs(self) -> list[glyphs.Glyph]:
-        """Constraint glyphs as laid out for the current view (empty when hidden)."""
-        return self._targets()[1]
+        """Constraint glyphs as laid out for the current view (empty when hidden).
 
-    def _targets(self) -> tuple[list[tuple[QRectF, EntityId]], list[glyphs.Glyph]]:
-        view = self.view
-        key = (
-            self.session.document,
-            view.scale,
-            view.origin_x,
-            view.origin_y,
-            self.show_constraints,
-        )
-        if key != self._targets_key:
-            document = self.session.document
-            queries = self.session.queries
+        Cached per document and view, and laid out only when asked for: painting the cached
+        layer, or hit-testing the pointer. A pan frame asks for neither.
+        """
+        key = (*self._view_key(), self.show_constraints)
+        if key != self._glyphs_key:
+            self._sync_annotation_cache()
+            ordered = [self._hangings[id] for id in sorted(self._hangings)]
+            self._glyphs = glyphs.place(ordered, self.view) if self.show_constraints else []
+            self._glyphs_key = key
+        return self._glyphs
+
+    def _label_rects(self) -> list[tuple[QRectF, EntityId]]:
+        """Each dimension label's box in widget pixels, for hit-testing.
+
+        Label spots are kept per dimension and updated from each change, like the browser's
+        rows, so an edit re-measures only the dimensions it touched; a new view only moves
+        the boxes.
+        """
+        self._sync_annotation_cache()
+        key = self._view_key()
+        if key != self._labels_key:
             metrics = QFontMetricsF(self.font())
             self._labels = []
-            for id in sorted(document.entities):
-                plan = drawing(self.session, id, view)
-                if plan is not None:
-                    cx, cy = view.to_widget(plan.label_at)
-                    self._labels.append((label_box(metrics, cx, cy, plan.text), id))
-            self._glyphs = glyphs.layout(queries, document, view) if self.show_constraints else []
-            self._targets_key = key
-        return self._labels, self._glyphs
+            for id in sorted(self._spots):
+                spot = self._spots[id]
+                x, y = self.view.to_widget(spot.at)
+                box = label_box(metrics, x + spot.shift[0], y + spot.shift[1], spot.text)
+                self._labels.append((box, id))
+            self._labels_key = key
+        return self._labels
+
+    def _sync_annotation_cache(self) -> None:
+        """Rebuild label spots and glyph hangings in full if the document isn't the one they
+        describe (a new file, or a change that sent no notification)."""
+        document = self.session.document
+        if self._spots_document is document:
+            return
+        self._spots, self._hangings = {}, {}
+        for id in sorted(document.entities):
+            self._remeasure(id)
+        self._spots_document = document
+
+    def _remeasure(self, id: EntityId) -> None:
+        spot = label_spot(self.session, id)
+        if spot is None:
+            self._spots.pop(id, None)
+        else:
+            self._spots[id] = spot
+        hung = glyphs.hanging(self.session.queries, self.session.document, id)
+        if hung is None:
+            self._hangings.pop(id, None)
+        else:
+            self._hangings[id] = hung
+
+    def _update_spots(self, change: Change) -> None:
+        """Re-measure only the labels and glyphs a change could have moved or re-worded."""
+        if self._spots_document is None:
+            return  # nothing built yet; the next hit-test or paint builds everything
+        delta = change.delta
+        document = self.session.document
+        touched = delta.added | delta.removed | delta.modified
+        for id in touched:
+            self._spots.pop(id, None)
+            self._hangings.pop(id, None)
+        affected = {id for id in touched if id in document.entities}
+        affected |= {
+            id
+            for id, entity in document.entities.items()
+            if id not in touched
+            and (measures(entity, touched) or glyphs.hangs_from(entity, touched))
+        }
+        for id in affected:
+            self._remeasure(id)
+        self._spots_document = document
+
+    def _forget_spots(self) -> None:
+        self._spots_document = None
 
     def _annotation_tip(self, id: EntityId | None) -> str:
         entity = self.session.document.entities.get(id) if id is not None else None
@@ -750,8 +822,9 @@ class Canvas(QWidget):
             elif isinstance(entity, Constraint):
                 paint_references(painter, self.session, entity.refs)
         paint_annotations(painter, self.session, frozenset(), flagged, theme.ERROR)
-        named = [g for g in self.constraint_glyphs if g.id in flagged]
-        self._paint_glyphs(painter.painter, named, dict.fromkeys(flagged, theme.ERROR))
+        if not self._moving and any(isinstance(entities.get(id), Constraint) for id in flagged):
+            named = [g for g in self.constraint_glyphs if g.id in flagged]
+            self._paint_glyphs(painter.painter, named, dict.fromkeys(flagged, theme.ERROR))
 
     def _paint_highlights(self, painter: ModelPainter) -> None:
         entities = self.session.document.entities
@@ -765,8 +838,9 @@ class Canvas(QWidget):
             elif isinstance(entity, Constraint):
                 painter.set_pen(cosmetic_pen(theme.HOVER, theme.HIGHLIGHT_WIDTH))
                 paint_references(painter, self.session, entity.refs)
-                hovered = [g for g in self.constraint_glyphs if g.id == hover]
-                self._paint_glyphs(painter.painter, hovered, {hover: theme.HOVER})
+                if not self._moving:
+                    hovered = [g for g in self.constraint_glyphs if g.id == hover]
+                    self._paint_glyphs(painter.painter, hovered, {hover: theme.HOVER})
             elif entity is not None:
                 paint_annotations(painter, self.session, frozenset(), [hover], theme.HOVER)
         painter.set_pen(cosmetic_pen(theme.SELECTED, theme.HIGHLIGHT_WIDTH))
@@ -776,7 +850,12 @@ class Canvas(QWidget):
                 painter.geometry(entity)
         self._paint_flagged(painter)
         paint_annotations(painter, self.session, selection, only=selection)
-        chosen = [g for g in self.constraint_glyphs if g.id in selection]
+        chosen = (
+            [g for g in self.constraint_glyphs if g.id in selection]
+            if not self._moving
+            and any(isinstance(entities.get(id), Constraint) for id in selection)
+            else []
+        )
         if chosen:
             self._paint_glyphs(painter.painter, chosen, dict.fromkeys(selection, theme.SELECTED))
         self._paint_proposal(painter)

@@ -1,5 +1,6 @@
 """Constraint glyphs: where they go, what they say, and clicking, hovering, and hiding them."""
 
+import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QFontMetricsF, QMouseEvent
 from PySide6.QtWidgets import QApplication
@@ -162,3 +163,64 @@ def test_deleting_the_line_takes_its_glyphs_with_it(window) -> None:
     constrain(window, ConstraintType.HORIZONTAL, curve(a))
     window.session.execute(DeleteEntities(ids=(a,)))
     assert window.canvas.constraint_glyphs == []
+
+
+def test_an_edit_re_measures_only_the_labels_it_touched(window, monkeypatch) -> None:
+    from caliper.app.viewport import canvas as canvas_module
+    from caliper.contracts.commands import CreateRectangle, ModifyEntity
+
+    s = window.session
+    rects = []
+    for k in range(5):
+        (rect,) = s.execute(
+            CreateRectangle(corner=P(x=k * 20, y=0), width=10, height=5)
+        ).created_ids
+        rects.append(rect)
+        bottom = Ref(entity=rect, feature=Feature.BOTTOM)
+        s.execute(CreateDimension(refs=(bottom,), placement=P(x=k * 20 + 5, y=-8)))
+    window.canvas.annotation_at(0, 0)  # builds every spot once
+    calls: list[str] = []
+    real = canvas_module.label_spot
+
+    def counting(source, id):
+        calls.append(id)
+        return real(source, id)
+
+    monkeypatch.setattr(canvas_module, "label_spot", counting)
+    s.execute(ModifyEntity(id=rects[2], changes={"width": 12.0}))
+    window.canvas.annotation_at(0, 0)
+    assert len(calls) == 2  # the rectangle itself (not a dimension) and its one dimension
+
+
+def test_a_label_is_still_clickable_after_its_shape_moves(window, qtbot) -> None:
+    from caliper.contracts.commands import MoveEntities
+
+    a = line(window, P(x=0, y=20), P(x=60, y=20))
+    (dim,) = window.session.execute(
+        CreateDimension(refs=(curve(a),), placement=P(x=30, y=40))
+    ).created_ids
+    window.canvas.annotation_at(0, 0)
+    window.session.execute(MoveEntities(ids=(a,), dx=0, dy=-10))
+    wx, wy = window.canvas.view.to_widget(P(x=30, y=30))
+    assert window.canvas.annotation_at(wx, wy) == dim
+
+
+def test_glyphs_follow_their_line_when_it_moves(window) -> None:
+    from caliper.contracts.commands import MoveEntities
+
+    a = line(window, P(x=0, y=20), P(x=60, y=21))
+    constrain(window, ConstraintType.HORIZONTAL, curve(a))
+    (before,) = window.canvas.constraint_glyphs
+    window.session.execute(MoveEntities(ids=(a,), dx=10, dy=0))
+    (after,) = window.canvas.constraint_glyphs
+    dx = after.rect.center().x() - before.rect.center().x()
+    assert dx == pytest.approx(10 * window.canvas.view.scale)
+
+
+def test_no_glyph_is_picked_while_the_view_is_moving(window, qtbot) -> None:
+    a = line(window, P(x=0, y=20), P(x=60, y=21))
+    constrain(window, ConstraintType.HORIZONTAL, curve(a))
+    (glyph,) = window.canvas.constraint_glyphs
+    centre_point = glyph.rect.center()
+    window.canvas._view_moved()  # a pan or zoom step
+    assert window.canvas.annotation_at(centre_point.x(), centre_point.y()) is None
