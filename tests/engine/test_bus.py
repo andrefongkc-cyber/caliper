@@ -12,14 +12,17 @@ from caliper.contracts.commands import (
     CommandResult,
     CreateArc,
     CreateCircle,
+    CreateDimension,
     CreateDistanceDimension,
     CreateLine,
+    CreatePoint,
     CreateRadialDimension,
     CreateRectangle,
     ModifyEntity,
     Rejected,
 )
 from caliper.contracts.document import (
+    Arc,
     DistanceOrientation,
     Document,
     EntityId,
@@ -30,7 +33,9 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.errors import ErrorCode
+from caliper.contracts.queries import DimensionType
 from caliper.engine.commands.bus import Bus
+from caliper.engine.io import snapshot
 
 ORIGIN = Point2(x=0.0, y=0.0)
 E1 = EntityId("e1")
@@ -156,6 +161,97 @@ def test_every_geometry_kind_can_be_created() -> None:
 )
 def test_geometry_rules(command: CreateLine, expected: list[tuple[ErrorCode, str]]) -> None:
     assert rejection(Bus().execute(command)) == expected
+
+
+# --- Arcs -------------------------------------------------------------------------------
+
+
+def arc(start_angle: float) -> CreateArc:
+    return CreateArc(center=ORIGIN, radius=5.0, start_angle=start_angle, sweep_angle=90.0)
+
+
+@pytest.mark.parametrize(
+    ("given", "stored"),
+    [
+        (0.0, 0.0),
+        (-0.0, 0.0),
+        (90.0, 90.0),
+        (359.5, 359.5),
+        (360.0, 0.0),
+        (450.0, 90.0),
+        (720.0, 0.0),
+        (-90.0, 270.0),
+        (-360.0, 0.0),
+        (-720.25, 359.75),
+        (-1e-15, 0.0),  # `% 360` alone gives exactly 360.0 here
+        (400, 40.0),  # an int, as a script may send
+    ],
+)
+def test_an_arc_start_angle_is_stored_in_0_to_360(given: float, stored: float) -> None:
+    bus = Bus()
+    result = applied(bus.execute(arc(given)))
+    entity = bus.document.entities[E1]
+    assert isinstance(entity, Arc)
+    assert type(entity.start_angle) is float
+    assert entity.start_angle == stored
+    assert math.copysign(1.0, entity.start_angle) == 1.0  # never -0.0
+    assert entity.sweep_angle == 90.0
+    assert isinstance(result.command, CreateArc)
+    assert result.command.start_angle == stored  # what replay and the history record
+
+
+def test_an_arc_the_solver_turns_is_stored_in_0_to_360_and_reloads_exactly() -> None:
+    # Found by the constraint property tests: shrinking this arc through a driving dimension
+    # turns its start a hair below 0, which `% 360` alone stores as exactly 360.0.
+    bus = Bus()
+    center = Point2(x=1.062, y=0.0)
+    applied(bus.execute(CreateArc(center=center, radius=1.0, start_angle=0.0, sweep_angle=10.0)))
+    applied(bus.execute(CreatePoint(position=ORIGIN)))
+    applied(
+        bus.execute(
+            CreateDimension(
+                refs=(Ref(entity=E1, feature=Feature.CENTER), Ref(entity=E1, feature=Feature.END)),
+                placement=Point2(x=0.0, y=1.0),
+                value=0.5,
+                type=DimensionType.DISTANCE,
+            )
+        )
+    )
+    stored = bus.document.entities[E1]
+    assert isinstance(stored, Arc)
+    assert stored.radius == pytest.approx(0.5)
+    assert stored.start_angle == 0.0
+    assert snapshot.loads(snapshot.dumps(bus.document)) == bus.document
+
+
+def test_arcs_a_whole_turn_apart_are_the_same_arc() -> None:
+    documents = []
+    for start in (0.0, 360.0, -360.0, 720.0):
+        bus = Bus()
+        applied(bus.execute(arc(start)))
+        documents.append(bus.document)
+    assert all(document == documents[0] for document in documents)
+    assert len({snapshot.dumps(document) for document in documents}) == 1
+
+
+def test_editing_an_arc_start_angle_stores_it_in_0_to_360() -> None:
+    bus = Bus()
+    applied(bus.execute(arc(0.0)))
+    edit = applied(bus.execute(ModifyEntity(id=E1, changes={"start_angle": -90.0})))
+    assert isinstance(edit.command, ModifyEntity)
+    assert dict(edit.command.changes) == {"start_angle": 270.0}
+    stored = bus.document.entities[E1]
+    assert isinstance(stored, Arc)
+    assert stored.start_angle == 270.0
+
+    # A whole turn more is the same arc: nothing changes and nothing is recorded.
+    same = applied(bus.execute(ModifyEntity(id=E1, changes={"start_angle": 630.0})))
+    assert (dict(same.delta.before), dict(same.delta.after)) == ({}, {})
+    assert bus.undo_label == "Change Start Angle"
+    bus.undo()
+    assert bus.document.entities[E1] == Arc(
+        center=ORIGIN, radius=5.0, start_angle=0.0, sweep_angle=90.0
+    )
 
 
 # --- Dimensions -------------------------------------------------------------------------

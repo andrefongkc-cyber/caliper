@@ -48,6 +48,7 @@ from caliper.contracts.queries import DimensionType
 from caliper.engine.commands.validation import (
     GEOMETRY,
     build_entity,
+    canonical_angle,
     feature_errors,
     field_types,
     normalize_enum,
@@ -119,7 +120,25 @@ def handle(document: Document, command: Command) -> Handled | list[Error]:
     solved = settle(document, outcome.document, outcome.solve)
     if isinstance(solved, list):
         return solved
-    return replace(outcome, document=solved, solve=None)
+    return replace(outcome, document=_arcs_in_range(solved), solve=None)
+
+
+def _arcs_in_range(document: Document) -> Document:
+    """`document` with every arc's `start_angle` in [0, 360), as `build_entity` stores it.
+
+    Solved geometry doesn't pass through `build_entity`, and a file must reload to exactly
+    the document that was saved.
+    """
+    fixed = {
+        id: replace(entity, start_angle=canonical_angle(entity.start_angle))
+        for id, entity in document.entities.items()
+        if isinstance(entity, Arc) and not 0.0 <= entity.start_angle < 360.0
+    }
+    if not fixed:
+        return document
+    return Document(
+        entities=MappingProxyType({**document.entities, **fixed}), next_id=document.next_id
+    )
 
 
 def _apply(document: Document, command: Command) -> Handled | list[Error]:

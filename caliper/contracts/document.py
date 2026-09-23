@@ -77,9 +77,10 @@ class Circle:
 class Arc:
     """Runs counter-clockwise from `start_angle` through `sweep_angle`, with 0 < sweep < 360.
 
-    `start_angle` is stored exactly as given and is not normalized, so 0 and 360 describe
-    the same arc while comparing unequal. Callers that need two equal-looking arcs to
-    compare equal send [0, 360). An angle the solver changes is written in [0, 360).
+    The engine stores `start_angle` in [0, 360). A command or file may give any finite
+    angle, and it is reduced to the same direction in that range (-90 becomes 270, 360
+    becomes 0), so two arcs that look the same compare equal. The resolved command carries
+    the stored angle. `sweep_angle` is never reduced.
     """
 
     kind: ClassVar[str] = "arc"

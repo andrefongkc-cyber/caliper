@@ -45,6 +45,16 @@ def test_a_fillet_replays_to_identical_bytes() -> None:
     assert second.stdout == first.stdout
 
 
+def test_arcs_replay_to_identical_bytes_with_start_angles_in_range() -> None:
+    """Arcs started at -90, 360, 450 and -720.25 degrees, and one edited to -30, are stored at
+    270, 0, 90, 359.75 and 330: one form per direction, whatever the script said."""
+    script, expected = FIXTURES / "arcs.script.json", FIXTURES / "arcs.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
 def test_a_constrained_sketch_replays_to_identical_bytes() -> None:
     """Solve a hand-drawn plate into a fixed 100 x 50 rectangle with a tangent hole, then widen
     it to 120 through its dimension. Only lines and circles: no trigonometry in the solve, so

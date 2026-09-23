@@ -1,14 +1,15 @@
 """Normalize and validate entity values, reporting problems as Error values.
 
 Shared by the command bus and by file loading, so a file can't hold anything a command
-couldn't have created. Normalizing means ints become floats and strings become enums or
-ids, so a script and the UI produce identical documents.
+couldn't have created. Normalizing means ints become floats, strings become enums or ids,
+and an arc's `start_angle` is brought into [0, 360), so a script and the UI produce
+identical documents.
 """
 
 import math
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import fields
+from dataclasses import fields, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import get_args, get_type_hints
@@ -77,6 +78,9 @@ def build_entity(
         return errors
     construct: Callable[..., Entity] = entity_type
     entity = construct(**normalized)
+    if isinstance(entity, Arc):
+        # One stored form per direction, so arcs that look the same compare equal.
+        entity = replace(entity, start_angle=canonical_angle(entity.start_angle))
     problems = domain_errors(entity) + reference_errors(entity, document)
     if problems:
         return problems
@@ -121,6 +125,16 @@ def normalize_float(value: object, field: str, errors: list[Error]) -> float:
     if not math.isfinite(number):
         errors.append(_error(ErrorCode.VALUE_NOT_FINITE, field, f"{field} must be finite"))
     return number
+
+
+def canonical_angle(degrees: float) -> float:
+    """The same direction in [0, 360).
+
+    `%` alone rounds a tiny negative angle such as -1e-15 up to exactly 360.0, which is
+    outside the range; that is the direction 0.
+    """
+    turned = degrees % 360.0
+    return 0.0 if turned == 360.0 else turned + 0.0  # never -0.0
 
 
 def normalize_bool(value: object, field: str, errors: list[Error]) -> bool:
