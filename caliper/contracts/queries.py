@@ -7,7 +7,8 @@ mid-computation.
 
 Frozen as of V1: changing anything here needs a joint `contracts/` PR. V1.5 added the
 constraint queries (`solve_status`, `applicable_constraints`, `infer_dimension`,
-`dimension_type`, `suggest_constraints`, `constraints_on`) and `reference_at_point`.
+`dimension_type`, `suggest_constraints`, `constraints_on`) and `reference_at_point`. The
+post-V1 fixes added the position metrics (`Metric.POSITION_X`, `Metric.POSITION_Y`).
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -84,6 +85,10 @@ class Metric(StrEnum):
     """refs=(a, b); absolute horizontal distance"""
     DISTANCE_Y = "distance_y"
     """refs=(a, b); absolute vertical distance"""
+    POSITION_X = "position_x"
+    """refs=(point,); the point feature's x coordinate, signed, from the origin"""
+    POSITION_Y = "position_y"
+    """refs=(point,); the point feature's y coordinate, signed, from the origin"""
     BBOX_WIDTH = "bbox_width"
     """ids; empty means the whole document"""
     BBOX_HEIGHT = "bbox_height"

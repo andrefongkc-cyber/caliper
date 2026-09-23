@@ -45,6 +45,20 @@ def test_a_failed_expectation_fails(tmp_path: Path) -> None:
     assert "FAIL    match     1 passed, 1 failed" in result.stdout
 
 
+def test_a_wrong_move_fails_its_expectations_without_the_snapshot(tmp_path: Path) -> None:
+    # Contract gap 10: width and height alone passed a rectangle moved the wrong distance.
+    case = tmp_path / "move-right-30"
+    shutil.copytree(BENCH / "cases" / "move-right-30", case)
+    (case / "expected.caliper").unlink()
+    reference = case / "reference.script.json"
+    data = json.loads(reference.read_text())
+    data["commands"][0]["dx"] = 25
+    reference.write_text(json.dumps(data))
+    result = run_bench("--cases", tmp_path)
+    assert result.returncode == 1
+    assert re.search(r"^move-right-30\s+FAIL\s+-\s+3 passed, 1 failed$", result.stdout, re.M)
+
+
 def test_a_wrong_result_fails(tmp_path: Path) -> None:
     case = tmp_path / "resize-width-120"
     shutil.copytree(BENCH / "cases" / "resize-width-120", case)

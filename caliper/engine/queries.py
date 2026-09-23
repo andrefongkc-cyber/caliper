@@ -384,6 +384,17 @@ class DocumentQueries:
                 if metric is Metric.DISTANCE_Y:
                     return abs(distance.dy)
                 return distance.value
+            case Metric.POSITION_X | Metric.POSITION_Y:
+                if len(expectation.refs) != 1:
+                    return Error(
+                        code=ErrorCode.VALUE_OUT_OF_RANGE,
+                        message=f"{metric} needs exactly one ref",
+                        field="refs",
+                    )
+                point = self._point(expectation.refs[0], "refs[0]")
+                if isinstance(point, Error):
+                    return point
+                return point.x if metric is Metric.POSITION_X else point.y
             case Metric.BBOX_WIDTH | Metric.BBOX_HEIGHT:
                 box = self.bounding_box(expectation.ids)
                 if isinstance(box, Error):

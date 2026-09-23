@@ -4,6 +4,8 @@
   "prompt": "Move the rectangle 30 mm to the right.",
   "expectations": [
     {"metric": "bbox_width", "expected": 120.0, "tolerance": 1e-9},
-    {"metric": "bbox_height", "expected": 50.0, "tolerance": 1e-9}
+    {"metric": "bbox_height", "expected": 50.0, "tolerance": 1e-9},
+    {"metric": "position_x", "refs": [{"entity": "e1", "feature": "bottom_left"}], "expected": 30.0, "tolerance": 1e-9},
+    {"metric": "position_y", "refs": [{"entity": "e1", "feature": "bottom_left"}], "expected": 0.0, "tolerance": 1e-9}
   ]
 }
