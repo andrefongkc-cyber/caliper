@@ -39,6 +39,16 @@ def format_number(value: float) -> str:
     return text[:-2] if text.endswith(".0") else text
 
 
+DISPLAY_DECIMALS = 6
+"""Fields show values to a micrometre; the solver's full-precision output (and its
+occasional -8.6e-78 for zero) is noise at that scale."""
+
+
+def display_number(value: float) -> str:
+    """A value as a field shows it: rounded to DISPLAY_DECIMALS, with no "-0"."""
+    return format_number(round(value, DISPLAY_DECIMALS) + 0.0)
+
+
 def parse_number(text: str) -> float | None:
     try:
         value = float(text.strip())
@@ -60,6 +70,9 @@ class PropertiesPanel(QWidget):
         self._entity_id: EntityId | None = None
         self._optional: set[str] = set()
         """Paths of number fields that may be left empty (None)."""
+        self._shown: dict[str, str] = {}
+        """The text each number field was last given, so Return on an untouched, rounded
+        value changes nothing instead of committing the rounding."""
         # The panel's width must not depend on what's selected: a dock that grows when a
         # selection appears shrinks the canvas and shifts the view under the user.
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -96,6 +109,7 @@ class PropertiesPanel(QWidget):
         self._layout.insertWidget(0, self._body)
         self.fields = {}
         self._optional = set()
+        self._shown = {}
         self._clear_error()
         selection = self.session.selection
         entity = None
@@ -167,19 +181,26 @@ class PropertiesPanel(QWidget):
         """A number that may be left empty (None), showing the measured value while empty."""
         edit = self._number(path, 0.0)
         self._optional.add(path)
-        edit.setText("" if value is None else format_number(value))
+        self._show(path, edit, value)
         edit.setPlaceholderText(self._measured())
         edit.setToolTip("A number makes this dimension drive the geometry; empty follows it")
         return edit
+
+    def _show(self, path: str, edit: QLineEdit, value: float | None) -> None:
+        text = "" if value is None else display_number(value)
+        edit.setText(text)
+        edit.setCursorPosition(0)  # a long value shows its start, not its tail
+        self._shown[path] = text
 
     def _measured(self) -> str:
         if self._entity_id is None:
             return ""
         value = self.session.queries.dimension_value(self._entity_id)
-        return "" if isinstance(value, Error) else f"{format_number(round(value, 6))} (driven)"
+        return "" if isinstance(value, Error) else f"{display_number(value)} (driven)"
 
     def _number(self, path: str, value: float) -> QLineEdit:
-        edit = QLineEdit(format_number(value))
+        edit = QLineEdit()
+        self._show(path, edit, value)
         edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         edit.setMinimumWidth(40)
         edit.setObjectName(path)
@@ -201,10 +222,10 @@ class PropertiesPanel(QWidget):
             current = _read(entity, path)
             if isinstance(widget, QLineEdit) and not widget.hasFocus():
                 if current is None:
-                    widget.setText("")
+                    self._show(path, widget, None)
                     widget.setPlaceholderText(self._measured())
                 else:
-                    widget.setText(format_number(float(current)))  # type: ignore[arg-type]
+                    self._show(path, widget, float(current))  # type: ignore[arg-type]
             elif isinstance(widget, QCheckBox) and isinstance(current, bool):
                 widget.blockSignals(True)
                 widget.setChecked(current)
@@ -225,13 +246,16 @@ class PropertiesPanel(QWidget):
             if _read(entity, path) is not None:
                 self._commit(path, None, path)
             return
+        if edit.text().strip() == self._shown.get(path):
+            self._clear_error()  # untouched: what's stored may have more digits than shown
+            return
         value = parse_number(edit.text())
         if value is None:
             self._show_error(path, "Enter a number")
             return
         if value == _read(entity, path):
             self._clear_error()
-            edit.setText(format_number(value))
+            self._show(path, edit, value)
             return
         name, _, axis = path.partition(".")
         change: ParamValue = value

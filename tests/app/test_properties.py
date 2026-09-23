@@ -221,3 +221,20 @@ def test_constraint_references_read_as_text(window) -> None:
     s.set_selection(frozenset({c}))
     texts = [label.text() for label in window.properties.findChildren(QLabel)]
     assert f"{a} curve" in texts
+
+
+def test_solver_digits_are_rounded_for_display_and_not_committed(window, qtbot, bus) -> None:
+    s = window.session
+    (line,) = s.execute(
+        CreateLine(start=Point2(x=-0.062460986251963, y=2.5), end=Point2(x=100, y=-8.6e-78))
+    ).created_ids
+    s.set_selection(frozenset({line}))
+    s.bus.sent.clear()
+    fields = window.properties.fields
+    assert fields["start.x"].text() == "-0.062461"
+    assert fields["end.y"].text() == "0"
+    assert fields["start.x"].cursorPosition() == 0
+    type_into(qtbot, fields["start.x"], "-0.062461")  # typed exactly what's shown
+    assert bus.sent == []
+    type_into(qtbot, fields["start.x"], "-0.06")
+    assert bus.sent == [ModifyEntity(id=line, changes={"start": Point2(x=-0.06, y=2.5)})]
