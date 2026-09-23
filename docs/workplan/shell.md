@@ -1,4 +1,4 @@
-Status: P7 (constraints on screen) planned on local `stream/shell-p7`, next: step 0 (issue #21 test), then step 1 (draw every entity kind)
+Status: P7 built on local `stream/shell-p7` (steps 0-10 done, 936 tests pass), next: publish it as `stream/shell` (needs a user-run force-push) and open the PR; send Andre the findings below
 
 # Shell workplan — Stream B
 
@@ -393,17 +393,45 @@ So: DOF colouring can call `solve_status` once per document change. Live suggest
 
 ### Steps (each a small commit with tests; mutation-check the important ones)
 
-- [ ] **0. Issue #21:** `test_area_isnt_offered_without_a_geometry_kernel` pins "no kernel" itself; add the other direction (a fake kernel makes Area offered). *Done when* the test passes with and without the `occt` extra.
-- [ ] **1. Draw every kind:** points (a dot), construction (dashed, dimmer), dimensions to lines (foot of the perpendicular for the extension line), angle dimensions (arc between the two directions at `offset`, in the sector the engine chose), driven values in parentheses. *Done when* a document with one of each kind reports 0 dimensions not drawn, and each draws pixels where expected.
-- [ ] **2. Properties for V1.5 fields:** a Construction checkbox, the `value` field (blank = driven, showing the measured value as placeholder), undo to driven doesn't crash, readable constraint references, a Supplementary checkbox. *Done when* each commits one `ModifyEntity` and undo/redo refreshes the panel.
-- [ ] **3. Browser and icons:** point and constraint icons; titles like "Parallel", "Angle", "Point"; summaries naming the references; construction marked. *Done when* the browser shows every kind without the fallback icon.
-- [ ] **4. DOF colouring and status:** as decided above. *Done when* fixing a line's start and making it horizontal with a driving length turns it `constrained` and the status reads "Fully constrained".
-- [ ] **5. Glyphs:** layout (Qt-free, tested), painting in the cached layer, hit-testing, hover and selection, the View toggle. *Done when* clicking a glyph selects its constraint and Delete removes it.
-- [ ] **6. Constraint actions, Constrain tool, construction toggle.** *Done when* select two lines → P… → parallel via the palette, and K → click two endpoints → I makes them coincident, each one undo step.
-- [ ] **7. Dimension tool on `CreateDimension`, and editing labels.** *Done when* D → click a line → place → Return makes a driving length; D → two lines → an angle; double-click the label → 120 → Return resizes the line.
-- [ ] **8. Conflict highlighting.** *Done when* a rejected edit draws the named constraints in `failed` and the next change clears them.
-- [ ] **9. Real-window benchmark** with constraints (`bench_canvas.py`), recorded here.
-- [ ] **10. Review pass:** real-window screenshots, this file, notes for Andre (suggestion speed, `-8.6e-78` coordinates the solver leaves behind, ADRs 0008/0009 still say Proposed though #26 merged).
+- [x] **0. Issue #21** (`1dd9d35`): the area tests build their bus with `Bus(kernel=...)`: `None`, or a stub written against the contract's `Kernel` (the shell's CLAUDE.md forbids importing `caliper/engine/geometry/`). Both directions tested.
+- [x] **1. Draw every kind** (`854fe42`): points (dot), construction (dashed, `construction` token), dimensions to lines (foot of the perpendicular, as the engine anchors them), angle dimensions (arc in the sector the engine chose), driven values in parentheses. `references.py` resolves a reference to a point or a segment through `feature_point` only. Engine cross-checks: placement, angle sectors, and point-to-line anchors are tested against the real `Bus`. 6 deliberate breaks, all caught.
+- [x] **2. Properties** (`48a2c1f`, `0457d5f`): Construction and Supplementary checkboxes; `value` empty = driven with the measurement as placeholder; the undo-to-driven crash is fixed; constraint references read as text. Solved values show to 6 decimals from their first character, and Return on an untouched rounded value sends nothing.
+- [x] **3. Browser and icons** (`3c2c848`): a Constraints group, titles like "Parallel", references as the value, driven values in parentheses, construction rows in italics; ⊥ icon for constraints (and the Constrain tool), a point icon, an angle icon. Checks offers nothing for a constraint and "Value of" for an angle. A test keeps `ICON` complete over the `Entity` union.
+- [x] **4. DOF colouring** (`6ee4403`): `constrained` token for geometry with 0 DOF; `failed` for driving dimensions that don't hold; status bar reads "3 degrees of freedom", "Fully constrained", "Over-constrained: e4 repeat others" or "Conflicting: e1, e2 and 2 more", only once the sketch has a constraint or a driving dimension.
+- [x] **5. Glyphs** (`b9dd735`): `viewport/glyphs.py`. One badge per place a constraint refers to, stacked where they'd overlap, 6.5 px clear of the geometry; hover highlights the references and explains in a tooltip; click selects, Delete removes; View → Show Constraints. Dimension labels are hit-tested too (click selects, double-click edits). A test checks every symbol is in the canvas font.
+- [x] **6. Adding constraints** (`da14a22`): one action per `ConstraintType` in Sketch → Constrain, the palette, and the Commands list; enabled from `applicable_constraints`, disabled ones say why in their tooltip. H V I E T keys. Constrain tool (K) with ordered picks. Q toggles construction as one transaction.
+- [x] **7. Dimension tool** (`03608d9`): `CreateDimension` with the engine's inference, a scratch-bus preview, and the value entry on placement. Return = driving at its size; a typed value previews the moved geometry, then resizes; **an emptied entry adds a driven dimension** (changed from the plan so it matches Properties, where empty means driven; found by a surviving mutation); a size already fixed falls back to driven with the reason. Esc cancels. Double-click any label to edit its value.
+- [x] **8. Conflicts** (`e90a175`): `session.flagged` holds the ids a rejection named; drawn in `failed` until the next change, undo, or redo.
+- [x] **9. Real-window benchmark** (`71f9f84`), below.
+- [x] **10. Review pass**: real-window screenshots (constrained sketch, Constrain tool mid-pick, Dimension tool previewing 120); full suite 936 passed, 16 skipped; ruff, format, mypy, boundaries clean.
+
+### What the benchmark found (real window, external 60 Hz display at 1x, 2026-09-22)
+
+The first run showed two regressions of mine, both fixed before committing:
+- **Pan and zoom doubled** (3.95 → 8.95 ms at 2,000): the highlight pass asked for glyph and label hit targets every frame, and they were cached per view. Now glyph anchors and label spots are kept per document, updated only for what a change touched (like the browser's rows); a new view only transforms them; nothing is laid out or picked while the view moves.
+- **A hovered glyph made every pan frame lay out all glyphs** (44 ms at 10,000 constrained, 101 ms worst): skipped while moving, and anchors are cached.
+
+Medians, back to back on the same display (the machine is bimodal between runs, so only same-round numbers compare):
+
+| 2,000 entities | main | P7 | P7 + 950 constraints |
+|---|---|---|---|
+| Pan frame | 1.06 | 1.12 | 0.97 |
+| Pointer move (first after a change) | 5.93 | 6.18 | 6.06 |
+| Redraw after the view settles | 21.6 | 21.5 | 26.7 |
+| Edit: command | 4.35 | 5.02 | **24.2** |
+| Edit: total | 25.2 | 27.5 | **47.3** |
+
+At 10,000 entities with 5,000 constraints an edit is 212 ms, of which the engine's `solve_status` is 83 ms and `execute` 17 ms (profiled offscreen). The shell's own per-change work is about 5-10 ms.
+
+### For Andre (not filed yet; drafts, to post once Lucas agrees)
+
+1. **Contract conflict, `DistanceDimension.offset` for HORIZONTAL/VERTICAL.** The frozen docstring says "perpendicular to a→b, whatever the orientation", and `CreateDimension` computes it that way. That can't be inverted: every point on a horizontal dimension line is a different distance from a slanted a→b, so the placement is lost, and a label placed above a corner-to-corner pair lands elsewhere. The shell's rule (along the orientation's normal, from the midpoint; shell.md since PR #5, gap 6) round-trips and is what every V1 file uses; both agree for ALIGNED. Proposal: engine `_offset` and the docstring adopt the shell rule. Until then `dimension_layout.engine_placement` feeds the engine a placement that yields the shell's offset; `test_the_engine_still_measures_horizontal_offsets_across_a_to_b` fails the day the engine changes, pointing at the code to delete.
+2. **`solve_status` recomputes the whole document on every change:** 17 ms at 2,000 entities + 950 constraints, 83 ms at 10,000 + 5,000, even when the change touched an unconstrained rectangle. Caching per cluster would make it proportional to what changed. It is the biggest part of a constrained edit.
+3. **`suggest_constraints` for one entity takes 3.4 s** at 2,000 entities + 1,000 constraints, so the shell can't offer live suggestions while drawing. Needs a candidate filter (a spatial index would serve hit-testing too).
+4. **The solver writes near-zero noise into stored coordinates** (`-8.6e-78`, `1.56e-61` after a vertical constraint). It goes into files, deltas, and replays. Snapping |v| < 1e-12 to 0 on output would keep files clean; the shell now rounds for display.
+5. **Where a dimension to a curve attaches isn't in the contract.** The shell mirrors the engine's `_anchor` (foot of the other end, or of the other curve's midpoint). Between two parallel lines offset along their length that draws a slanted dimension line. Worth a sentence in the `DistanceDimension` docstring either way.
+6. **Housekeeping (maintainer files):** ADRs 0008 and 0009 still say Proposed although #26 merged; CLAUDE.md still says V1.5 is "proposed in PR #26". Lucas approved #26, so both look ready to mark Accepted on a `shared/` branch.
+7. **Answers to #26's questions:** `CreateConstraint` and `CreateDimension` stay out of the palette as raw forms; constraints are offered per type from `applicable_constraints` (step 6), dimensions through the tool (step 7). Icons for points and constraints are drawn (step 3). Andre's palette/browser patch (`7bee2ba`) is kept as written.
 
 **Don't touch:** `caliper/contracts/`, `caliper/engine/`, `tests/` outside `tests/app/`, `CLAUDE.md`, ADRs, `.github/`. Anything the shell needs from them goes to Andre as an issue.
 
