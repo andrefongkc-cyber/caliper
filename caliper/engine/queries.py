@@ -55,6 +55,7 @@ from caliper.engine.commands.validation import (
 from caliper.engine.constraints import dimensions, sketch
 from caliper.engine.constraints.suggest import suggest
 from caliper.engine.geometry import default_kernel
+from caliper.engine.spatial import grid
 
 if TYPE_CHECKING:
     from caliper.contracts.queries import Queries
@@ -118,9 +119,9 @@ class DocumentQueries:
         if not (math.isfinite(tolerance) and tolerance >= 0):
             return None
         ranked: list[tuple[int, float, EntityId]] = []
-        for id, entity in self._document.entities.items():
-            if not isinstance(entity, _GEOMETRY):
-                continue
+        for id in grid(self._document).near(point.x, point.y, tolerance):
+            entity = self._document.entities[id]
+            assert isinstance(entity, _GEOMETRY)
             if (distance := _distance(entity, point)) <= tolerance:
                 ranked.append((0, distance, id))
             elif (area := _enclosing_area(entity, point)) is not None:
@@ -141,8 +142,8 @@ class DocumentQueries:
             return None
         candidates = (
             (math.hypot(at.x - point.x, at.y - point.y), id, feature)
-            for id, entity in self._document.entities.items()
-            for feature, at in _features(entity).items()
+            for id in grid(self._document).near(point.x, point.y, tolerance)
+            for feature, at in _features(self._document.entities[id]).items()
         )
         nearest = min((c for c in candidates if c[0] <= tolerance), default=None)
         return None if nearest is None else Ref(entity=nearest[1], feature=nearest[2])
@@ -159,14 +160,13 @@ class DocumentQueries:
         """
         if not _valid_box(box):
             return ()
-        return tuple(
-            sorted(
-                id
-                for id, entity in self._document.entities.items()
-                if isinstance(entity, _GEOMETRY)
-                and (_touches(entity, box) if crossing else _contains(box, _bounds(entity)))
-            )
-        )
+        picked: list[EntityId] = []
+        for id in grid(self._document).overlapping((box.x_min, box.y_min, box.x_max, box.y_max)):
+            entity = self._document.entities[id]
+            assert isinstance(entity, _GEOMETRY)
+            if _touches(entity, box) if crossing else _contains(box, _bounds(entity)):
+                picked.append(id)
+        return tuple(picked)  # the grid answers sorted by id
 
     def dimension_value(self, id: EntityId) -> float | Error:
         found = self._dimension(id)
@@ -215,8 +215,8 @@ class DocumentQueries:
             return None
         ranked = [
             (distance, id, index, ref)
-            for id, entity in self._document.entities.items()
-            if isinstance(entity, _GEOMETRY)
+            for id in grid(self._document).near(point.x, point.y, tolerance)
+            if isinstance(entity := self._document.entities[id], _GEOMETRY)
             for index, (ref, distance) in enumerate(_curve_distances(id, entity, point))
             if distance <= tolerance
         ]
