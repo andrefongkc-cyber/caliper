@@ -186,6 +186,20 @@ def test_schema_1_files_gain_the_constraint_fields() -> None:
     )
 
 
+def test_old_files_load_with_arc_start_angles_in_range() -> None:
+    """Files written before the engine normalized `start_angle` hold it as it was given.
+    Loading one, migrations included, stores each angle in [0, 360), as replay does now."""
+    expected = FIXTURES / "arcs.caliper"
+    # Schema 1, as the V1 engine wrote it: -90, 360, 450, -720.25 and -30.
+    assert snapshot.load(V1 / "arcs.caliper") == snapshot.load(expected)
+    assert snapshot.dumps(snapshot.load(V1 / "arcs.caliper")) == expected.read_text()
+    # Schema 2, as the V1.5 engine wrote it before this change.
+    data = json.loads(expected.read_text())
+    data["document"]["entities"]["e1"]["start_angle"] = -90.0
+    data["document"]["entities"]["e2"]["start_angle"] = 360.0
+    assert snapshot.loads(json.dumps(data)) == snapshot.load(expected)
+
+
 def test_every_schema_version_below_the_current_one_has_a_migration() -> None:
     assert set(snapshot.MIGRATIONS) == set(range(1, snapshot.SCHEMA_VERSION))
 

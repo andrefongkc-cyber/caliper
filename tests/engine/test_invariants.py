@@ -290,3 +290,64 @@ def test_moving_a_whole_sketch_moves_positions_and_keeps_sizes(
         assert moved.area == props.area
         assert moved.ixx == props.ixx
         assert moved.centroid.x == pytest.approx(props.centroid.x + dx, abs=tol)
+
+
+# --- Arcs -------------------------------------------------------------------------------
+
+
+@given(session=sessions())
+def test_every_stored_arc_starts_in_0_to_360(session: tuple[Bus, list[Command]]) -> None:
+    bus, _ = session
+    for entity in bus.document.entities.values():
+        if isinstance(entity, Arc):
+            assert 0.0 <= entity.start_angle < 360.0, entity
+
+
+@given(
+    start=st.integers(min_value=0, max_value=359),
+    turns=st.integers(min_value=-3, max_value=3),
+    sweep=st.integers(min_value=1, max_value=359),
+)
+def test_an_arc_whole_turns_apart_saves_the_same_file(start: int, turns: int, sweep: int) -> None:
+    files = set()
+    for degrees in (start, start + 360 * turns):
+        bus = Bus()
+        arc = CreateArc(
+            center=Point2(x=1.0, y=2.0),
+            radius=3.0,
+            start_angle=float(degrees),
+            sweep_angle=float(sweep),
+        )
+        assert isinstance(bus.execute(arc), Applied)
+        files.add(snapshot.dumps(bus.document))
+    assert len(files) == 1
+
+
+@given(
+    center=points,
+    radius=size,
+    start=st.floats(min_value=-1e4, max_value=1e4),
+    sweep=st.floats(min_value=0.01, max_value=359.99),
+)
+def test_storing_the_start_angle_in_range_keeps_the_arc_where_it_was(
+    center: Point2, radius: float, start: float, sweep: float
+) -> None:
+    bus = Bus()
+    result = bus.execute(
+        CreateArc(center=center, radius=radius, start_angle=start, sweep_angle=sweep)
+    )
+    assert isinstance(result, Applied)
+    (id,) = result.created_ids
+    stored = bus.document.entities[id]
+    assert isinstance(stored, Arc)
+    assert stored.sweep_angle == sweep
+    tol = 1e-9 * max(1.0, radius, abs(center.x), abs(center.y))
+    for feature, degrees in (
+        (Feature.START, start),
+        (Feature.MID, start + sweep / 2),
+        (Feature.END, start + sweep),
+    ):
+        at = bus.queries.feature_point(Ref(entity=id, feature=feature))
+        assert isinstance(at, Point2)
+        assert at.x == pytest.approx(center.x + radius * math.cos(math.radians(degrees)), abs=tol)
+        assert at.y == pytest.approx(center.y + radius * math.sin(math.radians(degrees)), abs=tol)
