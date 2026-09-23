@@ -1,15 +1,38 @@
-Status: post-V1 contract fixes open as PR #29 for Lucas (rebased on P7, 975 passed locally), next: his review, the two decisions in the PR, then Rebase and merge
+Status: faster solve status, suggestions, and picking done on `stream/core/solve-status-and-suggestion-speed` (#28 items 2 and 3), next: Andre's review of the PR, and a decision on limiting parallel/perpendicular suggestions to nearby geometry
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+## Query speed: solve status, suggestions, picking (branch `stream/core/solve-status-and-suggestion-speed`, 2026-09-23)
+
+User request (2026-09-23), from #28 items 2 and 3: `solve_status` redid every cluster on every edit, and `suggest_constraints` took 3.4 s for one line, too slow to suggest while drawing. No contract change, and no answer changes: equivalence tests compare every changed query with the code it replaced.
+
+- [x] **`solve_status` redoes only what an edit touched.** `sketch.status` keeps the last document's clusters and per-cluster results. The next document is compared by identity (documents share the entity objects an edit didn't change): if no constraint or driving dimension changed, the clusters keep their members and only the touched ones are solved again; otherwise the clusters are regrouped and every one whose entities are unchanged is reused
+- [x] **A grid of geometry** (`caliper/engine/spatial.py`), one per document, built on first use: every geometry entity by its covering box (outline, inside, and every point feature). It only narrows searches; each caller still runs its exact test
+- [x] **Picking and box selection use it:** `entity_at_point`, `nearest_feature`, `reference_at_point`, `entities_in_box`. This is the spatial index #17 item 4 asked about
+- [x] **Suggestions search from the entities in scope,** through the grid for coincident, midpoint, point-on-curve, and tangent. Parallel and perpendicular don't depend on distance, so every straight is still a partner, but only for straights in scope. `implied` joins the candidate's clusters once per call instead of regrouping the whole document per candidate
+- [x] Tests: the old all-pairs `suggest` and the check-everything pickers are kept in the tests as references, and random sketches must give identical answers (300 examples each); the status after every step of a random constrained session (commands, undo, redo) must equal one computed from scratch; a line tilted under an unchanged constraint, alone or with a constraint added elsewhere, must be solved again. Each was checked by breaking the code on purpose (13 ways); every break failed a test
+- [x] Benchmark: `uv run python tests/engine/bench_queries.py` builds `bench_canvas.py --constrained`'s sketch without Qt
+
+| Median ms, this Mac | 2,000 before | 2,000 after | 10,000 before | 10,000 after |
+|---|---|---|---|---|
+| `solve_status` after an edit | 10 | **0.13** | 52 | **0.7** |
+| `solve_status`, first sight of a document | 10 | 12 | 55 | 60 |
+| `entity_at_point` / `nearest_feature` / `reference_at_point` | 1.0 / 2.1 / 4.5 | **0.002 to 0.004** | 4.8 / 10.3 / 22 | **0.002 to 0.004** |
+| First pick after an edit (builds the grid) | n/a | 1.5 | n/a | 8.0 |
+| `suggest_constraints`, a constrained line (#28) | 3,650 | **109** | not measured | **539** |
+| `suggest_constraints`, a new line drawn on a rectangle | n/a | 26 | n/a | 141 |
+
+- [ ] **Decision needed (a contract change):** what's left of suggestion time is parallel and perpendicular, which the contract offers for every straight in the sketch however far away. A new line on a rectangle gets 2,103 suggestions at 2,000 entities (10,503 at 10,000), almost all parallel or perpendicular to distant lines, and a constrained line needs a redundancy check against each. Limiting them to geometry near the scope, as the positional kinds already are, measured 1.3 ms at 2,000 and 7 ms at 10,000, with 7 suggestions for the new line. It changes what `suggest_constraints` returns, so it needs a joint `contracts/` PR and Lucas's view; not done here
+- Not done: the grid is rebuilt for each new document (8 ms at 10,000, paid by the first pick after an edit). Updating it from the previous document would make that about 1 ms if it ever shows up in a profile
+
 ## Post-V1 contract fixes (branch `contracts/post-v1-fixes`, 2026-09-22)
 
 User request (2026-09-22): finish the post-V1 contract cleanup before `DragFeature` or the AI work: the three PR #22 decisions recommended "yes", then the next ready gap in the `Change` and undo bookkeeping. Joint `contracts/` branch, so Lucas reviews. No constraint, solver, or shell code changed.
 
-**State:** all four done, tested, and open as PR #29 (five commits, one per item plus this file), rebased onto `main` after P7 (#27) landed; 975 passed there, app tests included. 880 passed, 16 skipped (the OCCT extra isn't installed here); ruff, format, and mypy clean; bench 7/7.
+**State:** merged as PR #29 on 2026-09-23 (Lucas approved). 880 passed, 16 skipped (the OCCT extra isn't installed here); ruff, format, and mypy clean; bench 7/7.
 
 - [x] **Position metrics** (gap 10, PR #22 decision 5). `Metric.POSITION_X` and `POSITION_Y`: `refs=(point,)`, the point feature's signed coordinate, with `feature_point`'s validation and errors on `refs[0]`. Two metrics, not one, because `Expectation.expected` is one float; they mirror `DISTANCE_X` and `DISTANCE_Y`. `bench/cases/move-right-30` now checks where the rectangle ended up, and a test shows a 25 mm move used to pass on width and height alone
 - [x] **`Arc.start_angle` in [0, 360)** (decision 2). `build_entity` reduces it with `canonical_angle`, which also catches `%` rounding a tiny negative angle up to exactly 360.0, so commands, resolved commands, replay, and file loading agree. `handle()` does the same for solved geometry, which skips `build_entity`. No schema bump: every reader already accepts these values, and loading normalizes old files (fixture `v1/arcs.caliper` loads to `arcs.caliper`). A bump is a reviewer decision if wanted anyway
@@ -73,7 +96,7 @@ Partial or blocked, deliberately:
 Next, in order:
 - [x] Lucas's review of PR #26: approved, and merged on 2026-09-22
 - [x] Before merging: flatten the branch onto `main` (done 2026-09-22; same tree as the approved head)
-- [ ] ADRs 0008 and 0009 from Proposed to Accepted (maintainer files)
+- [~] ADRs 0008 and 0009 from Proposed to Accepted (maintainer files): PR #30, on `shared/adr-0008-0009-accepted`
 - [ ] Maintainers (propose only): `docs/architecture.md` gains a "Constraints" section (relation registry → solve in commands → status queries)
 - [ ] After review: `DragFeature` + a drag-preview timing budget, then sparse elimination if clusters past ~100 unknowns show up
 ## Start here (2026-09-21)
@@ -93,8 +116,7 @@ Branch names in the history below (`stream/core/queries` and so on) are historic
 - [x] **Move `LoadError` into `contracts/`** (decision 3). Done on `contracts/post-v1-fixes`; the old engine name still works
 - [x] **Announce a transaction commit** (core gap 9, issue #17 item 2). Done on `contracts/post-v1-fixes`: `ChangeReason.COMMIT` with an empty delta
 - [ ] The other three deferred decisions, recommended "not yet" in PR #22: `Error` returns for the pickers, an author on `Change`, a document revision counter
-- [x] **V1.5: constraints.** Done in PR #26, with our own solver instead of planegcs (ADRs 0008 and 0009, both Proposed). Lucas's screen side is still phase P7 in `shell.md`
-- [ ] Spatial index for hit-testing: only if profiles demand it. Lucas measured ~19 ms per pointer move at 10,000 entities, all in `nearest_feature` + `entity_at_point`
+- [x] **V1.5: constraints.** Done in PR #26, with our own solver instead of planegcs (ADRs 0008 and 0009, both Proposed). Lucas's - [x] Spatial index for hit-testing: the grid in `caliper/engine/spatial.py` (see Query speed at the top)all in `nearest_feature` + `entity_at_point`
 
 **How work lands.** Engine work on `stream/core/<topic>` branches; anything touching `caliper/contracts/` on a `contracts/<topic>` branch reviewed by both. Every PR needs Lucas's approval and "Rebase and merge"; branches must be linear (no merge commits) or GitHub offers no way to merge. Talking to Lucas means a GitHub issue or comment posted from Andre's account, so ask Andre first.
 
