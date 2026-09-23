@@ -1,4 +1,4 @@
-Status: post-V1 contract fixes committed on `contracts/post-v1-fixes` (five commits, not pushed), next: push and open the joint PR for Lucas when Andre says so
+Status: post-V1 contract fixes open as PR #29 for Lucas (rebased on P7, 975 passed locally), next: his review, the two decisions in the PR, then Rebase and merge
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -9,7 +9,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 User request (2026-09-22): finish the post-V1 contract cleanup before `DragFeature` or the AI work: the three PR #22 decisions recommended "yes", then the next ready gap in the `Change` and undo bookkeeping. Joint `contracts/` branch, so Lucas reviews. No constraint, solver, or shell code changed.
 
-**State:** all four done, tested, and committed as five commits (one per item, plus this file); not pushed, no PR yet (Andre's call). 880 passed, 16 skipped (the OCCT extra isn't installed here); ruff, format, and mypy clean; bench 7/7.
+**State:** all four done, tested, and open as PR #29 (five commits, one per item plus this file), rebased onto `main` after P7 (#27) landed; 975 passed there, app tests included. 880 passed, 16 skipped (the OCCT extra isn't installed here); ruff, format, and mypy clean; bench 7/7.
 
 - [x] **Position metrics** (gap 10, PR #22 decision 5). `Metric.POSITION_X` and `POSITION_Y`: `refs=(point,)`, the point feature's signed coordinate, with `feature_point`'s validation and errors on `refs[0]`. Two metrics, not one, because `Expectation.expected` is one float; they mirror `DISTANCE_X` and `DISTANCE_Y`. `bench/cases/move-right-30` now checks where the rectangle ended up, and a test shows a 25 mm move used to pass on width and height alone
 - [x] **`Arc.start_angle` in [0, 360)** (decision 2). `build_entity` reduces it with `canonical_angle`, which also catches `%` rounding a tiny negative angle up to exactly 360.0, so commands, resolved commands, replay, and file loading agree. `handle()` does the same for solved geometry, which skips `build_entity`. No schema bump: every reader already accepts these values, and loading normalizes old files (fixture `v1/arcs.caliper` loads to `arcs.caliper`). A bump is a reviewer decision if wanted anyway
