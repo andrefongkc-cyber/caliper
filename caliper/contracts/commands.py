@@ -21,7 +21,8 @@ Conventions:
   other fields); that part's whole entity; everything connected to it.
 
 Frozen as of V1: a new command type, or a change to an existing one, needs a joint
-`contracts/` PR. ADR 0002 has the reasoning.
+`contracts/` PR. ADR 0002 has the reasoning. The post-V1 fixes added `ChangeReason.COMMIT`,
+so committing a transaction is announced like every other change to the undo stack.
 """
 
 from collections.abc import Callable, Mapping
@@ -326,11 +327,21 @@ class ChangeReason(StrEnum):
     UNDO = "undo"
     REDO = "redo"
     ROLLBACK = "rollback"
+    COMMIT = "commit"
+    """A transaction closed and changed the undo and redo stacks: its entry was recorded, or,
+    unrecorded, the stacks were cleared. Its commands already sent their own EXECUTE
+    changes, so the document is already in this state and `delta` is empty. Sent once, by
+    the outermost transaction, and only when the transaction changed the document."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Change:
-    """Sent to subscribers after the document changes. Read the new state from `bus.document`."""
+    """Sent to subscribers after the document or the undo and redo stacks change.
+
+    `delta` is what changed since the previous Change, so applying each in turn tracks the
+    document. Read the new state from `bus.document`, and the labels from `undo_label` and
+    `redo_label`, which are already up to date when a Change arrives.
+    """
 
     reason: ChangeReason
     delta: Delta
@@ -371,9 +382,9 @@ class CommandBus(Protocol):
     There is no way to replace the document in place: a bus is created around one, and
     opening a file means a new bus, because an undo stack must never cross documents.
 
-    Committing a transaction records its undo entry but sends no `Change`, since the
-    document is already in that state. A view that displays the undo label refreshes on
-    the next change.
+    Committing a transaction records its undo entry and sends one COMMIT `Change` with an
+    empty delta: the document is already in that state, but the undo and redo labels have
+    just changed, and a view that displays them refreshes then.
     """
 
     @property

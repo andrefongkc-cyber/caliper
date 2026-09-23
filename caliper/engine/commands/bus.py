@@ -197,6 +197,8 @@ class Bus:
         else:
             self._undo.clear()
             self._undo_size = 0
+        # The document was announced command by command; only the labels are news.
+        self._notify(ChangeReason.COMMIT, Delta.empty(self._document.next_id), transaction.label)
 
     def _revert_to(self, document: Document, label: str) -> None:
         delta = diff(self._document, document)
