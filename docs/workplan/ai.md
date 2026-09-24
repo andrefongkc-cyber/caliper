@@ -6,6 +6,8 @@ The assistant: a model that understands a request and does it through Caliper's 
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+**Picking this up in a fresh session.** Branch `ai/interface-foundation`, 9 commits plus this update on `main` 5102c2b, not pushed, clean tree; 1054 passed, 16 skipped. Blocked on Andre: review, the owner and branch rule for `caliper/ai`, and SDK + credentials for a live run. Try it offline with `uv run pytest tests/ai tests/app/test_assistant.py`; live with `CALIPER_ASSISTANT=claude uv run python -m caliper.app` once `anthropic` is installed.
+
 ## Foundation (branch `ai/interface-foundation`, 2026-09-24)
 
 User request (2026-09-24): the foundation for a generative assistant that interfaces with Caliper through well-defined interfaces, model-agnostic, with a thin UI and a real end-to-end demo; no engine optimisation, no contract change, no custom model.
