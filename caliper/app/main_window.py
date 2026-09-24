@@ -17,10 +17,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from caliper.ai.agent import from_environment
 from caliper.app import icons, solve_state
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
 from caliper.app.palette import CommandPalette
+from caliper.app.panels.assistant import AssistantLog
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
 from caliper.app.panels.history import HistoryList
@@ -71,7 +73,9 @@ class MainWindow(QMainWindow):
 
         self.prompt_bar = PromptBar()
         self.proposal_card = ProposalCard(self.canvas)
-        self.agent = AgentController(self.session, self.prompt_bar, self.proposal_card, self)
+        self.agent = AgentController(
+            self.session, self.prompt_bar, self.proposal_card, self, assistant=from_environment()
+        )
         self.canvas.proposal = lambda: self.agent.proposal
         self.canvas.reject_proposal = self.agent.reject
         self.agent.proposal_changed.connect(self.canvas.update)
@@ -310,6 +314,9 @@ class MainWindow(QMainWindow):
         tabs.setDocumentMode(True)
         tabs.addTab(self.browser, "Sketch")
         tabs.addTab(self.history, "History")
+        self.assistant_log = AssistantLog(self.agent)
+        tabs.addTab(self.assistant_log, "Assistant")
+        self.agent.turn_started.connect(lambda _: tabs.setCurrentWidget(self.assistant_log))
         self.browser_tabs = tabs
         browser = QDockWidget("Browser", self)
         browser.setObjectName("browser")
