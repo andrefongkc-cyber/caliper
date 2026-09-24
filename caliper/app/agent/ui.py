@@ -3,9 +3,14 @@
 Ask in the bar (⌘L). The card shows the plan, each check before and after, and any of your
 checks it would break. The canvas draws the result as ghost geometry. Accept (⌘Return)
 applies it as one undo step credited to the agent; Reject (Esc) discards it.
+
+With an assistant (`caliper.ai`, e.g. CALIPER_ASSISTANT=claude) the request goes to a model
+that works through Caliper's commands on a copy of the document, off the UI thread; what it
+did comes back as the same kind of proposal. Without one, the scripted stand-in answers.
 """
 
 import dataclasses
+import threading
 from collections.abc import Mapping
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -20,8 +25,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from caliper.ai.agent import Assistant, Turn
 from caliper.app import theme
-from caliper.app.agent.proposal import CheckChange, Proposal, prepare
+from caliper.app.agent.proposal import CheckChange, Plan, Proposal, prepare
 from caliper.app.agent.scripted import understand
 from caliper.app.panels.checks import describe
 from caliper.app.panels.describe import n
@@ -31,6 +37,10 @@ from caliper.contracts.document import Point2
 from caliper.contracts.queries import CheckResult
 
 CARD_WIDTH = 360
+SCRIPTED_PLACEHOLDER = "Ask for a change, like “4 holes diameter 6 inset 10”  (⌘L)"
+ASSISTANT_PLACEHOLDER = (
+    "Ask for a change, like “a 100 by 50 rectangle 20 mm right of the origin”  (⌘L)"
+)
 
 
 class PromptBar(QFrame):
@@ -50,7 +60,7 @@ class PromptBar(QFrame):
         )
         self.input = QLineEdit()
         self.input.setObjectName("prompt")
-        self.input.setPlaceholderText("Ask for a change, like “4 holes diameter 6 inset 10”  (⌘L)")
+        self.input.setPlaceholderText(SCRIPTED_PLACEHOLDER)
         self.input.returnPressed.connect(self._submit)
         self.input.installEventFilter(self)
         layout.addWidget(self.chip)
@@ -73,6 +83,30 @@ class PromptBar(QFrame):
         text = self.input.text().strip()
         if text:
             self.submitted.emit(text)
+
+    def set_model(self, name: str | None) -> None:
+        """Say who answers: a model by name, or the scripted stand-in."""
+        if name is None:
+            self.chip.setText("Scripted agent")
+            self.input.setPlaceholderText(SCRIPTED_PLACEHOLDER)
+        else:
+            self.chip.setText(name)
+            self.chip.setToolTip(
+                f"{name} works through Caliper's commands on a copy of your sketch. "
+                "Nothing changes until you accept."
+            )
+            self.input.setPlaceholderText(ASSISTANT_PLACEHOLDER)
+
+    def set_busy(self, busy: bool) -> None:
+        self.input.setEnabled(not busy)
+        if busy:
+            self.input.setPlaceholderText("Working…")
+        else:
+            self.input.setPlaceholderText(
+                SCRIPTED_PLACEHOLDER
+                if self.chip.text() == "Scripted agent"
+                else ASSISTANT_PLACEHOLDER
+            )
 
 
 class ProposalCard(QFrame):
@@ -164,6 +198,13 @@ class AgentController(QObject):
     proposal_changed = Signal()
     proposal_shown = Signal(object)
     """A new Proposal is on screen; the window frames what it touches."""
+    turn_started = Signal(str)
+    """The assistant was asked this."""
+    step_done = Signal(object)
+    """A `ToolOutcome`: one tool call the assistant made, and its result."""
+    turn_finished = Signal(object)
+    """The assistant's `Turn`, or the exception that ended it."""
+    _answered = Signal(object, int)
 
     def __init__(
         self,
@@ -171,19 +212,35 @@ class AgentController(QObject):
         bar: PromptBar,
         card: ProposalCard,
         parent: QObject | None = None,
+        *,
+        assistant: Assistant | None = None,
     ) -> None:
         super().__init__(parent)
         self.session = session
         self.bar = bar
         self.card = card
         self.proposal: Proposal | None = None
+        self.assistant: Assistant | None = None
+        self.busy = False
+        self._generation = 0
+        """Counts documents opened, so an answer about a closed one is dropped."""
         bar.submitted.connect(self.ask)
         card.accepted.connect(self.accept)
         card.rejected.connect(self.reject)
         session.document_replaced.connect(self.reject)
+        session.document_replaced.connect(self._forget)
         bar.escaped.connect(self.reject)
+        self._answered.connect(self._show_turn)  # queued: it arrives from the worker thread
+        self.set_assistant(assistant)
+
+    def set_assistant(self, assistant: Assistant | None) -> None:
+        self.assistant = assistant
+        self.bar.set_model(None if assistant is None else assistant.model.name)
 
     def ask(self, text: str) -> None:
+        if self.assistant is not None:
+            self._ask_assistant(self.assistant, text)
+            return
         document = self.session.document
         understood = understand(text, document, self.session.selection)
         if understood.plan is None:
@@ -216,6 +273,61 @@ class AgentController(QObject):
     def reject(self) -> None:
         if self.proposal is not None:
             self._close()
+
+    # --- The assistant ------------------------------------------------------------------
+
+    def _ask_assistant(self, assistant: Assistant, text: str) -> None:
+        if self.busy:
+            self.session.message.emit("Still working on the last request.")
+            return
+        self.reject()
+        self.busy = True
+        self.bar.input.clear()
+        self.bar.set_busy(True)
+        self.turn_started.emit(text)
+        document, selection, generation = (
+            self.session.document,
+            self.session.selection,
+            self._generation,
+        )
+
+        def work() -> None:
+            result: Turn | Exception
+            try:
+                result = assistant.ask(text, document, selection, on_step=self.step_done.emit)
+            except Exception as e:  # a bug in Caliper: show it rather than lose it
+                result = e
+            self._answered.emit(result, generation)
+
+        threading.Thread(target=work, name="caliper-assistant", daemon=True).start()
+
+    def _show_turn(self, result: Turn | Exception, generation: int) -> None:
+        self.busy = False
+        self.bar.set_busy(False)
+        if generation != self._generation:
+            return  # another document was opened while the model worked
+        self.turn_finished.emit(result)
+        if isinstance(result, Exception):
+            self.session.message.emit(f"The assistant failed: {result}")
+            return
+        if result.commands:
+            plan = Plan(
+                result.label,
+                result.reply or "The assistant's changes.",
+                result.commands,
+                result.checks,
+            )
+            self.proposal = prepare(plan, result.base, self.session.checks)
+            self.card.show_proposal(self.proposal)
+            self.proposal_changed.emit()
+            self.proposal_shown.emit(self.proposal)
+        elif result.error is not None:
+            self.session.message.emit(result.error)
+
+    def _forget(self) -> None:
+        self._generation += 1
+        if self.assistant is not None:
+            self.assistant.reset()
 
     def _close(self) -> None:
         self.proposal = None
