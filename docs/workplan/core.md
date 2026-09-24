@@ -1,9 +1,31 @@
-Status: faster solve status, suggestions, and picking done on `stream/core/solve-status-and-suggestion-speed` (#28 items 2 and 3), next: Andre's review of the PR, and a decision on limiting parallel/perpendicular suggestions to nearby geometry
+Status: Performance V2 paused after item 1 (per-command overhead, committed on `stream/core/performance-v2`, not pushed) for the AI interface milestone, next: resume with item 2 (large clusters) when Andre says so
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Performance V2 (branch `stream/core/performance-v2`, started 2026-09-24, paused)
+
+User request (2026-09-24): profile every engine area before optimizing; keep results bit-for-bit, public contracts, replay, and suggestions unchanged; stop and report anything that would change them. Paused the same day for the AI interface milestone (a separate branch from `main`). Nothing pushed; resume here.
+
+Baseline on `main` (5102c2b), this Mac, medians:
+
+| Case | 100 | 2,000 | 10,000 |
+|---|---|---|---|
+| Unconstrained geometry edit | 0.10 ms | 1.68 | 9.09 |
+| Constrained geometry edit | 0.13 | 1.71 | 8.94 |
+| Add + delete a constraint | 0.23 | 2.95 | 15.29 |
+| Undo + redo | 0.01 | 0.15 | 0.86 |
+
+One connected chain of lines (coincident ends, alternately horizontal and vertical, first start fixed): 160 unknowns, edit 54 ms, status 28 ms, building it constraint by constraint 3.1 s; 240 unknowns, edit 167 ms, status 88 ms, building it 14.7 s. 85% of that is dense dot products in `RowBasis.add`. Files at 10,000 entities: `dumps` 46 ms, `loads` 279 ms (parse 13 ms, the rest decoding and validating each entity), replaying 9,500 creates 11.7 s. Memory at 10,000: document 3.7 MB, status 2.5 MB, grid 3.0 MB, 100 edits of history 1.0 MB, peak 24 MB. The engine has no intersection queries yet.
+
+- [x] **1. Per-command overhead** (3 commits). `diff` compares by identity first and runs once per command; `sketch.grouped` works each document's clusters out from the last one's, so `settle`, `status`, and suggestions no longer regroup the whole document; the solver's `_written` stores arcs in [0, 360) itself, so `handle()` no longer scans every entity. At 10,000: geometry edit 9.1 → 1.7 ms, add + delete constraint 15.3 → 5.5 ms, replaying 9,500 creates 11.7 → 3.4 s. Tests: `diff` against the old comparison; `grouped` against `clusters()` after every step of random sessions with undo and redo, and `settle`'s cluster choice and order; which conflict is reported for two touched clusters. Six deliberate breaks each failed tests. What's left per command at 10,000 is the snapshot dict copy (0.4 ms, inherent to ADR 0002's snapshots) and two identity scans (about 0.5 to 0.7 ms each)
+- [ ] 2. Large clusters: skip `RowBasis` dot products whose rows' nonzero entries can't overlap. Those products are exactly zero and already skipped, so results stay bit-for-bit; stop and report if a faster method would change the last bits of solved positions (the golden replay fixtures pin them)
+- [ ] 3. `loads`: profile the 265 ms of decoding and validation at 10,000 entities
+- [ ] 4. Grid: derive each document's grid from the last one's (8 ms rebuild after an edit at 10,000); memory
+- [ ] 5. Geometry queries and caching audit; 6. memory report; 7. parallelism report (profile only)
+- Behaviour note for review: a document built by hand (not through commands or files) holding an arc outside [0, 360) no longer has that arc normalized by an unrelated solve; `_arcs_in_range` used to do that as a side effect
 
 ## Tangency at a joint (branch `shared/mcp-stress-fixes`, 2026-09-25)
 
