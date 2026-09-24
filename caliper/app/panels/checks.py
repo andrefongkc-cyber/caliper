@@ -76,6 +76,11 @@ def describe(e: Expectation) -> str:
                 Metric.DISTANCE_Y: "Vertical distance",
             }[e.metric]
             subject = f"{kind} {ref_text(e.refs[0])} → {ref_text(e.refs[1])}"
+        case Metric.POSITION_X | Metric.POSITION_Y:
+            axis = "x" if e.metric is Metric.POSITION_X else "y"
+            subject = f"Position {axis} of {ref_text(e.refs[0])}" if e.refs else f"Position {axis}"
+        case _:  # a metric added to the contract later still gets a line
+            subject = str(e.metric)
     return f"{subject} = {n(e.expected)} ± {format_number(e.tolerance)}"
 
 
