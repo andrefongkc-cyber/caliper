@@ -11,11 +11,14 @@ class StaleDeltaError(RuntimeError):
 
 
 def diff(before: Document, after: Document) -> Delta:
-    ids = before.entities.keys() | after.entities.keys()
-    changed = {i for i in ids if before.entities.get(i) != after.entities.get(i)}
+    old, new = before.entities, after.entities
+    # Documents share the entity objects a change left alone, and an entity is always equal
+    # to itself, so only entities that aren't the same object are compared by value.
+    changed = [id for id, e in new.items() if (was := old.get(id)) is not e and was != e]
+    removed = old.keys() - new.keys()
     return Delta(
-        before=MappingProxyType({i: before.entities[i] for i in changed if i in before.entities}),
-        after=MappingProxyType({i: after.entities[i] for i in changed if i in after.entities}),
+        before=MappingProxyType({id: old[id] for id in (*changed, *removed) if id in old}),
+        after=MappingProxyType({id: new[id] for id in changed}),
         next_id_before=before.next_id,
         next_id_after=after.next_id,
     )

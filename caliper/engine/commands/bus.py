@@ -87,7 +87,7 @@ class Bus:
         if not is_empty(delta):
             before, self._document = self._document, outcome.document
             if not self._open:
-                self._record(before, outcome.label, merge_key)
+                self._record(before, outcome.label, merge_key, delta)
             self._notify(ChangeReason.EXECUTE, delta, outcome.label)
         return Applied(
             command=outcome.command,
@@ -145,7 +145,8 @@ class Bus:
 
     # --- Undo stack -----------------------------------------------------------------------
 
-    def _record(self, before: Document, label: str, merge_key: str | None) -> None:
+    def _record(self, before: Document, label: str, merge_key: str | None, delta: Delta) -> None:
+        """Record the change from `before` to the current document, which is `delta`."""
         self._redo.clear()
         if merge_key is not None and merge_key == self._merge_key:
             # One entry spans the whole run of same-key executes, from before the first.
@@ -158,7 +159,7 @@ class Bus:
             return
         self._merge_key, self._merge_base = merge_key, before
         self._merge_entry_on_top = merge_key is not None
-        self._push(_entry(label, diff(before, self._document)))
+        self._push(_entry(label, delta))
 
     def _push(self, entry: _UndoEntry) -> None:
         self._undo.append(entry)
