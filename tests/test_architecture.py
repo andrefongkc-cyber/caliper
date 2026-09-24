@@ -126,3 +126,36 @@ print(json.dumps(sorted(sys.modules)))
     forbidden = FORBIDDEN_LAYERS_AND_TOOLKITS | {"OCP"}
     violations = sorted({m for m in loaded for f in forbidden if _matches(m, f)})
     assert not violations, f"importing the core loaded {violations}"
+
+
+# --- The AI layer -----------------------------------------------------------------------
+# docs/architecture.md: caliper/ai may import contracts and engine, never app or Qt. It uses
+# the same commands and queries as the shell (invariant 5), and the model SDK stays optional.
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((PACKAGE_ROOT / "ai").rglob("*.py")),
+    ids=lambda p: str(p.relative_to(PACKAGE_ROOT)),
+)
+def test_the_ai_layer_has_no_forbidden_imports(path: Path) -> None:
+    forbidden = (FORBIDDEN_IN_CORE - {"caliper.ai"}) | {"OCP"}
+    violations = sorted({m for m in _imports(path) for f in forbidden if _matches(m, f)})
+    assert not violations, f"{path.name} imports {violations}"
+
+
+def test_importing_the_ai_layer_loads_no_ui_and_no_model_sdk() -> None:
+    script = """
+import importlib, json, pkgutil, sys
+import caliper.ai
+for info in pkgutil.walk_packages(caliper.ai.__path__, "caliper.ai."):
+    importlib.import_module(info.name)
+print(json.dumps(sorted(sys.modules)))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    loaded = json.loads(result.stdout)
+    forbidden = (FORBIDDEN_LAYERS_AND_TOOLKITS - {"caliper.ai"}) | {"OCP", "anthropic"}
+    violations = sorted({m for m in loaded for f in forbidden if _matches(m, f)})
+    assert not violations, f"importing caliper.ai loaded {violations}"
