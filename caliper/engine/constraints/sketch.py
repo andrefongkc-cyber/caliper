@@ -19,6 +19,7 @@ lets the rest solve are reported.
 """
 
 import math
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import permutations
@@ -106,6 +107,13 @@ class Cluster:
 
 def clusters(document: Document) -> list[Cluster]:
     """Geometry joined by relations, each group with its relations. Lone geometry is omitted."""
+    relations = (id for id in sorted(document.entities) if is_relation(document.entities[id]))
+    return _clusters_of(document, relations)
+
+
+def _clusters_of(document: Document, relations: Iterable[EntityId]) -> list[Cluster]:
+    """The clusters `relations` (sorted ids) join their geometry into, in `clusters` order:
+    by each one's first geometry id, geometry and relations each sorted."""
     parent: dict[EntityId, EntityId] = {}
 
     def root(e: EntityId) -> EntityId:
@@ -115,11 +123,8 @@ def clusters(document: Document) -> list[Cluster]:
         return e
 
     owners: dict[EntityId, EntityId] = {}
-    for id in sorted(document.entities):
-        entity = document.entities[id]
-        if not is_relation(entity):
-            continue
-        targets = sorted({r.entity for r in references(entity)})
+    for id in relations:
+        targets = sorted({r.entity for r in references(document.entities[id])})
         first = root(targets[0])  # registers it, even when the relation has one entity
         for other in targets[1:]:
             parent[root(other)] = first
@@ -130,6 +135,72 @@ def clusters(document: Document) -> list[Cluster]:
     for id, owner in owners.items():
         groups[root(owner)][1].append(id)
     return [Cluster(tuple(g), tuple(r)) for g, r in groups.values()]
+
+
+_GROUPS: OrderedDict[int, tuple[Document, Mapping[EntityId, Cluster]]] = OrderedDict()
+"""`grouped` for recent documents, by identity, as `DocumentQueries` keeps solve status.
+Holding a document keeps its id from being reused."""
+
+
+def grouped(document: Document) -> Mapping[EntityId, Cluster]:
+    """The cluster of every clustered entity, geometry and relations alike, as `clusters`
+    finds them.
+
+    Worked out from the last document asked about. Documents share the entity objects a change
+    left alone, so they are compared by identity: when no relation changed, every cluster keeps
+    its members; otherwise only the clusters a changed relation left or reaches are grouped
+    again.
+    """
+    key = id(document)
+    cached = _GROUPS.get(key)
+    if cached is not None and cached[0] is document:
+        _GROUPS.move_to_end(key)
+        return cached[1]
+    found: Mapping[EntityId, Cluster]
+    if not _GROUPS:
+        found = _by_member(clusters(document))
+    else:
+        base, where = next(reversed(_GROUPS.values()))
+        changed = _changed(base, document)
+        if not _any_relation(changed, base, document):
+            found = where
+        elif len(changed) > len(document.entities) // 2:
+            found = _by_member(clusters(document))
+        else:
+            found = _regrouped(where, base, document, changed)
+    _GROUPS[key] = (document, found)
+    while len(_GROUPS) > 4:
+        _GROUPS.popitem(last=False)
+    return found
+
+
+def _by_member(found: Iterable[Cluster]) -> dict[EntityId, Cluster]:
+    return {id: cluster for cluster in found for id in (*cluster.geometry, *cluster.relations)}
+
+
+def _regrouped(
+    where: Mapping[EntityId, Cluster], before: Document, after: Document, changed: set[EntityId]
+) -> dict[EntityId, Cluster]:
+    """`where`, from `before`, for `after`: the clusters that held a changed entity, or that a
+    changed relation refers into, are grouped again from their relations; the rest stay."""
+    reached = {member for member in changed if member in where}
+    for member in changed:
+        for entity in (before.entities.get(member), after.entities.get(member)):
+            if entity is not None and is_relation(entity):
+                reached.update(r.entity for r in references(entity))
+    stale = {id(where[e]): where[e] for e in reached if e in where}.values()
+    relations = {r for cluster in stale for r in cluster.relations} | changed
+    kept = sorted(
+        r
+        for r in relations
+        if (entity := after.entities.get(r)) is not None and is_relation(entity)
+    )
+    regrouped = dict(where)
+    for cluster in stale:
+        for member in (*cluster.geometry, *cluster.relations):
+            del regrouped[member]
+    regrouped.update(_by_member(_clusters_of(after, kept)))
+    return regrouped
 
 
 # --- A cluster as a system of equations ---------------------------------------------------
@@ -396,10 +467,9 @@ class Request:
 def settle(before: Document, after: Document, request: Request) -> Document | list[Error]:
     """Solve every cluster the command touched. The document to keep, or why not."""
     solved: dict[EntityId, Entity] = {}
-    for cluster in clusters(after):
-        members = set(cluster.geometry) | set(cluster.relations)
-        if not cluster.relations or not members & request.touched:
-            continue
+    where = grouped(after)
+    touched = {where[id] for id in request.touched if id in where}
+    for cluster in sorted(touched, key=lambda c: c.geometry[0]):  # `clusters` order
         system = System.build(after, cluster, before)
         outcome = _solve_cluster(system, request)
         if isinstance(outcome, Error):
@@ -813,7 +883,8 @@ def status(document: Document) -> SolveStatus:
 
 def _solved(document: Document, last: _Solved | None) -> _Solved:
     """Everything from the clusters up, reusing any cluster whose entities are unchanged."""
-    found = tuple(c for c in clusters(document) if c.relations)
+    unique = {id(c): c for c in grouped(document).values()}.values()
+    found = tuple(sorted(unique, key=lambda c: c.geometry[0]))  # `clusters` order
     before = (
         {} if last is None else {c.geometry + c.relations: i for i, c in enumerate(last.clusters)}
     )

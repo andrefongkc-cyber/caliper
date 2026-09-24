@@ -22,6 +22,7 @@ from caliper.contracts.commands import (
     CreateRectangle,
     DeleteEntities,
     ModifyEntity,
+    MoveEntities,
     Rejected,
 )
 from caliper.contracts.document import (
@@ -264,6 +265,19 @@ def test_a_changed_line_is_re_solved_though_its_cluster_kept_its_members(elsewhe
     assert (status.state, status.conflicting) == (ConstraintState.CONFLICTING, (E("e2"),))
     assert status.entity_dof[E("e1")] == 3
     assert status.entity_dof[E("e3")] == (0 if elsewhere else 1)
+
+
+def test_a_change_to_two_clusters_that_both_conflict_names_the_first() -> None:
+    # Clusters are solved in order of their first geometry id, and the first conflict is the
+    # one reported.
+    bus = Bus(kernel=None)
+    run(bus, CreateLine(start=pt(0, 0), end=pt(10, 0)))
+    run(bus, CreateLine(start=pt(0, 20), end=pt(10, 20)))
+    constrain(bus, C.FIX, curve("e2"))
+    constrain(bus, C.FIX, curve("e1"))
+    error = rejected(bus.execute(MoveEntities(ids=(E("e2"), E("e1")), dx=5.0, dy=0.0)))
+    assert error.code is ErrorCode.CONSTRAINT_CONFLICT
+    assert error.ids == ("e1", "e2", "e4")  # both moved lines, and the first cluster's fix
 
 
 # --- Applicability -------------------------------------------------------------------------------

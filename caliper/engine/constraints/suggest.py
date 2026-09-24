@@ -27,7 +27,7 @@ from caliper.contracts.document import (
 from caliper.contracts.queries import Suggestion
 from caliper.engine.constraints.dimensions import frame
 from caliper.engine.constraints.relations import Match, match
-from caliper.engine.constraints.sketch import clusters, implied
+from caliper.engine.constraints.sketch import grouped, implied
 from caliper.engine.spatial import around, grid
 
 _GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
@@ -68,7 +68,7 @@ def suggest(
     existing = {
         (e.type, frozenset(e.refs)) for e in document.entities.values() if isinstance(e, Constraint)
     }
-    joins = {g: c for c in clusters(document) for g in c.geometry}
+    joins = grouped(document)
     free = _free_id(document)
     seen: set[tuple[ConstraintType, frozenset[Ref]]] = set()
     found: list[Suggestion] = []

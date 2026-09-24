@@ -222,3 +222,32 @@ def test_the_status_after_every_step_matches_one_computed_from_scratch(
         check()
     while bus.redo() is not None:
         check()
+
+
+@PROPERTIES
+@given(session=sessions(), data=st.data())
+def test_clusters_worked_out_from_the_last_document_match_grouping_from_scratch(
+    session: tuple[Bus, list[Command]], data: st.DataObject
+) -> None:
+    """`grouped` regroups only what a change reached. After every step it must give every
+    entity the cluster `clusters` gives it, and `settle` must pick the clusters it would."""
+    _, history = session
+    bus = Bus(kernel=None)
+
+    def check() -> None:
+        document = bus.document
+        expected = sketch.clusters(document)
+        where = sketch.grouped(document)
+        assert where == {m: c for c in expected for m in (*c.geometry, *c.relations)}
+        ids = sorted(document.entities)
+        touched = set(data.draw(st.lists(st.sampled_from(ids)))) if ids else set()
+        picked = sorted({where[id] for id in touched if id in where}, key=lambda c: c.geometry[0])
+        assert picked == [c for c in expected if touched & {*c.geometry, *c.relations}]
+
+    for command in history:
+        assert isinstance(bus.execute(command), Applied), command
+        check()
+    while bus.undo() is not None:
+        check()
+    while bus.redo() is not None:
+        check()
