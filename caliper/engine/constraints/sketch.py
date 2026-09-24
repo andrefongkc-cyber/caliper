@@ -460,14 +460,17 @@ def _written(system: System, values: Sequence[float]) -> dict[EntityId, Entity] 
     Degenerate includes nearly so: a line shrunk to a billionth of the sketch's size has
     satisfied its equations by collapsing, which no one asked for.
     """
-    from caliper.engine.commands.validation import domain_errors  # the command layer is above
+    from caliper.engine.commands.validation import (  # the command layer is above
+        canonical_angle,
+        domain_errors,
+    )
 
     tiny = 1e-9 * max(1.0, *(abs(v) for v in values))
     changes: dict[EntityId, dict[str, float]] = {}
     for (id, path), old, new in zip(system.params, system.values, values, strict=True):
         if new != old:
             if path == "start_angle":
-                new %= 360.0
+                new = canonical_angle(new)  # stored in [0, 360), as `build_entity` stores it
             changes.setdefault(id, {})[path] = new + 0.0  # never store -0.0
     entities: dict[EntityId, Entity] = {}
     for id, fields_ in changes.items():
