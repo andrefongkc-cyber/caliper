@@ -4,7 +4,7 @@ AI-native engineering platform. The wedge is a geometry core whose API lets an a
 its own work (measure, query, assert, retry) against real parametric geometry. Current scope:
 **V1 (2D sketching) and V1.5 (sketch constraints and dimensions) are done and on `main`,
 and the contract is frozen again.** In progress: the AI assistant foundation (`caliper/ai`,
-branch `ai/interface-foundation`, awaiting review) and Performance V2 (paused). Where things stand: `WORKPLAN.md` → `docs/workplan/`.
+PR #32 from `shared/ai-interface-foundation`, awaiting review) and Performance V2 (paused). Where things stand: `WORKPLAN.md` → `docs/workplan/`.
 How it fits together: `docs/architecture.md`. Don't load `docs/vision.md` unless asked.
 
 ## Stack
@@ -12,8 +12,8 @@ How it fits together: `docs/architecture.md`. Don't load `docs/vision.md` unless
 Python 3.13 · uv · OCCT via cadquery-ocp (`occt` extra) · our own constraint solver, pure
 Python, no dependency (ADR 0008; replaced planegcs) · PySide6 via
 pyside6-essentials (`app` extra) · canonical JSON files · pytest, hypothesis, pytest-qt ·
-ruff · mypy --strict on contracts + engine · GitHub Actions · optional `anthropic` SDK for the
-assistant (proposed `ai` extra; off unless `CALIPER_ASSISTANT=claude`, model via `CALIPER_AI_MODEL`)
+ruff · mypy --strict on contracts + engine + ai · GitHub Actions · optional `anthropic` SDK for the
+assistant (`ai` extra; off unless `CALIPER_ASSISTANT=claude`, model via `CALIPER_AI_MODEL`)
 
 ```bash
 uv sync                                  # engine + dev tools
@@ -25,7 +25,7 @@ uv run pytest && uv run ruff check && uv run ruff format --check && uv run mypy
 
 | Path | Owner |
 |---|---|
-| `caliper/engine/`, `bench/`, `tests/` (not `tests/app/`), `docs/workplan/core.md` | Stream A (core), branch `stream/core` |
+| `caliper/engine/`, `bench/`, `tests/` (not `tests/app/` or `tests/ai/`), `docs/workplan/core.md` | Stream A (core), branch `stream/core` |
 | `caliper/app/`, `tests/app/`, `docs/workplan/shell.md` | Stream B (shell), branch `stream/shell` |
 | `caliper/contracts/` | Joint. Frozen for V1 (PR #22); change only on a `contracts/<topic>` branch reviewed by both. `kernel.py` stays Provisional |
 | `caliper/ai/`, `tests/ai/`, `docs/workplan/ai.md` | AI (assistant), Andre; branches `ai/<topic>` |
