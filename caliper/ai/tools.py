@@ -112,6 +112,13 @@ def _command_spec(kind: str, cls: type) -> ToolSpec:
     )
 
 
+CONVENTIONS = (
+    "Units are millimetres and degrees, and y points up. A rectangle's corner is its bottom-left "
+    "corner. Arcs run counter-clockwise from start_angle through sweep_angle. Refer to entities by "
+    "the ids Caliper gives them, which you'll see in tool results and in the document summary."
+)
+"""What any model driving these tools needs to know, whether in the app or over MCP."""
+
 _REFS = {"type": "array", "items": _schema(Ref)}
 _IDS = {"type": "array", "items": {"type": "string"}}
 
@@ -119,7 +126,8 @@ QUERY_TOOLS = (
     ToolSpec(
         name="inspect_document",
         description=(
-            "The sketch as it is now in this turn: counts, bounds, solve status, the selection, "
+            "The sketch as it is now, with your unapplied changes: counts, bounds, solve status, "
+            "the selection, "
             "and entities (selection and focus first, then nearby geometry, then the rest, up "
             "to limit). Use focus to see particular entities in large sketches."
         ),
@@ -192,7 +200,7 @@ QUERY_TOOLS = (
     ),
     ToolSpec(
         name="undo",
-        description="Undo your last change in this turn. Changes from earlier turns are kept.",
+        description="Undo your last change that isn't applied yet. Applied changes are kept.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     ),
 )
@@ -291,7 +299,7 @@ class Workspace:
 
     def _undo(self, arguments: Mapping[str, object]) -> JSON:
         if not self._applied:
-            raise _ToolError({"error": "nothing to undo in this turn"})
+            raise _ToolError({"error": "nothing to undo: no unapplied changes"})
         change = self._bus.undo()
         assert change is not None
         undone = self._applied.pop()
