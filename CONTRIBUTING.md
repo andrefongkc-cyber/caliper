@@ -39,6 +39,7 @@ or [docs/kickoff/stream-b-shell.md](docs/kickoff/stream-b-shell.md) into a fresh
 
 | Branch | For | Restrictions |
 |---|---|---|
+| `ai/<topic>` | The assistant: `caliper/ai/`, `tests/ai/`, `docs/workplan/ai.md` (owner Andre) | Only those paths; shell hosting changes go on `stream/shell` or `shared/` |
 | `contracts/<topic>` | Changing `caliper/contracts/` | Pauses the other stream; both people review |
 | `shared/<topic>` | `pyproject.toml`, `uv.lock`, `CLAUDE.md`, `WORKPLAN.md`, `.github/`, docs | None |
 

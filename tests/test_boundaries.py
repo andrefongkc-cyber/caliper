@@ -28,6 +28,9 @@ def run(branch: str, *files: str) -> subprocess.CompletedProcess[str]:
         ("stream/shell", "caliper/app/viewport/canvas.py"),
         ("stream/shell", "tests/app/test_tools.py"),
         ("stream/shell/rect-tool", "docs/workplan/shell.md"),
+        ("ai/interface-foundation", "caliper/ai/agent.py"),
+        ("ai/tools", "tests/ai/test_tools.py"),
+        ("ai/tools", "docs/workplan/ai.md"),
         ("contracts/add-angle-dimension", "caliper/contracts/document.py"),
         ("shared/bump-pyside", "pyproject.toml"),
         ("phase-0/foundation", "CLAUDE.md"),
@@ -36,6 +39,15 @@ def run(branch: str, *files: str) -> subprocess.CompletedProcess[str]:
 def test_allowed(branch: str, path: str) -> None:
     result = run(branch, path)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def allowed_file(branch: str) -> str:
+    """A file the branch may touch, so a denial is down to the other path alone."""
+    if branch.startswith("stream/shell"):
+        return "caliper/app/ok.py"
+    if branch.startswith("ai/"):
+        return "caliper/ai/ok.py"
+    return "bench/ok.py"
 
 
 @pytest.mark.parametrize(
@@ -51,17 +63,25 @@ def test_allowed(branch: str, path: str) -> None:
         ("stream/shell", "tests/engine/test_bus.py"),
         ("stream/shell", "CLAUDE.md"),
         ("stream/shell", "uv.lock"),
+        ("stream/shell", "caliper/ai/agent.py"),
+        ("stream/core", "tests/ai/test_tools.py"),
+        ("ai/tools", "caliper/app/main_window.py"),
+        ("ai/tools", "tests/app/test_assistant.py"),
+        ("ai/tools", "caliper/engine/cli.py"),
+        ("ai/tools", "caliper/contracts/commands.py"),
+        ("ai/tools", "tests/test_architecture.py"),
+        ("ai/tools", "pyproject.toml"),
     ],
 )
 def test_denied(branch: str, path: str) -> None:
-    result = run(
-        branch, "caliper/app/ok.py" if branch.startswith("stream/shell") else "bench/ok.py", path
-    )
+    result = run(branch, allowed_file(branch), path)
     assert result.returncode == 1
     assert path in result.stdout
 
 
-@pytest.mark.parametrize("branch", ["main", "fix-thing", "stream/corex", "core/topic"])
+@pytest.mark.parametrize(
+    "branch", ["main", "fix-thing", "stream/corex", "core/topic", "aitools", "stream/ai"]
+)
 def test_unknown_branch_names_fail(branch: str) -> None:
     result = run(branch, "README.md")
     assert result.returncode == 1

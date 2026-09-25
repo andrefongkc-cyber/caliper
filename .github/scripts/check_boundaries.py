@@ -3,8 +3,9 @@
 This is one of two layers keeping the parallel streams from colliding. The other is
 code-owner review. Rules are keyed on the PR's head branch name:
 
-    stream/core[/topic]    Stream A: engine, bench, tests (not tests/app/)
+    stream/core[/topic]    Stream A: engine, bench, tests (not tests/app/ or tests/ai/)
     stream/shell[/topic]   Stream B: app, tests/app/
+    ai[/topic]             the assistant: caliper/ai/, tests/ai/
     contracts/<topic>      joint contract change, reviewed by both: unrestricted
     shared/<topic>         repo-wide files (pyproject, CLAUDE.md, CI, ...): unrestricted
     phase-0/<topic>        one-time bootstrap: unrestricted
@@ -39,14 +40,19 @@ class Area:
 CORE = Area(
     name="Stream A (core)",
     allowed=("caliper/engine/", "bench/", "tests/", "docs/workplan/core.md", "docs/adr/"),
-    denied=("tests/app/",),
+    denied=("tests/app/", "tests/ai/"),
 )
 SHELL = Area(
     name="Stream B (shell)",
     allowed=("caliper/app/", "tests/app/", "docs/workplan/shell.md", "docs/adr/"),
 )
 
-STREAM_BRANCHES = {"stream/core": CORE, "stream/shell": SHELL}
+AI = Area(
+    name="AI (assistant)",
+    allowed=("caliper/ai/", "tests/ai/", "docs/workplan/ai.md", "docs/adr/"),
+)
+
+STREAM_BRANCHES = {"stream/core": CORE, "stream/shell": SHELL, "ai": AI}
 UNRESTRICTED_PREFIXES = ("contracts/", "shared/", "phase-0/")
 
 
@@ -63,7 +69,7 @@ def area_for(branch: str) -> Area | None:
         return None
     raise UnknownBranchError(
         f"branch {branch!r} doesn't follow the naming convention. Use stream/core, "
-        "stream/shell, contracts/<topic>, or shared/<topic> (see CONTRIBUTING.md)."
+        "stream/shell, ai/<topic>, contracts/<topic>, or shared/<topic> (see CONTRIBUTING.md)."
     )
 
 

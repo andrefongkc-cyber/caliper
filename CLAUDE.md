@@ -28,7 +28,7 @@ uv run pytest && uv run ruff check && uv run ruff format --check && uv run mypy
 | `caliper/engine/`, `bench/`, `tests/` (not `tests/app/`), `docs/workplan/core.md` | Stream A (core), branch `stream/core` |
 | `caliper/app/`, `tests/app/`, `docs/workplan/shell.md` | Stream B (shell), branch `stream/shell` |
 | `caliper/contracts/` | Joint. Frozen for V1 (PR #22); change only on a `contracts/<topic>` branch reviewed by both. `kernel.py` stays Provisional |
-| `caliper/ai/`, `tests/ai/`, `docs/workplan/ai.md` | Not yet assigned. The boundaries check has no `ai/` prefix, so decide the owner and branch rule before a PR |
+| `caliper/ai/`, `tests/ai/`, `docs/workplan/ai.md` | AI (assistant), Andre; branches `ai/<topic>` |
 | `CLAUDE.md`, `WORKPLAN.md`, `pyproject.toml`, `uv.lock`, `.github/`, other docs | Maintainers, on `shared/<topic>` branches. Agents: propose, don't edit |
 
 The `boundaries` CI check rejects stream branches that touch files outside their area.

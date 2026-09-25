@@ -8,6 +8,7 @@
 # `boundaries` CI check (.github/scripts/check_boundaries.py).
 #
 # Later lines win. Stream A (core): @andrefongkc-cyber. Stream B (shell): @lucassnam.
+# AI (assistant): @andrefongkc-cyber.
 
 # Default: shared files (pyproject.toml, uv.lock, CLAUDE.md, WORKPLAN.md, docs)
 *                         @andrefongkc-cyber @lucassnam
@@ -22,6 +23,11 @@
 /caliper/app/             @lucassnam @andrefongkc-cyber
 /tests/app/               @lucassnam @andrefongkc-cyber
 /docs/workplan/shell.md   @lucassnam @andrefongkc-cyber
+
+# AI: the assistant
+/caliper/ai/              @andrefongkc-cyber @lucassnam
+/tests/ai/                @andrefongkc-cyber @lucassnam
+/docs/workplan/ai.md      @andrefongkc-cyber @lucassnam
 
 # Joint: contract changes pause the other stream and need both people involved
 /caliper/contracts/       @andrefongkc-cyber @lucassnam
