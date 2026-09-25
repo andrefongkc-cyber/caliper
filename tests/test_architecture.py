@@ -130,7 +130,8 @@ print(json.dumps(sorted(sys.modules)))
 
 # --- The AI layer -----------------------------------------------------------------------
 # docs/architecture.md: caliper/ai may import contracts and engine, never app or Qt. It uses
-# the same commands and queries as the shell (invariant 5), and the model SDK stays optional.
+# the same commands and queries as the shell (invariant 5), and the model and MCP SDKs stay
+# optional: each loads only when it's used.
 
 
 @pytest.mark.parametrize(
@@ -156,6 +157,11 @@ print(json.dumps(sorted(sys.modules)))
         [sys.executable, "-c", script], capture_output=True, text=True, check=True
     )
     loaded = json.loads(result.stdout)
-    forbidden = (FORBIDDEN_LAYERS_AND_TOOLKITS - {"caliper.ai"}) | {"OCP", "anthropic"}
+    forbidden = (FORBIDDEN_LAYERS_AND_TOOLKITS - {"caliper.ai"}) | {
+        "OCP",
+        "anthropic",
+        "mcp",
+        "mcp_types",
+    }
     violations = sorted({m for m in loaded for f in forbidden if _matches(m, f)})
     assert not violations, f"importing caliper.ai loaded {violations}"
