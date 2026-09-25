@@ -16,7 +16,7 @@ document, one way to ask about it, and a file format that reproduces exactly.
 ```mermaid
 flowchart TD
     UI["Shell (caliper/app)<br/>tool modes, viewport, panels"]
-    AI["AI layer (caliper/ai)<br/>empty in V1"]
+    AI["AI layer (caliper/ai)<br/>assistant, hosted by the shell"]
     CLI["Scripts / CLI<br/>python -m caliper.engine"]
     BUS["CommandBus<br/>validate · apply · Delta · undo"]
     DOC["Document<br/>immutable snapshot"]
@@ -27,6 +27,7 @@ flowchart TD
     UI -- Command --> BUS
     AI -- Command --> BUS
     CLI -- Command --> BUS
+    UI -. hosts .-> AI
     BUS --> DOC
     BUS -- Change --> UI
     UI -. reads .-> DOC
@@ -47,8 +48,8 @@ the UI doesn't have, the contract is missing something.
 |---|---|---|---|
 | `caliper/contracts/` | Types and protocols shared by everyone | standard library only | anything else |
 | `caliper/engine/` | Bus, document operations, queries, file I/O, kernels, CLI | `contracts` | `app`, `ai`, Qt, OS-specific modules; `OCP` outside `geometry/occt_kernel.py` |
-| `caliper/ai/` | Tool adapter over commands and queries (V3) | `contracts`, `engine` | `app` |
-| `caliper/app/` | PySide6 shell | `contracts`, `engine` | kernels (`engine/geometry/`) |
+| `caliper/ai/` | The assistant: model interface, Claude adapter, tools over commands and queries, context, agent loop. Its changes run on a scratch copy and reach the document only when the user accepts them in the shell | `contracts`, `engine` (the `anthropic` SDK lazily, in `claude.py` only) | `app`, Qt, OS-specific modules |
+| `caliper/app/` | PySide6 shell; hosts the assistant | `contracts`, `engine`, `ai` | kernels (`engine/geometry/`) |
 
 These rules are tested, not just documented: see `tests/test_architecture.py`.
 
