@@ -1,12 +1,33 @@
-Status: AI interface foundation in review as a PR from `shared/ai-interface-foundation`, next: Andre's review and merge, then a first live run with Claude
+Status: MCP integration built and verified on `shared/ai-mcp-server` (not pushed), next: Andre's review, then a first run from Claude Desktop (docs/mcp.md, Manual test)
 
 # AI workplan
 
-The assistant: a model that understands a request and does it through Caliper's own commands and queries. `caliper/ai/` is headless and imports `contracts` and `engine` only; the shell hosts it. Owner: Andre (Lucas reviews, as for every area). AI-only work goes on `ai/<topic>` branches, which may touch `caliper/ai/`, `tests/ai/`, this file, and `docs/adr/`; anything touching the shell or shared files goes on `stream/shell` or `shared/`.
+The assistant: a model that understands a request and does it through Caliper's own commands and queries. Two ways in share one set of tools: **MCP (primary)**, where Claude Desktop is the model and calls Caliper's tools through `caliper-mcp`, and the **direct Anthropic API (secondary)**, the in-app assistant in the prompt bar. `caliper/ai/` is headless and imports `contracts` and `engine` only; the shell hosts it. Owner: Andre (Lucas reviews, as for every area). AI-only work goes on `ai/<topic>` branches, which may touch `caliper/ai/`, `tests/ai/`, this file, and `docs/adr/`; anything touching the shell or shared files goes on `stream/shell` or `shared/`.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-**Picking this up in a fresh session.** The foundation is in review as a PR from `shared/ai-interface-foundation` (cross-area: it also changes the shell and shared files), on `main` 5102c2b; 1067 passed, 16 skipped. Try it offline with `uv run pytest tests/ai tests/app/test_assistant.py`; live with `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell (or `ant auth login`), then `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+**Picking this up in a fresh session.** MCP work is on `shared/ai-mcp-server` from `main` 732122b, not pushed (cross-area: `caliper/ai`, the shell, `pyproject.toml`, docs); 1124 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## MCP: Claude Desktop as the primary way in (branch `shared/ai-mcp-server`, 2026-09-25)
+
+User request (2026-09-25): make MCP the primary way Claude works in Caliper, keep the direct Anthropic API path as the secondary one, reuse the existing tools rather than duplicating them, and keep proposals, validation, undo, replay, and credentials as they are.
+
+**The design question, and the answer:** Claude Desktop starts an MCP server as its own process; the document lives in the Caliper window. A server with its own document would drift from the window, so `caliper-mcp` holds no document: it forwards each call over a user-only Unix socket to the window, where it runs like the in-app assistant's calls. MCP has no "turn" that ends, so the window keeps one draft that grows with each change and is shown as a proposal after each; the user still accepts or rejects it, and Claude can't. The draft ends on accept, reject, a user edit, or opening another document, and Claude's next call begins with a note saying which. No contract change.
+
+**Built:**
+- [x] `caliper/ai/draft.py`: `Draft`: the calls of an outside client on one `Workspace`; looking opens no draft; ends with a reason (`Ended`) reported once on the next call; a change made underneath drops it; undoing all of it leaves nothing pending
+- [x] `caliper/ai/bridge.py`: the wire between `caliper-mcp` and the window: one JSON line each way over `~/.caliper/mcp.sock` (`CALIPER_MCP_SOCKET`), in a 0700 directory; the path comes from HOME because Claude Desktop passes no TMPDIR; malformed or oversized messages refused
+- [x] `caliper/ai/mcp_server.py`: `caliper-mcp` (a `[project.scripts]` entry), on the MCP SDK's low-level server (v2.2, MIT, the `mcp` extra and the dev group). It lists `TOOLS` unchanged (read-only hints on the queries), sends instructions sharing `CONVENTIONS` with the in-app prompt, refuses unknown tool names itself, and puts any draft note first in the result. The SDK is imported only when the server runs; no API key read or needed
+- [x] `caliper/ai/tools.py`: `CONVENTIONS` shared by both prompts (the in-app system prompt is byte-identical), and turn-neutral wording for `inspect_document` and `undo`
+- [x] Shell: `app/agent/mcp_host.py` (`McpHost`) listens with `QLocalServer` (QtNetwork, in pyside6-essentials, LGPL) and answers on the UI thread, one call at a time. Refuses changes while the in-app assistant is busy. A second window doesn't take the socket from the first (checked before listening: Qt renames its socket into place); a crashed window's leftover is replaced. `MainWindow.serve_mcp(path)`, called by `python -m caliper.app` unless `CALIPER_MCP=off`; tests and plain `MainWindow()` open no socket. `AgentController` gains `propose()` (the assistant path uses it too) and an `applied` signal. The Assistant tab logs each MCP call with the client's name
+- [x] Tests: `tests/ai/test_draft.py`, `test_bridge.py`, `test_mcp_server.py` (the SDK's own client, in-process and launching `caliper-mcp` as a process with Claude Desktop's environment, against a Qt-free Caliper stand-in over a real socket), `tests/app/test_mcp.py` (the real window: proposal, accept, one undo step, redo, replay, reject, stale, another document, busy, private socket, one owner, garbled input, SDK client end to end), and `test_architecture.py` (importing `caliper.ai` loads neither SDK). Five deliberate breaks each failed a test
+- [x] End to end with processes: `python -m caliper.app` (offscreen) and `uv run --extra mcp caliper-mcp` driven by the SDK's stdio client: 21 tools, read, create, check, and a rejected command; 1.2 ms per call over the bridge, so no engine benchmark was needed
+
+**Not done here, deliberately:**
+- No run with Claude Desktop itself: it would mean editing Claude Desktop's own config on this machine, and the Caliper window can't be shown from the agent's shell. `docs/mcp.md` has the setup and a 13-step manual test
+- No MCP resources or prompts, only tools; no redo tool (the user redoes in Caliper); no headless (window-less) MCP mode
+- Windows: the bridge needs Unix sockets (macOS first, ADR 0004)
+- If the app is killed its socket file stays until the next start replaces it
 
 ## Foundation (branch `shared/ai-interface-foundation`, 2026-09-24)
 
@@ -42,7 +63,13 @@ User request (2026-09-24): the foundation for a generative assistant that interf
 - [x] **.env.example:** `CALIPER_ASSISTANT`, `CALIPER_AI_MODEL`, and `ANTHROPIC_API_KEY` as placeholders; the key is read by the SDK only
 - [x] **CLAUDE.md and WORKPLAN.md** follow the ownership rule, the `ai` extra, strict mypy on `caliper/ai`, and the branch rename (stacked PR on #32)
 
-## For Lucas (shell files changed here)
+## For Lucas (MCP branch)
+
+- Shell: `app/agent/mcp_host.py` (new), `AgentController.propose()` and `applied` in `app/agent/ui.py` (the assistant path now calls `propose()`; behaviour unchanged), `MainWindow.serve_mcp()` and closing the socket on close, `AssistantLog.remote_step`, and `app/__main__.py` serving MCP by default (`CALIPER_MCP=off` turns it off)
+- Architecture: the app process listens on a local socket by default. It's user-only and can only create proposals, never apply them; decide whether it should be opt-in instead
+- Dependencies: `mcp>=2.2` (MIT) as the `mcp` extra and in the dev group (so the core CI job runs its tests without a workflow change); it brings pydantic, starlette, uvicorn, httpx2, cryptography and others, all passing `test_licenses.py`
+
+## For Lucas (shell files changed by the foundation)
 
 - `caliper/app/agent/ui.py`: the assistant path in `AgentController` and `PromptBar` (`set_model`, `set_busy`); the scripted path is unchanged and its 25 tests pass untouched
 - `caliper/app/panels/assistant.py` (new) and the Assistant tab in `main_window.py`
@@ -51,6 +78,7 @@ User request (2026-09-24): the foundation for a generative assistant that interf
 
 ## Next
 
+- [ ] A first run from Claude Desktop (docs/mcp.md, Manual test), and tuning the MCP instructions from what it does
 - [ ] A first live run with Claude on this branch's tools, and prompt tuning from what it does
 - [ ] A bench solver that reads each case's prompt through the assistant (bench/ already has prompts, reference scripts, and expectations)
 - [ ] Streaming progress and cancelling a turn
