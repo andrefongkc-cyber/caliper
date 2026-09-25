@@ -16,6 +16,9 @@ dependencies = []
 app = ["pyside6-essentials>=6.11"]
 # OpenCascade B-rep kernel. Large download; only needed for OCCTKernel.
 occt = ["cadquery-ocp>=8.0"]
+# Claude for the assistant (caliper/ai). MIT. Off unless CALIPER_ASSISTANT=claude; the
+# SDK is imported only on the first request and reads its own credentials.
+ai = ["anthropic>=1.8.0"]
 
 [dependency-groups]
 dev = [
@@ -76,8 +79,8 @@ known-first-party = ["caliper"]
 python_version = "3.13"
 strict = true
 warn_unreachable = true
-# Strict typing applies to the core only. The shell is checked separately, more loosely.
-files = ["caliper/contracts", "caliper/engine"]
+# Strict typing applies to the core and the assistant. The shell is checked separately, more loosely.
+files = ["caliper/contracts", "caliper/engine", "caliper/ai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
