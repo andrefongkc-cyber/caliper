@@ -33,7 +33,7 @@ from caliper.app.panels.checks import describe
 from caliper.app.panels.describe import n
 from caliper.app.session import Author, DocumentSession
 from caliper.app.tokens import SPACE
-from caliper.contracts.document import Point2
+from caliper.contracts.document import Document, Point2
 from caliper.contracts.queries import CheckResult
 
 CARD_WIDTH = 360
@@ -204,6 +204,8 @@ class AgentController(QObject):
     """A `ToolOutcome`: one tool call the assistant made, and its result."""
     turn_finished = Signal(object)
     """The assistant's `Turn`, or the exception that ended it."""
+    applied = Signal(object)
+    """The user accepted this `Proposal` and its commands ran, as one undo step."""
     _answered = Signal(object, int)
 
     def __init__(
@@ -247,10 +249,15 @@ class AgentController(QObject):
             self.reject()
             self.session.message.emit(understood.message)
             return
-        self.proposal = prepare(understood.plan, document, self.session.checks)
+        self.propose(understood.plan, document)
+
+    def propose(self, plan: Plan, base: Document) -> Proposal:
+        """Show `plan`, prepared against `base`, for review, in place of any other proposal."""
+        self.proposal = prepare(plan, base, self.session.checks)
         self.card.show_proposal(self.proposal)
         self.proposal_changed.emit()
         self.proposal_shown.emit(self.proposal)
+        return self.proposal
 
     def accept(self) -> None:
         proposal = self.proposal
@@ -267,6 +274,7 @@ class AgentController(QObject):
             if expectation not in self.session.checks:
                 self.session.add_check(expectation)
         self.bar.input.clear()
+        self.applied.emit(proposal)
         self._close()
         self.session.message.emit(f"Applied {proposal.plan.label}")
 
@@ -317,10 +325,7 @@ class AgentController(QObject):
                 result.commands,
                 result.checks,
             )
-            self.proposal = prepare(plan, result.base, self.session.checks)
-            self.card.show_proposal(self.proposal)
-            self.proposal_changed.emit()
-            self.proposal_shown.emit(self.proposal)
+            self.propose(plan, result.base)
         elif result.error is not None:
             self.session.message.emit(result.error)
 

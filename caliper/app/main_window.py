@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from caliper.ai.agent import from_environment
 from caliper.app import icons, solve_state
+from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
 from caliper.app.palette import CommandPalette
@@ -80,6 +81,8 @@ class MainWindow(QMainWindow):
         self.canvas.reject_proposal = self.agent.reject
         self.agent.proposal_changed.connect(self.canvas.update)
         self.agent.proposal_shown.connect(self._frame_proposal)
+        self.mcp: McpHost | None = None
+        """Claude Desktop's way in, once `serve_mcp` is called."""
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
@@ -495,8 +498,20 @@ class MainWindow(QMainWindow):
             self.proposal_card.reposition()
         super().resizeEvent(event)
 
+    def serve_mcp(self, path: Path) -> bool:
+        """Let `caliper-mcp` (Claude Desktop) reach this window at `path`. Its changes come
+        in as proposals, like the assistant's. False, with a status message, if it can't."""
+        self.mcp = McpHost(self.session, self.agent, path, self)
+        self.mcp.stepped.connect(self.assistant_log.remote_step)
+        problem = self.mcp.start()
+        if problem is not None:
+            self.session.message.emit(problem)
+        return problem is None
+
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if self.confirm_discard():
+            if self.mcp is not None:
+                self.mcp.close()
             event.accept()
         else:
             event.ignore()
