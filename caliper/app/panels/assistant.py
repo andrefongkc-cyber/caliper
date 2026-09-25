@@ -1,6 +1,6 @@
 """The assistant's transcript: each request, the Caliper tools it used and what they did, and
-its answer. A plain list in the browser, like History; the proposal card is where changes are
-reviewed and applied."""
+its answer, plus each call Claude Desktop makes over MCP. A plain list in the browser, like
+History; the proposal card is where changes are reviewed and applied."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -77,6 +77,12 @@ class AssistantLog(QListWidget):
 
     def _stepped(self, outcome: ToolOutcome) -> None:
         self._add(step_text(outcome), theme.ERROR if outcome.is_error else theme.TEXT_DIM)
+
+    def remote_step(self, client: str, outcome: ToolOutcome) -> None:
+        """A call from an MCP client (Claude Desktop), named so it isn't mistaken for yours."""
+        self._add(
+            f"{client} {step_text(outcome)}", theme.ERROR if outcome.is_error else theme.TEXT_DIM
+        )
 
     def _finished(self, result: Turn | Exception) -> None:
         if isinstance(result, Exception):
