@@ -16,7 +16,7 @@ document, one way to ask about it, and a file format that reproduces exactly.
 ```mermaid
 flowchart TD
     UI["Shell (caliper/app)<br/>tool modes, viewport, panels"]
-    AI["AI layer (caliper/ai)<br/>assistant, hosted by the shell"]
+    AI["AI layer (caliper/ai)<br/>tools · MCP server · assistant"]
     CLI["Scripts / CLI<br/>python -m caliper.engine"]
     BUS["CommandBus<br/>validate · apply · Delta · undo"]
     DOC["Document<br/>immutable snapshot"]
@@ -42,14 +42,56 @@ The shell, the AI layer, and scripts are **peers**. Each one builds the same `Co
 objects and sends them to the same bus. The AI has no private access; if it needs something
 the UI doesn't have, the contract is missing something.
 
+## The AI layer: two ways in, one set of tools
+
+```mermaid
+flowchart TD
+    CD["Claude Desktop<br/>primary"]
+    SRV["caliper-mcp<br/>ai/mcp_server.py"]
+    HOST["MCP host in the window<br/>app/agent/mcp_host.py"]
+    BAR["Prompt bar<br/>secondary"]
+    ASK["Assistant + Claude adapter<br/>ai/agent.py · ai/claude.py"]
+    API["Anthropic API"]
+    TOOLS["Shared tools on a scratch Workspace<br/>ai/tools.py · ai/draft.py"]
+    CARD["Proposal on the canvas"]
+    BUS["Session bus<br/>one undo step"]
+
+    CD -- MCP over stdio --> SRV
+    SRV -- local socket --> HOST
+    HOST --> TOOLS
+    BAR --> ASK
+    ASK -- Model protocol --> API
+    ASK --> TOOLS
+    TOOLS --> CARD
+    CARD -- user accepts --> BUS
+```
+
+- **The tools are the bridge between AI and Caliper**, and there is one set. `ai/tools.py`
+  makes one tool per `Command` kind from the contract, plus queries, and runs every call on
+  a `Workspace`: a scratch bus on a copy of the document, validated like any other command.
+  Both ways in use it; neither has tools of its own.
+- **Primary: MCP.** Claude Desktop starts `caliper-mcp`, which lists the tools and forwards
+  each call over a user-only Unix socket to the open Caliper window (`ai/bridge.py`). There
+  the call runs in a `Draft` (`ai/draft.py`): changes collect on one workspace and show as a
+  proposal, and the draft ends when the user accepts, rejects, edits, or opens another
+  document, which the client's next call is told. Claude Desktop is the model, so this path
+  needs no API key. Setup: [mcp.md](mcp.md).
+- **Secondary: direct API.** The prompt bar's assistant (`ai/agent.py`) calls a `Model`
+  (`ai/model.py`); `ai/claude.py` is the Anthropic implementation, the only code that knows a
+  provider. Its credentials are the SDK's own (`ANTHROPIC_API_KEY`), never read by Caliper.
+  Another provider would be another `Model`, with its own credentials, used by the same tools.
+- **Either way, the user decides.** Proposals are prepared on a copy; `Accept` replays the
+  resolved commands through the session in one transaction, so undo, redo, the file, and
+  replay behave exactly as for the user's own changes.
+
 ## Packages and what may import what
 
 | Package | Contains | May import | Must never import |
 |---|---|---|---|
 | `caliper/contracts/` | Types and protocols shared by everyone | standard library only | anything else |
 | `caliper/engine/` | Bus, document operations, queries, file I/O, kernels, CLI | `contracts` | `app`, `ai`, Qt, OS-specific modules; `OCP` outside `geometry/occt_kernel.py` |
-| `caliper/ai/` | The assistant: model interface, Claude adapter, tools over commands and queries, context, agent loop. Its changes run on a scratch copy and reach the document only when the user accepts them in the shell | `contracts`, `engine` (the `anthropic` SDK lazily, in `claude.py` only) | `app`, Qt, OS-specific modules |
-| `caliper/app/` | PySide6 shell; hosts the assistant | `contracts`, `engine`, `ai` | kernels (`engine/geometry/`) |
+| `caliper/ai/` | The AI layer: tools over commands and queries, context, the MCP server and bridge, the draft, the model interface, the Claude adapter, the agent loop. Its changes run on a scratch copy and reach the document only when the user accepts them in the shell | `contracts`, `engine`; SDKs lazily, only where used: `anthropic` in `claude.py`, `mcp` in `mcp_server.py` | `app`, Qt, OS-specific modules |
+| `caliper/app/` | PySide6 shell; hosts the assistant and the MCP bridge's app end | `contracts`, `engine`, `ai` | kernels (`engine/geometry/`) |
 
 These rules are tested, not just documented: see `tests/test_architecture.py`.
 
