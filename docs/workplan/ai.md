@@ -40,7 +40,7 @@ User request (2026-09-24): the foundation for a generative assistant that interf
 - [x] **docs/architecture.md:** the shell hosts the assistant and may import `caliper/ai`
 - [x] **WORKPLAN.md** links this file
 - [x] **.env.example:** `CALIPER_ASSISTANT`, `CALIPER_AI_MODEL`, and `ANTHROPIC_API_KEY` as placeholders; the key is read by the SDK only
-- [ ] **CLAUDE.md, left for a maintainer:** the Stream A row should read `tests/` (not `tests/app/` or `tests/ai/`); the intro names the old branch `ai/interface-foundation`, and the stack line still says the `ai` extra is proposed. WORKPLAN.md also names the old branch
+- [x] **CLAUDE.md and WORKPLAN.md** follow the ownership rule, the `ai` extra, strict mypy on `caliper/ai`, and the branch rename (stacked PR on #32)
 
 ## For Lucas (shell files changed here)
 
