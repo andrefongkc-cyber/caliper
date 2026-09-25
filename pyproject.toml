@@ -19,10 +19,17 @@ occt = ["cadquery-ocp>=8.0"]
 # Claude for the assistant (caliper/ai). MIT. Off unless CALIPER_ASSISTANT=claude; the
 # SDK is imported only on the first request and reads its own credentials.
 ai = ["anthropic>=1.8.0"]
+# The MCP server Claude Desktop starts (caliper-mcp, docs/mcp.md). MIT. Needs no API key:
+# the client is the model. Also in the dev group, so its tests always run.
+mcp = ["mcp>=2.2"]
+
+[project.scripts]
+caliper-mcp = "caliper.ai.mcp_server:main"
 
 [dependency-groups]
 dev = [
     "hypothesis>=6.168",
+    "mcp>=2.2",
     "mypy>=2.3",
     "pytest>=9.1",
     "ruff>=0.16",
