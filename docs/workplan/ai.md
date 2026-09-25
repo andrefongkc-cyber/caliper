@@ -1,14 +1,14 @@
-Status: AI interface foundation built and verified on `ai/interface-foundation` (not pushed), next: Andre's review, then an owner and branch rule for `caliper/ai/`, and a first live run with Claude
+Status: AI interface foundation in review as a PR from `shared/ai-interface-foundation`, next: Andre's review and merge, then a first live run with Claude
 
 # AI workplan
 
-The assistant: a model that understands a request and does it through Caliper's own commands and queries. `caliper/ai/` is headless and imports `contracts` and `engine` only; the shell hosts it. No owner or branch prefix is set for `caliper/ai/` yet (see Decisions needed).
+The assistant: a model that understands a request and does it through Caliper's own commands and queries. `caliper/ai/` is headless and imports `contracts` and `engine` only; the shell hosts it. Owner: Andre (Lucas reviews, as for every area). AI-only work goes on `ai/<topic>` branches, which may touch `caliper/ai/`, `tests/ai/`, this file, and `docs/adr/`; anything touching the shell or shared files goes on `stream/shell` or `shared/`.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-**Picking this up in a fresh session.** Branch `ai/interface-foundation`, 9 commits plus this update on `main` 5102c2b, not pushed, clean tree; 1054 passed, 16 skipped. Blocked on Andre: review, the owner and branch rule for `caliper/ai`, and SDK + credentials for a live run. Try it offline with `uv run pytest tests/ai tests/app/test_assistant.py`; live with `CALIPER_ASSISTANT=claude uv run python -m caliper.app` once `anthropic` is installed.
+**Picking this up in a fresh session.** The foundation is in review as a PR from `shared/ai-interface-foundation` (cross-area: it also changes the shell and shared files), on `main` 5102c2b; 1067 passed, 16 skipped. Try it offline with `uv run pytest tests/ai tests/app/test_assistant.py`; live with `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell (or `ant auth login`), then `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
 
-## Foundation (branch `ai/interface-foundation`, 2026-09-24)
+## Foundation (branch `shared/ai-interface-foundation`, 2026-09-24)
 
 User request (2026-09-24): the foundation for a generative assistant that interfaces with Caliper through well-defined interfaces, model-agnostic, with a thin UI and a real end-to-end demo; no engine optimisation, no contract change, no custom model.
 
@@ -33,13 +33,14 @@ User request (2026-09-24): the foundation for a generative assistant that interf
 - Mid-turn transactions for the model: the whole turn becomes one transaction when accepted, so the model doesn't open its own
 - Streaming replies to the UI, cost/token display, cancelling a running turn
 
-## Decisions needed (maintainers)
+## Decisions (made in the foundation PR, for Lucas to confirm)
 
-- [ ] **Branch prefix and owner for `caliper/ai/`.** `.github/scripts/check_boundaries.py` rejects any branch not named `stream/core`, `stream/shell`, `contracts/`, `shared/`, or `phase-0/`, so a PR from `ai/interface-foundation` fails the boundaries check. Either add an `ai/` rule (and a CLAUDE.md ownership row), or rename the branch (`shared/` is unrestricted)
-- [ ] **Dependency:** add `anthropic` as an optional extra (e.g. `ai`) in `pyproject.toml` and `uv.lock`, and `caliper/ai` to mypy's `files` (it passes `mypy --strict` today)
-- [ ] **docs/architecture.md:** the package table should say `caliper/app` may import `caliper/ai`, which hosts it
-- [ ] **WORKPLAN.md:** link this file
-- [ ] **.env.example:** document `CALIPER_ASSISTANT` and `CALIPER_AI_MODEL`
+- [x] **Owner and branch rule:** `caliper/ai/`, `tests/ai/`, `docs/workplan/ai.md` are Andre's (CODEOWNERS, CLAUDE.md, CONTRIBUTING.md). `check_boundaries.py` has an AI area for `ai/<topic>` branches, and `tests/ai/` is no longer inside Stream A's `tests/`
+- [x] **Dependency:** `anthropic` is the optional `ai` extra (MIT) in `pyproject.toml` and `uv.lock`; `caliper/ai` is in mypy's `files`
+- [x] **docs/architecture.md:** the shell hosts the assistant and may import `caliper/ai`
+- [x] **WORKPLAN.md** links this file
+- [x] **.env.example:** `CALIPER_ASSISTANT`, `CALIPER_AI_MODEL`, and `ANTHROPIC_API_KEY` as placeholders; the key is read by the SDK only
+- [ ] **CLAUDE.md, left for a maintainer:** the Stream A row should read `tests/` (not `tests/app/` or `tests/ai/`); the intro names the old branch `ai/interface-foundation`, and the stack line still says the `ai` extra is proposed. WORKPLAN.md also names the old branch
 
 ## For Lucas (shell files changed here)
 
