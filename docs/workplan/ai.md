@@ -1,4 +1,4 @@
-Status: MCP integration built and verified on `shared/ai-mcp-server` (not pushed), next: Andre's review, then a first run from Claude Desktop (docs/mcp.md, Manual test)
+Status: MCP stress-test fixes (tangency, proposal speed, bounded card) done on `shared/mcp-stress-fixes` (stacked on `shared/ai-mcp-server`, not pushed), next: Andre's review, then restart Caliper for a live Claude Desktop rerun
 
 # AI workplan
 
@@ -7,6 +7,18 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** MCP work is on `shared/ai-mcp-server` from `main` 732122b, not pushed (cross-area: `caliper/ai`, the shell, `pyproject.toml`, docs); 1124 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## MCP stress-test fixes (branch `shared/mcp-stress-fixes`, 2026-09-25)
+
+The first large MCP session (a 187-entity, fully constrained plate with 57 checks) exposed three problems. Stacked on `shared/ai-mcp-server`; no contract change.
+
+- [x] **Tangency at a fillet joint was rejected as redundant** (engine; see core.md). Written at the joint instead, so it's accepted and counted; the alignment workaround is no longer needed
+- [x] **Large proposals were slow.** Measured, not assumed: every call that changed the draft showed it again, and `prepare()` replayed every pending command through a fresh bus, 1 + 2 + ... + n commands in all. At 224 changes one replay took 5.2 s and the session 277 s; the draft's own calls took 5.2 s in total, and checks 0.1 ms: checks timed out only because each new one triggered a replay. `prepare(..., result=)` now takes the workspace's document (byte-identical to the replay), for MCP drafts and the in-app assistant's turns. 128 changes: session 20.3 s to 0.69 s, slowest call 0.70 s to 0.03 s (`tests/ai/bench_mcp_session.py`). Accept still runs every command through the session's bus in one transaction (about 9.7 s at 254 changes: the solver, Performance V2 territory)
+- [x] **The proposal card grew without bound.** More than 6 changes: a summary line and a Show/Hide toggle; shown, the list scrolls within 180 px. Small proposals are unchanged; errors, broken checks, and check rows stay visible
+- [x] Tests: engine regression tests above; `tests/app/test_mcp.py` (a proposal from a workspace equals the replayed one; a long MCP session replays nothing and accepts as one step, undo and redo; small and large cards, bounded, expandable, failing checks shown, accept from collapsed). Deliberate breaks of each fix fail their tests
+- [x] End to end with processes (new app offscreen, `uv run caliper-mcp`, SDK client): tangency at both fillet joints accepted (DOF 7 to 5, nothing redundant), 125 more changes in 1.2 s with the slowest call 35 ms, a new check 7 ms, radius -5 rejected
+
+**For Lucas:** `caliper/app/agent/ui.py` (`ProposalCard` summary, toggle, and bounded list; `propose(..., result=)`), `caliper/app/agent/proposal.py` (`prepare(..., result=)`), `caliper/app/agent/mcp_host.py`, and the engine change in `caliper/engine/constraints/`.
 
 ## MCP: Claude Desktop as the primary way in (branch `shared/ai-mcp-server`, 2026-09-25)
 
