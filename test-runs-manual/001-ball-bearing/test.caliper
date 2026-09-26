@@ -1,0 +1,545 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "construction": true,
+        "kind": "point",
+        "position": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      "e10": {
+        "center": {
+          "x": -4.730086495485869,
+          "y": 2.2778897570387833
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.5000000000000004
+      },
+      "e11": {
+        "center": {
+          "x": -4.730086495485869,
+          "y": -2.2778897570387833
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.5000000000000004
+      },
+      "e12": {
+        "center": {
+          "x": -1.1682348951903356,
+          "y": -5.1183715407988535
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.4999999999999998
+      },
+      "e13": {
+        "center": {
+          "x": 3.2733213166259834,
+          "y": -4.104615397036453
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.499999999949217
+      },
+      "e14": {
+        "construction": true,
+        "end": {
+          "x": 3.273321,
+          "y": 4.104615
+        },
+        "kind": "line",
+        "start": {
+          "x": 5.25,
+          "y": 0.0
+        }
+      },
+      "e15": {
+        "construction": true,
+        "end": {
+          "x": -1.168235,
+          "y": 5.118372
+        },
+        "kind": "line",
+        "start": {
+          "x": 3.273321,
+          "y": 4.104615
+        }
+      },
+      "e16": {
+        "construction": true,
+        "end": {
+          "x": -4.730087,
+          "y": 2.27789
+        },
+        "kind": "line",
+        "start": {
+          "x": -1.168235,
+          "y": 5.118372
+        }
+      },
+      "e17": {
+        "construction": true,
+        "end": {
+          "x": -4.730087,
+          "y": -2.27789
+        },
+        "kind": "line",
+        "start": {
+          "x": -4.730087,
+          "y": 2.27789
+        }
+      },
+      "e18": {
+        "construction": true,
+        "end": {
+          "x": -1.168235,
+          "y": -5.118372
+        },
+        "kind": "line",
+        "start": {
+          "x": -4.730087,
+          "y": -2.27789
+        }
+      },
+      "e19": {
+        "construction": true,
+        "end": {
+          "x": 3.273321,
+          "y": -4.104615
+        },
+        "kind": "line",
+        "start": {
+          "x": -1.168235,
+          "y": -5.118372
+        }
+      },
+      "e2": {
+        "center": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 2.5
+      },
+      "e20": {
+        "construction": true,
+        "end": {
+          "x": 5.25,
+          "y": 0.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 3.273321,
+          "y": -4.104615
+        }
+      },
+      "e21": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "fix"
+      },
+      "e22": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e2",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "concentric"
+      },
+      "e23": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e3",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "concentric"
+      },
+      "e24": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e4",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "concentric"
+      },
+      "e25": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e5",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "concentric"
+      },
+      "e26": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "concentric"
+      },
+      "e27": {
+        "kind": "radial_dimension",
+        "label_angle": 225.0,
+        "measure": "diameter",
+        "target": "e2",
+        "value": 5.0
+      },
+      "e28": {
+        "kind": "radial_dimension",
+        "label_angle": 250.0,
+        "measure": "diameter",
+        "target": "e3",
+        "value": 7.5
+      },
+      "e29": {
+        "kind": "radial_dimension",
+        "label_angle": 105.0,
+        "measure": "diameter",
+        "target": "e4",
+        "value": 13.5
+      },
+      "e3": {
+        "center": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.75
+      },
+      "e30": {
+        "kind": "radial_dimension",
+        "label_angle": 45.0,
+        "measure": "diameter",
+        "target": "e5",
+        "value": 16.0
+      },
+      "e31": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e7",
+            "feature": "center"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e32": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e33": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e34": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e8",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e35": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e8",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e36": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e9",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e37": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e9",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e38": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e10",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e39": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e10",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e4": {
+        "center": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 6.75
+      },
+      "e40": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e11",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e41": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e11",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e42": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e12",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e43": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e12",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e44": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e13",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e45": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e13",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e46": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "center"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e5": {
+        "center": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 8.0
+      },
+      "e6": {
+        "center": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "construction": true,
+        "kind": "circle",
+        "radius": 5.25
+      },
+      "e7": {
+        "center": {
+          "x": 5.25,
+          "y": 0.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.5
+      },
+      "e8": {
+        "center": {
+          "x": 3.2733213166576456,
+          "y": 4.104615397076157
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.4999999999999996
+      },
+      "e9": {
+        "center": {
+          "x": -1.1682348951903356,
+          "y": 5.1183715407988535
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 1.4999999999999998
+      }
+    },
+    "next_id": 47
+  },
+  "format": "caliper.document",
+  "schema_version": 2,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}
