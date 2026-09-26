@@ -18,6 +18,7 @@ from typing import Any
 import anyio
 import pytest
 from mcp import Client
+from PySide6.QtGui import QGuiApplication
 
 from caliper.ai.agent import Assistant
 from caliper.ai.bridge import BridgeError, Request, Response, ask
@@ -25,8 +26,10 @@ from caliper.ai.draft import Draft, Ended
 from caliper.ai.mcp_server import build
 from caliper.ai.model import Reply, Stop, ToolCall
 from caliper.app.agent import proposal as proposal_module
+from caliper.app.agent import ui as ui_module
 from caliper.app.agent.mcp_host import BUSY
 from caliper.app.agent.proposal import Plan, prepare
+from caliper.app.agent.timing import RunTimer, markdown
 from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle
@@ -488,3 +491,155 @@ def test_accepting_a_collapsed_proposal_applies_all_of_it(served, qtbot) -> None
     assert session.history[-1].author is Author.AGENT
     assert len(session.history[-1].commands) == len(calls)
     assert not card.isVisible()
+
+
+# --- Timing -----------------------------------------------------------------------------
+# The host's clock is faked, and each call "takes" the seconds given in `took`: the fake clock
+# moves on inside the draft, between the call's arrival and its answer. Exact numbers for the
+# arithmetic are in test_timing.py; these check what the window measures and shows.
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 500.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def timed(served, monkeypatch):
+    """The served window with a fake clock. Returns (window, clock, took)."""
+    window, clock = served, Clock()
+    took: dict[str, float] = {}
+    window.mcp.timer = RunTimer(clock=clock)
+    real = window.mcp.draft.call
+
+    def slow(document, selection, name, arguments):
+        clock.now += took.get(name, 0.0)
+        return real(document, selection, name, arguments)
+
+    monkeypatch.setattr(window.mcp.draft, "call", slow)
+    return window, clock, took
+
+
+def accept_taking(monkeypatch, seconds: float) -> None:
+    """Make the next Accept take `seconds`, by the controller's clock."""
+    times = iter([100.0, 100.0 + seconds])
+    monkeypatch.setattr(ui_module, "perf_counter", lambda: next(times))
+
+
+def shown(window) -> dict[str, str]:
+    return {name: label.text() for name, label in window.timing.values.items()}
+
+
+def test_timing_shows_only_while_claude_desktop_can_connect(window) -> None:
+    assert window.timing.isHidden()
+    assert not window.start_run_action.isEnabled()
+
+
+def test_every_call_is_timed_and_an_accepted_run_is_shown_in_full(
+    timed, qtbot, monkeypatch
+) -> None:
+    window, clock, took = timed
+    took.update(inspect_document=0.2, create_rectangle=1.5, run_check=0.3)
+    assert window.timing.summary() == "no run yet"
+    call(window, qtbot, "inspect_document")
+    clock.now += 4
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    clock.now += 6
+    call(window, qtbot, "run_check", WIDTH_CHECK)
+    accept_taking(monkeypatch, 0.4)
+    window.proposal_card.accept_button.click()
+    values = shown(window)
+    assert values["Total run"] == "0m 12s"  # 0.2 + 4 + 1.5 + 6 + 0.3
+    assert values["MCP/tool calls"] == "3"
+    assert values["First response"] == "N/A"  # Start run wasn't pressed
+    assert values["Longest tool call"] == "1.5s"
+    assert values["Proposal creation"] == "0m 08s"  # the rectangle to the check: 1.5 + 6 + 0.3
+    assert values["Accept"] == "0.4s"
+
+
+def test_start_run_measures_the_first_response(timed, qtbot) -> None:
+    window, clock, took = timed
+    took.update(inspect_document=0.2)
+    window.timing.start_button.click()
+    assert window.timing.summary() == "waiting for Claude…"
+    clock.now += 7.3  # the prompt goes out and Claude thinks
+    call(window, qtbot, "inspect_document")
+    values = shown(window)
+    assert values["First response"] == "7.3s"
+    assert values["Total run"] == "0m 08s"
+    assert values["Proposal creation"] == "N/A"  # it only looked
+    assert values["Accept"] == "N/A"
+
+
+def test_the_shortcut_starts_a_run_too(timed) -> None:
+    window, _, _ = timed
+    assert window.start_run_action.isEnabled()
+    window.start_run_action.trigger()
+    assert window.timing.timing is not None
+    assert window.timing.timing.calls == 0
+
+
+def test_a_rejected_proposal_has_no_accept_time(timed, qtbot) -> None:
+    window, _, took = timed
+    took.update(create_rectangle=2.0)
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.proposal_card.reject_button.click()
+    values = shown(window)
+    assert values["Proposal creation"] == "0m 02s"
+    assert values["Accept"] == "N/A"
+
+
+def test_a_stale_accept_that_is_refused_has_no_accept_time(timed, qtbot) -> None:
+    window, _, _ = timed
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.session.execute(CreateCircle(center=Point2(x=50, y=50), radius=3))
+    window.proposal_card.accept_button.click()
+    assert shown(window)["Accept"] == "N/A"
+
+
+def test_opening_another_document_starts_a_new_run_at_the_next_call(timed, qtbot) -> None:
+    window, _, took = timed
+    took.update(create_rectangle=3.0, inspect_document=0.1)
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.session.new()
+    assert shown(window)["MCP/tool calls"] == "1"  # the finished run stays up
+    call(window, qtbot, "inspect_document")
+    values = shown(window)
+    assert values["MCP/tool calls"] == "1"
+    assert values["Longest tool call"] == "0.1s"
+    assert values["Proposal creation"] == "N/A"
+
+
+def test_real_calls_are_timed_by_the_real_clock(served, qtbot) -> None:
+    window = served
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    call(window, qtbot, "run_check", WIDTH_CHECK)
+    window.proposal_card.accept_button.click()
+    timing = window.mcp.timer.timing
+    assert timing is not None
+    assert timing.calls == 2
+    assert timing.longest_call is not None
+    assert timing.total is not None
+    assert 0 < timing.longest_call <= timing.total < 5
+    assert timing.proposal_creation is not None
+    assert timing.accept is not None
+
+
+def test_the_section_is_one_line_until_opened_and_copies_timing_md(timed, qtbot) -> None:
+    window, _, took = timed
+    took.update(create_rectangle=65.0)
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    section = window.timing
+    assert not section.isHidden()
+    assert not section.expanded
+    assert section.details.isHidden()
+    assert section.heading == "▸ Timing  1m 05s · 1 call"
+    assert section.toggle.text() == section.heading  # it fits
+    section.toggle.click()
+    assert not section.details.isHidden()
+    section.copy_button.click()
+    assert QGuiApplication.clipboard().text() == markdown(section.timing)
+    assert window.statusBar().currentMessage() == "Copied the timing for timing.md"
