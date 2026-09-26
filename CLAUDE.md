@@ -3,8 +3,8 @@
 AI-native engineering platform. The wedge is a geometry core whose API lets an agent check
 its own work (measure, query, assert, retry) against real parametric geometry. Current scope:
 **V1 (2D sketching) and V1.5 (sketch constraints and dimensions) are done and on `main`,
-and the contract is frozen again.** In progress: the AI assistant foundation (`caliper/ai`,
-PR #32 from `shared/ai-interface-foundation`, awaiting review) and Performance V2 (paused). Where things stand: `WORKPLAN.md` → `docs/workplan/`.
+and the contract is frozen again.** The AI layer is on `main` too: the in-app assistant (#32)
+and Claude Desktop over MCP (#34, fixes #35). In progress: Performance V2 (paused). Where things stand: `WORKPLAN.md` → `docs/workplan/`.
 How it fits together: `docs/architecture.md`. Don't load `docs/vision.md` unless asked.
 
 ## Stack
@@ -13,7 +13,8 @@ Python 3.13 · uv · OCCT via cadquery-ocp (`occt` extra) · our own constraint 
 Python, no dependency (ADR 0008; replaced planegcs) · PySide6 via
 pyside6-essentials (`app` extra) · canonical JSON files · pytest, hypothesis, pytest-qt ·
 ruff · mypy --strict on contracts + engine + ai · GitHub Actions · optional `anthropic` SDK for the
-assistant (`ai` extra; off unless `CALIPER_ASSISTANT=claude`, model via `CALIPER_AI_MODEL`)
+assistant (`ai` extra; off unless `CALIPER_ASSISTANT=claude`, model via `CALIPER_AI_MODEL`) ·
+MCP SDK for `caliper-mcp`, Claude Desktop's way in (`mcp` extra and dev group; no key; docs/mcp.md)
 
 ```bash
 uv sync                                  # engine + dev tools

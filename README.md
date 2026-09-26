@@ -11,7 +11,7 @@ commands, then measure the result and prove it meets the spec.
 [![app](https://github.com/andrefongkc-cyber/caliper/actions/workflows/app.yml/badge.svg)](https://github.com/andrefongkc-cyber/caliper/actions/workflows/app.yml)
 [![boundaries](https://github.com/andrefongkc-cyber/caliper/actions/workflows/boundaries.yml/badge.svg)](https://github.com/andrefongkc-cyber/caliper/actions/workflows/boundaries.yml)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-3776ab)
-![Status: V1.5 done, AI in review](https://img.shields.io/badge/status-V1.5%20done%2C%20AI%20in%20review-3fb950)
+![Status: V1.5 done, AI on main](https://img.shields.io/badge/status-V1.5%20done%2C%20AI%20on%20main-3fb950)
 
 <img src="docs/images/shell.png" alt="The Caliper desktop app: a dark canvas with a 140 by 50 mm plate selected, its corner, width, and height in the properties panel on the right" width="860">
 
@@ -45,8 +45,8 @@ flowchart LR
 
 ## What works today
 
-Caliper is early: 2D sketching with constraints is done (V1 and V1.5), an AI assistant is
-merged, and Claude Desktop over MCP is in review. 3D is next.
+Caliper is early: 2D sketching with constraints is done (V1 and V1.5), and Claude can work
+in it two ways, as the in-app assistant or from Claude Desktop over MCP. 3D is next.
 
 | Area | Status |
 |---|---|
@@ -55,7 +55,7 @@ merged, and Claude Desktop over MCP is in review. 3D is next.
 | **Checks** | `check` measures distances, positions, bounding boxes, area, and dimension values against a tolerance, and the Checks panel keeps yours |
 | **Headless** | `python -m caliper.engine replay` turns a command script into a byte-identical `.caliper` file; `inspect` and `export` too |
 | **AI assistant** | In the prompt bar: Claude through the Anthropic API (opt-in), working through 21 tools made from Caliper's own commands and queries. Its changes arrive as a proposal you accept as one undo step ([#32](https://github.com/andrefongkc-cyber/caliper/pull/32)) |
-| **Claude Desktop over MCP** | In review ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)): Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper |
+| **Claude Desktop over MCP** | Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper. Setup: [docs/mcp.md](docs/mcp.md) ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)) |
 | **Not yet** | 3D parts (V2), simulation (V4), and everything after |
 
 ## Recent findings: Claude builds real parts
@@ -116,8 +116,8 @@ uv sync --extra app --extra ai --group app-test
 CALIPER_ASSISTANT=claude uv run python -m caliper.app
 ```
 
-Claude Desktop over MCP needs no key. Its setup guide arrives with
-[#34](https://github.com/andrefongkc-cyber/caliper/pull/34).
+Claude Desktop over MCP needs no key: [docs/mcp.md](docs/mcp.md) shows how to connect it, and
+has a step-by-step test.
 
 ### Try the engine without a UI
 
