@@ -5,6 +5,14 @@ Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+## Tangency at a joint (branch `shared/mcp-stress-fixes`, 2026-09-25)
+
+Found by the first large MCP session: a fillet's tangency was rejected as redundant once the arc's end was coincident with the line, though DOF showed it wasn't implied.
+
+- [x] **Root cause.** `_tangent_line` says "the centre is `r` from the line". Where the arc's end is joined to the line, that equation's gradient equals the coincidence's (their difference is `r(cos t - 1)`, zero to first order), so `_redundancy`'s rank test saw nothing new, although tangency fixes the arc's end angle. The same held for two arcs joined end to end.
+- [x] **Fix.** `sketch._joints` finds coincident constraints putting an arc's end on a line or another arc or circle; `_compile` then writes that pair's tangency with `relations.tangent_at_joint`: the radius at the joint perpendicular to the line (or collinear with the other radius). With the joint held it is the same set, and independent at first order, so redundancy, conflicts, and DOF all see it. Free tangency (no joint) is unchanged. Redundancy detection itself is unchanged
+- [x] Tests: `tests/engine/constraints/test_tangent_at_a_joint.py` (fillet both sides, tangency before the joint, a joint on the line itself, moving lines keep it tangent, two arcs, and really-implied tangency still rejected). Disabling the joint detection fails 6 of 7
+
 ## Query speed: solve status, suggestions, picking (branch `stream/core/solve-status-and-suggestion-speed`, 2026-09-23)
 
 User request (2026-09-23), from #28 items 2 and 3: `solve_status` redid every cluster on every edit, and `suggest_constraints` took 3.4 s for one line, too slow to suggest while drawing. No contract change, and no answer changes: equivalence tests compare every changed query with the code it replaced.
