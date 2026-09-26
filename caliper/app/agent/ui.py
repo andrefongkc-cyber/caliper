@@ -251,9 +251,10 @@ class AgentController(QObject):
             return
         self.propose(understood.plan, document)
 
-    def propose(self, plan: Plan, base: Document) -> Proposal:
-        """Show `plan`, prepared against `base`, for review, in place of any other proposal."""
-        self.proposal = prepare(plan, base, self.session.checks)
+    def propose(self, plan: Plan, base: Document, *, result: Document | None = None) -> Proposal:
+        """Show `plan`, prepared against `base`, for review, in place of any other proposal.
+        `result` is the document a workspace already built from it (see `prepare`)."""
+        self.proposal = prepare(plan, base, self.session.checks, result=result)
         self.card.show_proposal(self.proposal)
         self.proposal_changed.emit()
         self.proposal_shown.emit(self.proposal)
@@ -325,7 +326,7 @@ class AgentController(QObject):
                 result.commands,
                 result.checks,
             )
-            self.propose(plan, result.base)
+            self.propose(plan, result.base, result=result.result)
         elif result.error is not None:
             self.session.message.emit(result.error)
 
