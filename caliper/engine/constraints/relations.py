@@ -491,6 +491,10 @@ def match(document: Document, type: ConstraintType, refs: tuple[Ref, ...]) -> Ma
     if spec.unsupported:
         return spec.unsupported
     kinds = [ref_kind(document, r) for r in refs]
+    if not any(len(rule.kinds) == len(refs) for rule in spec.rules):
+        # No rule takes this many references. Checked first: trying every order of a large
+        # selection (every curve in a sketch) would be n! attempts.
+        return _needs(type, spec, kinds)
     # Orders outermost, so the order given wins over any reordering, whichever rule fits.
     for order in permutations(range(len(refs))):
         for rule in spec.rules:
@@ -503,8 +507,12 @@ def match(document: Document, type: ConstraintType, refs: tuple[Ref, ...]) -> Ma
                 if rule.check is not None and (reason := rule.check(document, ordered)):
                     return reason
                 return Match(rule, ordered)
-    given = ", ".join(k.value for k in kinds) or "nothing"
-    return f"{type.value} needs {spec.needs}; got {given}"
+    return _needs(type, spec, kinds)
+
+
+def _needs(type: ConstraintType, spec: Spec, kinds: list[RefKind]) -> str:
+    given = ", ".join(k.value for k in kinds) if len(kinds) <= 4 else f"{len(kinds)} references"
+    return f"{type.value} needs {spec.needs}; got {given or 'nothing'}"
 
 
 # --- Dimensions -------------------------------------------------------------------------
