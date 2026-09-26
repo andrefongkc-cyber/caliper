@@ -1,4 +1,4 @@
-Status: MCP stress-test fixes (tangency, proposal speed, bounded card) done on `shared/mcp-stress-fixes` (stacked on `shared/ai-mcp-server`, not pushed), next: Andre's review, then restart Caliper for a live Claude Desktop rerun
+Status: the assistant (#32), MCP (#34), and the stress-test fixes (#35) are on `main`, next: a live Claude Desktop rerun of the fixes, and a decision on how checks with no pending proposal reach the Checks panel
 
 # AI workplan
 
@@ -6,7 +6,7 @@ The assistant: a model that understands a request and does it through Caliper's 
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-**Picking this up in a fresh session.** MCP work is on `shared/ai-mcp-server` from `main` 732122b, not pushed (cross-area: `caliper/ai`, the shell, `pyproject.toml`, docs); 1124 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+**Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
 
 ## MCP stress-test fixes (branch `shared/mcp-stress-fixes`, 2026-09-25)
 
