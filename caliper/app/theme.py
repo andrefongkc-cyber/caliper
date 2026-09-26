@@ -83,6 +83,12 @@ QLineEdit[invalid="true"] {{ border-color: {P.failed}; }}
 QLabel[role="section"] {{ color: {P.ink_dim}; font-weight: {TYPE.heading_weight};
     padding-top: {s.s}px; }}
 QLabel[role="error"] {{ color: {P.failed}; }}
+QLabel[role="dim"] {{ color: {P.ink_dim}; }}
+QFrame#timing {{ background: {P.window}; border-bottom: 1px solid {P.border}; }}
+QPushButton#timing-toggle {{ background: transparent; border: none; padding: {s.xxs}px 0;
+    text-align: left; color: {P.ink_dim}; }}
+QPushButton#timing-toggle:hover {{ color: {P.ink}; }}
+QFrame#timing QPushButton {{ padding: {s.xxs}px {s.s}px; }}
 QTabWidget#browser-tabs::pane {{ border: none; }}
 QTabWidget#browser-tabs, QTabWidget#browser-tabs QTabBar {{ background: {P.window}; }}
 QTabWidget#browser-tabs QTabBar {{ border-bottom: 1px solid {P.border}; }}

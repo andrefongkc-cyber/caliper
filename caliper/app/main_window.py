@@ -23,7 +23,7 @@ from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
 from caliper.app.palette import CommandPalette
-from caliper.app.panels.assistant import AssistantLog
+from caliper.app.panels.assistant import AssistantLog, TimingSection
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
 from caliper.app.panels.history import HistoryList
@@ -196,6 +196,8 @@ class MainWindow(QMainWindow):
         self.ask_action = self._action("Ask the Agent…", self._focus_prompt, "Ctrl+L")
         self.accept_action = self._action("Accept Proposal", self.agent.accept, "Ctrl+Return")
         self.reject_action = self._action("Reject Proposal", self.agent.reject)
+        self.start_run_action = self._action("Start Timing Run", self._start_run, "Ctrl+Shift+R")
+        self.start_run_action.setEnabled(False)  # until Claude Desktop can connect
         self.shortcuts_action = self._action("Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
         for action, tip in (
             (self.fit_action, "Zoom to Fit"),
@@ -276,6 +278,8 @@ class MainWindow(QMainWindow):
         agent_menu = bar.addMenu("Agent")
         for action in (self.ask_action, self.accept_action, self.reject_action):
             agent_menu.addAction(action)
+        agent_menu.addSeparator()
+        agent_menu.addAction(self.start_run_action)
 
         help_menu = bar.addMenu("Help")
         help_menu.addAction(self.shortcuts_action)
@@ -318,8 +322,18 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.browser, "Sketch")
         tabs.addTab(self.history, "History")
         self.assistant_log = AssistantLog(self.agent)
-        tabs.addTab(self.assistant_log, "Assistant")
-        self.agent.turn_started.connect(lambda _: tabs.setCurrentWidget(self.assistant_log))
+        self.timing = TimingSection()
+        self.timing.hide()  # until Claude Desktop can connect
+        self.timing.start_requested.connect(self._start_run)
+        self.timing.copied.connect(lambda: self.show_message("Copied the timing for timing.md"))
+        self.assistant_panel = QWidget()
+        assistant_layout = QVBoxLayout(self.assistant_panel)
+        assistant_layout.setContentsMargins(0, 0, 0, 0)
+        assistant_layout.setSpacing(0)
+        assistant_layout.addWidget(self.timing)
+        assistant_layout.addWidget(self.assistant_log, 1)
+        tabs.addTab(self.assistant_panel, "Assistant")
+        self.agent.turn_started.connect(lambda _: tabs.setCurrentWidget(self.assistant_panel))
         self.browser_tabs = tabs
         browser = QDockWidget("Browser", self)
         browser.setObjectName("browser")
@@ -503,10 +517,18 @@ class MainWindow(QMainWindow):
         in as proposals, like the assistant's. False, with a status message, if it can't."""
         self.mcp = McpHost(self.session, self.agent, path, self)
         self.mcp.stepped.connect(self.assistant_log.remote_step)
+        self.mcp.timed.connect(self.timing.show_timing)
         problem = self.mcp.start()
         if problem is not None:
             self.session.message.emit(problem)
+        self.timing.setVisible(problem is None)
+        self.start_run_action.setEnabled(problem is None)
         return problem is None
+
+    def _start_run(self) -> None:
+        if self.mcp is not None and self.mcp.listening:
+            self.mcp.start_run()
+            self.show_message("Timing a new run: send the task in Claude Desktop")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if self.confirm_discard():

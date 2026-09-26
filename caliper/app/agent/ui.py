@@ -12,6 +12,7 @@ did comes back as the same kind of proposal. Without one, the scripted stand-in 
 import dataclasses
 import threading
 from collections.abc import Mapping
+from time import perf_counter
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QKeyEvent
@@ -258,8 +259,9 @@ class AgentController(QObject):
     """A `ToolOutcome`: one tool call the assistant made, and its result."""
     turn_finished = Signal(object)
     """The assistant's `Turn`, or the exception that ended it."""
-    applied = Signal(object)
-    """The user accepted this `Proposal` and its commands ran, as one undo step."""
+    applied = Signal(object, float)
+    """The user accepted this `Proposal` and its commands ran, as one undo step, in this many
+    seconds from the press."""
     _answered = Signal(object, int)
 
     def __init__(
@@ -315,6 +317,7 @@ class AgentController(QObject):
         return self.proposal
 
     def accept(self) -> None:
+        pressed = perf_counter()
         proposal = self.proposal
         if proposal is None or proposal.errors:
             return
@@ -329,7 +332,7 @@ class AgentController(QObject):
             if expectation not in self.session.checks:
                 self.session.add_check(expectation)
         self.bar.input.clear()
-        self.applied.emit(proposal)
+        self.applied.emit(proposal, perf_counter() - pressed)
         self._close()
         self.session.message.emit(f"Applied {proposal.plan.label}")
 
