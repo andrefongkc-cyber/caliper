@@ -193,8 +193,8 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 
 - Box-selecting many curves (e.g. a whole traced outline) froze the window for good. The
   Constrain menu asked which constraints apply, and `relations.match` tried all n! orders of
-  the references before finding that no rule takes more than three: fixed on
-  `shared/fix-constrain-menu-hang`, with a regression test.
+  the references before finding that no rule takes more than three:
+  [#39](https://github.com/andrefongkc-cyber/caliper/pull/39), with a regression test.
 - A fillet's tangent constraint was rejected as redundant: [#35](https://github.com/andrefongkc-cyber/caliper/pull/35).
 - Large proposals replayed every command on every change, so checks timed out: [#35](https://github.com/andrefongkc-cyber/caliper/pull/35).
 - The proposal card grew past the window: [#35](https://github.com/andrefongkc-cyber/caliper/pull/35).
