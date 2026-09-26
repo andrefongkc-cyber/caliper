@@ -27,6 +27,7 @@ from caliper.ai.model import Reply, Stop, ToolCall
 from caliper.app.agent import proposal as proposal_module
 from caliper.app.agent.mcp_host import BUSY
 from caliper.app.agent.proposal import Plan, prepare
+from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle
 from caliper.contracts.document import EntityId, Point2, Rectangle
@@ -393,3 +394,97 @@ def test_a_long_mcp_session_never_replays_the_proposal_and_accepts_as_one_step(
     assert dict(session.document.entities) == {}
     window.redo_action.trigger()
     assert session.document == proposal.result
+
+
+# --- The proposal card with many changes ------------------------------------------------
+
+
+def within(window, widget) -> bool:
+    """`widget` is shown and fits inside the window."""
+    top_left = widget.mapTo(window, widget.rect().topLeft())
+    bottom_right = widget.mapTo(window, widget.rect().bottomRight())
+    return (
+        widget.isVisible()
+        and window.rect().contains(top_left)
+        and window.rect().contains(bottom_right)
+    )
+
+
+def test_a_small_proposal_lists_its_changes_as_before(served, qtbot) -> None:
+    card = served.proposal_card
+    call(served, qtbot, "create_rectangle", RECTANGLE)
+    assert card.details.isVisible()
+    assert not card.details.verticalScrollBar().isVisible()
+    assert "CreateRectangle" in card.commands.text()
+    assert not card.summary.isVisible()
+    assert not card.details_button.isVisible()
+
+
+def test_a_large_proposal_collapses_to_a_summary_and_stops_growing(served, qtbot) -> None:
+    window, card = served, served.proposal_card
+    window.resize(1000, 700)
+    calls = comb(5)
+    for name, arguments in calls[:31]:
+        call(window, qtbot, name, arguments)
+    check = {"metric": "bbox_height", "expected": 20, "tolerance": 0.001, "ids": ["e1"]}
+    call(window, qtbot, "run_check", check)
+    assert card.summary.text() == "31 changes · 1 check, all passing"
+    assert card.details_button.text() == "Show 31 changes ▾"
+    assert not card.details.isVisible()
+    assert "Height of e1" in card.checks.text()
+    height = card.height()
+    assert height < 300
+    for name, arguments in calls[31:]:  # more changes arrive: the card doesn't grow
+        call(window, qtbot, name, arguments)
+    assert card.summary.text().startswith(f"{len(calls)} changes · ")
+    assert card.height() == height
+    assert within(window, card.accept_button)
+    assert within(window, card.reject_button)
+
+
+def test_the_changes_can_be_shown_and_stay_bounded(served, qtbot) -> None:
+    window, card = served, served.proposal_card
+    window.resize(1000, 700)
+    calls = comb(4)
+    for name, arguments in calls[:-1]:
+        call(window, qtbot, name, arguments)
+    collapsed = card.height()
+    card.details_button.click()
+    assert card.details.isVisible()
+    assert card.details_button.text() == "Hide changes ▴"
+    assert card.details.height() <= DETAILS_HEIGHT
+    assert card.details.verticalScrollBar().isVisible()  # all of it, by scrolling
+    assert "CreateLine" in card.commands.text()
+    assert card.height() <= collapsed + DETAILS_HEIGHT + card.layout().spacing()
+    assert within(window, card.accept_button)
+    call(window, qtbot, *calls[-1])  # an update keeps it open
+    assert card.details.isVisible()
+    card.reject_button.click()
+    for name, arguments in comb(1):  # 7 changes: a new large proposal starts collapsed
+        call(window, qtbot, name, arguments)
+    assert card.large
+    assert not card.details.isVisible()
+
+
+def test_failing_checks_stay_visible_on_a_collapsed_proposal(served, qtbot) -> None:
+    window, card = served, served.proposal_card
+    for name, arguments in comb(2):
+        call(window, qtbot, name, arguments)
+    wrong = {"metric": "bbox_height", "expected": 25, "tolerance": 0.001, "ids": ["e1"]}
+    call(window, qtbot, "run_check", wrong)
+    assert card.large
+    assert not card.details.isVisible()
+    assert "1 failing" in card.summary.text()
+    assert "✗" in card.checks.text()
+
+
+def test_accepting_a_collapsed_proposal_applies_all_of_it(served, qtbot) -> None:
+    window, card, session = served, served.proposal_card, served.session
+    calls = comb(2)
+    for name, arguments in calls:
+        call(window, qtbot, name, arguments)
+    assert card.large
+    card.accept_button.click()
+    assert session.history[-1].author is Author.AGENT
+    assert len(session.history[-1].commands) == len(calls)
+    assert not card.isVisible()

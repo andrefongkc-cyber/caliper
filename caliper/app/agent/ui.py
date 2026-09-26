@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +39,10 @@ from caliper.contracts.document import Document, Point2
 from caliper.contracts.queries import CheckResult
 
 CARD_WIDTH = 360
+DETAIL_LINES = 6
+"""Proposals with more changes than this collapse their list of changes behind a summary."""
+DETAILS_HEIGHT = 180
+"""Pixels the list of changes may take when shown, before it scrolls."""
 SCRIPTED_PLACEHOLDER = "Ask for a change, like “4 holes diameter 6 inset 10”  (⌘L)"
 ASSISTANT_PLACEHOLDER = (
     "Ask for a change, like “a 100 by 50 rectangle 20 mm right of the origin”  (⌘L)"
@@ -127,10 +133,29 @@ class ProposalCard(QFrame):
         self.title.setFont(theme.font(size=15, bold=True))
         self.explanation = QLabel()
         self.explanation.setWordWrap(True)
+        self.summary = QLabel()
+        self.summary.setObjectName("proposal-summary")
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
+        self.details_button = QPushButton()
+        self.details_button.setObjectName("proposal-details-toggle")
+        self.details_button.setFlat(True)
+        self.details_button.clicked.connect(self._toggle_details)
+        self.expanded = False
+        """Whether a large proposal's list of changes is shown. Kept while the card is open."""
+        self.count = 0
         self.commands = QLabel()
         self.commands.setObjectName("proposal-commands")
         self.commands.setWordWrap(True)
         self.commands.setFont(theme.font(size=11, mono=True))
+        # Wrap to the scroll area's width, which narrows when its scroll bar appears.
+        self.commands.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.details = QScrollArea()
+        self.details.setObjectName("proposal-details")
+        self.details.setFrameShape(QFrame.Shape.NoFrame)
+        self.details.setWidgetResizable(True)
+        self.details.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.details.setWidget(self.commands)
+        self.details.viewport().setAutoFillBackground(False)
         self.checks = QLabel()
         self.checks.setObjectName("proposal-checks")
         self.checks.setWordWrap(True)
@@ -154,7 +179,9 @@ class ProposalCard(QFrame):
             self.eyebrow,
             self.title,
             self.explanation,
-            self.commands,
+            self.summary,
+            self.details_button,
+            self.details,
             self.checks,
             self.warning,
         ):
@@ -162,11 +189,20 @@ class ProposalCard(QFrame):
         layout.addLayout(buttons)
         self.hide()
 
+    @property
+    def large(self) -> bool:
+        """Too many changes to list in full: they collapse behind the summary."""
+        return self.count > DETAIL_LINES
+
     def show_proposal(self, proposal: Proposal) -> None:
         plan = proposal.plan
+        if not self.isVisible():
+            self.expanded = False  # a new proposal starts collapsed; an update keeps it
         self.title.setText(plan.label)
         self.explanation.setText(plan.explanation)
         self.commands.setText("\n".join(_command_text(c) for c in plan.commands))
+        self.count = len(plan.commands)
+        self.summary.setText(summary(proposal))
         rows = check_rows(proposal.checks)
         self.checks.setText("<br>".join(rows))
         self.checks.setVisible(bool(rows))
@@ -178,13 +214,31 @@ class ProposalCard(QFrame):
         self.warning.setVisible(bool(problems))
         self.accept_button.setEnabled(not proposal.errors)
         self.accept_button.setText("Accept anyway" if proposal.broken_checks else "Accept")
+        self._fit()
+        self.show()
+        self.raise_()
+
+    def _toggle_details(self) -> None:
+        self.expanded = not self.expanded
+        self._fit()
+
+    def _fit(self) -> None:
+        """Show the changes in full when there are few, else behind the summary and toggle, and
+        size the card to what it shows: it never grows past the list's own bounded height."""
+        large, count = self.large, self.count
+        self.summary.setVisible(large)
+        self.details_button.setVisible(large)
+        self.details_button.setText(
+            "Hide changes ▴" if self.expanded else f"Show {count} changes ▾"
+        )
+        self.details.setVisible(not large or self.expanded)
+        inner = CARD_WIDTH - 2 * SPACE.l
+        self.details.setFixedHeight(min(self.commands.heightForWidth(inner), DETAILS_HEIGHT))
         layout = self.layout()
         assert layout is not None
         layout.activate()
         self.resize(CARD_WIDTH, layout.totalHeightForWidth(CARD_WIDTH))  # wrapped text sets height
         self.reposition()
-        self.show()
-        self.raise_()
 
     def reposition(self) -> None:
         parent = self.parentWidget()
@@ -369,6 +423,21 @@ def _mark(result: CheckResult) -> str:
     colour = theme.PASSED.name() if result.passed else theme.ERROR.name()
     shown = "" if result.actual is None else f" {n(result.actual)}"
     return f'<span style="color:{colour}">{"✓" if result.passed else "✗"}{shown}</span>'
+
+
+def summary(proposal: Proposal) -> str:
+    """How much a proposal does and how its checks stand, in one line: failures in red."""
+    count, checks = len(proposal.plan.commands), proposal.checks
+    changes = f"{count} change{'s' if count != 1 else ''}"
+    if not checks:
+        return f"{changes} · no checks"
+    failing = sum(not c.after.passed for c in checks)
+    stated = f"{len(checks)} check{'s' if len(checks) != 1 else ''}"
+    if not failing:
+        return f"{changes} · {stated}, all passing"
+    return (
+        f"{changes} · {stated}, <span style='color:{theme.ERROR.name()}'>{failing} failing</span>"
+    )
 
 
 def check_rows(changes: tuple[CheckChange, ...]) -> list[str]:
