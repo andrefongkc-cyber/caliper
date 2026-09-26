@@ -9,28 +9,32 @@
 #
 # Later lines win. Stream A (core): @andrefongkc-cyber. Stream B (shell): @lucassnam.
 # AI (assistant): @andrefongkc-cyber.
+#
+# @AndreFong-tech is Andre's second account, listed on every area so it can approve
+# pull requests (including Andre's own, which his main account can't). Lucas stays
+# listed everywhere and can still review anything.
 
 # Default: shared files (pyproject.toml, uv.lock, CLAUDE.md, WORKPLAN.md, docs)
-*                         @andrefongkc-cyber @lucassnam
+*                         @andrefongkc-cyber @lucassnam @AndreFong-tech
 
 # Stream A: core
-/caliper/engine/          @andrefongkc-cyber @lucassnam
-/bench/                   @andrefongkc-cyber @lucassnam
-/tests/                   @andrefongkc-cyber @lucassnam
-/docs/workplan/core.md    @andrefongkc-cyber @lucassnam
+/caliper/engine/          @andrefongkc-cyber @lucassnam @AndreFong-tech
+/bench/                   @andrefongkc-cyber @lucassnam @AndreFong-tech
+/tests/                   @andrefongkc-cyber @lucassnam @AndreFong-tech
+/docs/workplan/core.md    @andrefongkc-cyber @lucassnam @AndreFong-tech
 
 # Stream B: shell
-/caliper/app/             @lucassnam @andrefongkc-cyber
-/tests/app/               @lucassnam @andrefongkc-cyber
-/docs/workplan/shell.md   @lucassnam @andrefongkc-cyber
+/caliper/app/             @lucassnam @andrefongkc-cyber @AndreFong-tech
+/tests/app/               @lucassnam @andrefongkc-cyber @AndreFong-tech
+/docs/workplan/shell.md   @lucassnam @andrefongkc-cyber @AndreFong-tech
 
 # AI: the assistant
-/caliper/ai/              @andrefongkc-cyber @lucassnam
-/tests/ai/                @andrefongkc-cyber @lucassnam
-/docs/workplan/ai.md      @andrefongkc-cyber @lucassnam
+/caliper/ai/              @andrefongkc-cyber @lucassnam @AndreFong-tech
+/tests/ai/                @andrefongkc-cyber @lucassnam @AndreFong-tech
+/docs/workplan/ai.md      @andrefongkc-cyber @lucassnam @AndreFong-tech
 
 # Joint: contract changes pause the other stream and need both people involved
-/caliper/contracts/       @andrefongkc-cyber @lucassnam
+/caliper/contracts/       @andrefongkc-cyber @lucassnam @AndreFong-tech
 
 # Repository settings and CI, including this file
-/.github/                 @andrefongkc-cyber @lucassnam
+/.github/                 @andrefongkc-cyber @lucassnam @AndreFong-tech
