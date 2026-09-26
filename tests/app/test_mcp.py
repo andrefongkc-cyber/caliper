@@ -21,10 +21,12 @@ from mcp import Client
 
 from caliper.ai.agent import Assistant
 from caliper.ai.bridge import BridgeError, Request, Response, ask
-from caliper.ai.draft import Ended
+from caliper.ai.draft import Draft, Ended
 from caliper.ai.mcp_server import build
 from caliper.ai.model import Reply, Stop, ToolCall
+from caliper.app.agent import proposal as proposal_module
 from caliper.app.agent.mcp_host import BUSY
+from caliper.app.agent.proposal import Plan, prepare
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle
 from caliper.contracts.document import EntityId, Point2, Rectangle
@@ -282,3 +284,112 @@ def test_an_mcp_client_reaches_the_window_through_the_server(served, qtbot) -> N
     assert dict(window.session.document.entities) == {}
     window.proposal_card.accept_button.click()
     assert E1 in window.session.document.entities
+
+
+# --- Large proposals ------------------------------------------------------------------
+
+
+def comb(teeth: int) -> list[tuple[str, dict[str, object]]]:
+    """A comb-shaped profile, one connected cluster so every constraint re-solves all of it:
+    8 changes a tooth (3 lines, 3 joins, vertical, horizontal, and a height dimension)."""
+    calls: list[tuple[str, dict[str, object]]] = []
+    count, x, previous = 0, 0.0, None
+
+    def add(name: str, arguments: dict[str, object]) -> str:
+        nonlocal count
+        calls.append((name, arguments))
+        count += 1
+        return f"e{count}"
+
+    def line(a: tuple[float, float], b: tuple[float, float]) -> str:
+        return add(
+            "create_line",
+            {"start": {"x": a[0], "y": a[1]}, "end": {"x": b[0], "y": b[1]}},
+        )
+
+    def join(a: str, b: str) -> None:
+        refs = [{"entity": a, "feature": "end"}, {"entity": b, "feature": "start"}]
+        add("create_constraint", {"type": "coincident", "refs": refs})
+
+    for _ in range(teeth):
+        up, top = line((x, 0), (x, 20)), line((x, 20), (x + 10, 20))
+        if previous is not None:
+            join(previous, up)
+        join(up, top)
+        add("create_constraint", {"type": "vertical", "refs": [{"entity": up, "feature": "curve"}]})
+        add(
+            "create_constraint",
+            {"type": "horizontal", "refs": [{"entity": top, "feature": "curve"}]},
+        )
+        add(
+            "create_dimension",
+            {
+                "refs": [{"entity": up, "feature": "curve"}],
+                "placement": {"x": x - 5, "y": 10},
+                "value": 20,
+            },
+        )
+        previous = line((x + 10, 20), (x + 10, 0))
+        join(top, previous)
+        x += 10
+    return calls
+
+
+def test_a_proposal_from_a_workspace_is_the_same_without_replaying_it() -> None:
+    base, draft = Bus().document, Draft()
+    for name, arguments in comb(8):
+        assert not draft.call(base, (), name, arguments).outcome.is_error
+    check = {"metric": "bbox_height", "expected": 20, "tolerance": 0.001, "ids": ["e1"]}
+    draft.call(base, (), "run_check", check)
+    assert draft.workspace is not None
+    assert len(draft.commands) > 60
+    plan = Plan(draft.label, "", draft.commands, draft.checks)
+    mine = draft.checks  # a user check too, before and after
+    replayed = prepare(plan, base, mine)
+    reused = prepare(plan, base, mine, result=draft.workspace.document)
+    assert reused == replayed
+    assert reused.errors == ()
+    assert all(c.after.passed for c in reused.checks)
+
+
+def test_a_long_mcp_session_never_replays_the_proposal_and_accepts_as_one_step(
+    served, qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replayed: list[object] = []
+
+    class Counting(Bus):
+        def execute(self, command, **kwargs):  # type: ignore[no-untyped-def]
+            replayed.append(command)
+            return super().execute(command, **kwargs)
+
+    monkeypatch.setattr(proposal_module, "Bus", Counting)
+    window, session = served, served.session
+    calls = comb(4)
+    for name, arguments in calls:
+        assert not call(window, qtbot, name, arguments).is_error
+    uprights = [
+        f"e{i + 1}"
+        for i, (name, arguments) in enumerate(calls)
+        if name == "create_line" and arguments["start"] == {"x": arguments["end"]["x"], "y": 0}  # type: ignore[index]
+    ]
+    assert len(uprights) == 4
+    for id in uprights:
+        check = {"metric": "bbox_height", "expected": 20, "tolerance": 0.001, "ids": [id]}
+        assert not call(window, qtbot, "run_check", check).is_error
+    # Every change and check re-showed the proposal, and none of them replayed it (before,
+    # the n-th change replayed all n: 1 + 2 + ... + n commands).
+    assert replayed == []
+    proposal = window.agent.proposal
+    assert len(proposal.plan.commands) == len(calls)
+    assert len(proposal.plan.checks) == 4
+    assert all(c.after.passed for c in proposal.checks)
+    assert dict(session.document.entities) == {}  # still only a proposal
+    history = len(session.history)
+    window.proposal_card.accept_button.click()
+    assert len(session.history) == history + 1  # one undo step
+    assert session.history[-1].commands == proposal.plan.commands
+    assert session.document == proposal.result
+    window.undo_action.trigger()
+    assert dict(session.document.entities) == {}
+    window.redo_action.trigger()
+    assert session.document == proposal.result
