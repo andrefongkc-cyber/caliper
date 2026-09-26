@@ -6,6 +6,8 @@ thread, one at a time, in the `Draft` against the session's document. When the d
 it goes on the proposal card like the in-app assistant's changes, and the user accepts it (one
 undo step, credited to the agent) or rejects it there; the client can't. Closing, accepting,
 editing, or opening another document ends the draft, and the client's next call says so.
+Each call, and the user's Accept, is timed for the Assistant tab's Timing section
+(`caliper.app.agent.timing`).
 """
 
 from functools import partial
@@ -25,6 +27,7 @@ from caliper.ai.bridge import (
 )
 from caliper.ai.draft import Draft, Ended
 from caliper.app.agent.proposal import Plan, Proposal
+from caliper.app.agent.timing import RunTimer
 from caliper.app.agent.ui import AgentController
 from caliper.app.session import DocumentSession
 from caliper.engine.io.codec import COMMAND_KINDS
@@ -38,6 +41,8 @@ BUSY = (
 class McpHost(QObject):
     stepped = Signal(str, object)
     """A client's name and a `ToolOutcome`: one call it made, for the assistant log."""
+    timed = Signal(object)
+    """The current run's `Timing`: after each call, Accept, and Start run."""
 
     def __init__(
         self,
@@ -51,6 +56,7 @@ class McpHost(QObject):
         self.controller = controller
         self.path = path
         self.draft = Draft()
+        self.timer = RunTimer()
         self._client = "MCP client"
         self._shown: Proposal | None = None
         """The draft's proposal, while it's the one on the card."""
@@ -62,6 +68,7 @@ class McpHost(QObject):
         controller.applied.connect(self._applied)
         controller.proposal_changed.connect(self._proposal_changed)
         session.document_replaced.connect(partial(self.draft.end, Ended.OPENED))
+        session.document_replaced.connect(lambda: self.timer.end())
 
     def start(self) -> str | None:
         """Listen for `caliper-mcp`. None when listening, else why not, for the status bar."""
@@ -87,28 +94,46 @@ class McpHost(QObject):
     def close(self) -> None:
         self._server.close()
 
+    def start_run(self) -> None:
+        """Start run: time a new task from now (press it as you send the prompt)."""
+        self.timer.start()
+        self.timed.emit(self.timer.timing)
+
     # --- Requests -----------------------------------------------------------------------
 
     def handle(self, line: bytes) -> bytes:
-        """One request line in, one response line out."""
+        """One request line in, one response line out, timed."""
+        arrived = self.timer.arrived()
+        changed = False
+        try:
+            response, changed = self._respond(line)
+        finally:
+            self.timer.finished(arrived, changed=changed)
+        self.timed.emit(self.timer.timing)
+        return response
+
+    def _respond(self, line: bytes) -> tuple[bytes, bool]:
+        """The response, and whether the draft changed."""
         try:
             request = decode_request(line)
         except ValueError as e:
-            return encode_response(Response({"error": str(e)}, is_error=True))
+            return encode_response(Response({"error": str(e)}, is_error=True)), False
         if request.tool in COMMAND_KINDS and self.controller.busy:
-            return encode_response(Response({"error": BUSY}, is_error=True))
+            return encode_response(Response({"error": BUSY}, is_error=True)), False
         self._client = request.client
         try:
             answer = self.draft.call(
                 self.session.document, self.session.selection, request.tool, request.arguments
             )
         except Exception as e:  # a bug in Caliper: say so rather than leave the client waiting
-            return encode_response(Response({"error": f"Caliper failed: {e}"}, is_error=True))
+            error = Response({"error": f"Caliper failed: {e}"}, is_error=True)
+            return encode_response(error), False
         self.stepped.emit(request.client, answer.outcome)
         if answer.changed:
             self._show()
         outcome = answer.outcome
-        return encode_response(Response(outcome.content, outcome.is_error, answer.note))
+        response = Response(outcome.content, outcome.is_error, answer.note)
+        return encode_response(response), answer.changed
 
     def _connected(self) -> None:
         while (socket := self._server.nextPendingConnection()) is not None:
@@ -150,8 +175,10 @@ class McpHost(QObject):
         finally:
             self._updating = False
 
-    def _applied(self, proposal: Proposal) -> None:
+    def _applied(self, proposal: Proposal, seconds: float) -> None:
         self._accepted = proposal
+        if proposal is self._shown:
+            self.timer.accepted(seconds)
 
     def _proposal_changed(self) -> None:
         shown = self._shown
@@ -165,3 +192,5 @@ class McpHost(QObject):
         else:
             self.draft.end(Ended.CLOSED)
         self._accepted = None
+        self.timer.proposal_ended()
+        self.timed.emit(self.timer.timing)

@@ -1,15 +1,32 @@
 """The assistant's transcript: each request, the Caliper tools it used and what they did, and
 its answer, plus each call Claude Desktop makes over MCP. A plain list in the browser, like
-History; the proposal card is where changes are reviewed and applied."""
+History; the proposal card is where changes are reviewed and applied. Above it, while Claude
+Desktop can connect, a one-line Timing section: how long its latest task took."""
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QResizeEvent
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QStyle,
+    QStyleOptionButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from caliper.ai.agent import Turn
 from caliper.ai.model import ToolOutcome
 from caliper.app import theme
+from caliper.app.agent.timing import FIELDS, Timing, markdown, minutes, rows
 from caliper.app.agent.ui import AgentController
+from caliper.app.tokens import SPACE
 
 
 def step_text(outcome: ToolOutcome) -> str:
@@ -97,3 +114,110 @@ class AssistantLog(QListWidget):
             count = len(result.commands)
             changes = f"{count} change{'s' if count != 1 else ''}"
             self._add(f"Proposed {changes}: accept or reject on the canvas.", theme.TEXT_DIM)
+
+
+class TimingSection(QFrame):
+    """The latest Claude Desktop task's timing (docs/mcp.md, Timing), one line until opened.
+    It stays after the run ends, to copy into a test folder's timing.md."""
+
+    start_requested = Signal()
+    """Start run was pressed."""
+    copied = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("timing")
+        self.timing: Timing | None = None
+        self.expanded = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(SPACE.s, SPACE.xs, SPACE.s, SPACE.xs)
+        layout.setSpacing(SPACE.xs)
+        header = QHBoxLayout()
+        header.setSpacing(SPACE.xs)
+        self.heading = ""
+        """The collapsed line in full; the toggle shows as much as fits."""
+        self.toggle = QPushButton()
+        self.toggle.setObjectName("timing-toggle")
+        self.toggle.setFlat(True)
+        # Takes the width Start run leaves, and elides: the browser can be 250 px wide.
+        self.toggle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.toggle.clicked.connect(self._toggle)
+        self.start_button = QPushButton("Start run")
+        self.start_button.setToolTip(
+            "Press as you send the task in Claude Desktop, so First response and Total run "
+            "count from then (⌘⇧R). Without it a run starts at Claude's first call."
+        )
+        self.start_button.clicked.connect(self.start_requested)
+        header.addWidget(self.toggle, 1)
+        header.addWidget(self.start_button)
+        layout.addLayout(header)
+
+        self.details = QWidget()
+        grid = QGridLayout(self.details)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(SPACE.m)
+        grid.setVerticalSpacing(SPACE.xxs)
+        self.values: dict[str, QLabel] = {}
+        for row, name in enumerate(("Date", *FIELDS)):
+            label = QLabel(name)
+            label.setProperty("role", "dim")
+            value = QLabel()
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            grid.addWidget(label, row, 0)
+            grid.addWidget(value, row, 1, Qt.AlignmentFlag.AlignRight)
+            self.values[name] = value
+        self.copy_button = QPushButton("Copy for timing.md")
+        self.copy_button.setToolTip("Copy these numbers in the test folder's timing.md format")
+        self.copy_button.clicked.connect(self.copy)
+        grid.addWidget(self.copy_button, len(FIELDS) + 1, 0, 1, 2)
+        layout.addWidget(self.details)
+        self.show_timing(None)
+
+    def show_timing(self, timing: Timing | None) -> None:
+        self.timing = timing
+        values = {} if timing is None else dict(rows(timing))
+        self.values["Date"].setText("" if timing is None else timing.date.isoformat())
+        for name in FIELDS:
+            self.values[name].setText(values.get(name, ""))
+        self.copy_button.setEnabled(timing is not None)
+        self._fit()
+
+    def summary(self) -> str:
+        """The collapsed line after "Timing"."""
+        timing = self.timing
+        if timing is None:
+            return "no run yet"
+        if not timing.calls:
+            return "waiting for Claude…"
+        calls = f"{timing.calls} call{'s' if timing.calls != 1 else ''}"
+        return f"{minutes(timing.total)} · {calls}"
+
+    def copy(self) -> None:
+        if self.timing is not None:
+            QGuiApplication.clipboard().setText(markdown(self.timing))
+            self.copied.emit()
+
+    def _toggle(self) -> None:
+        self.expanded = not self.expanded
+        self._fit()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._elide()
+
+    def _fit(self) -> None:
+        arrow = "▾" if self.expanded else "▸"
+        self.heading = f"{arrow} Timing  {self.summary()}"
+        self.toggle.setToolTip(self.heading)
+        self._elide()
+        self.details.setVisible(self.expanded)
+
+    def _elide(self) -> None:
+        option = QStyleOptionButton()
+        self.toggle.initStyleOption(option)
+        space = self.toggle.style().subElementRect(
+            QStyle.SubElement.SE_PushButtonContents, option, self.toggle
+        )  # where the style draws the text: inside the button's own margins
+        metrics = self.toggle.fontMetrics()
+        text = metrics.elidedText(self.heading, Qt.TextElideMode.ElideRight, space.width())
+        self.toggle.setText(text)
