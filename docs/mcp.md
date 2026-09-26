@@ -87,6 +87,9 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
 - While Caliper's own assistant is working on a request, changes from Claude Desktop are
   refused with a "try again" message; looking still works.
 - Each call shows in the Assistant tab, marked with the client's name (e.g. `claude-ai →`).
+- A proposal of more than 6 changes shows a summary ("187 changes · 57 checks, all passing",
+  failures in red) with the list of changes behind **Show changes**, so the card keeps its size
+  and Accept stays in reach; errors and failing checks are always shown.
 - Only one Caliper window serves Claude Desktop at a time; a second one says so in its status
   bar. macOS and Linux only (Unix sockets).
 
