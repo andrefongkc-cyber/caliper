@@ -21,6 +21,7 @@ lets the rest solve are reported.
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import permutations
 from types import MappingProxyType
 
 from caliper.contracts.document import (
@@ -29,6 +30,7 @@ from caliper.contracts.document import (
     Arc,
     Circle,
     Constraint,
+    ConstraintType,
     DistanceDimension,
     Document,
     Entity,
@@ -52,6 +54,7 @@ from caliper.engine.constraints.relations import (
     match,
     measure,
     measure_angle,
+    tangent_at_joint,
 )
 
 type Param = tuple[EntityId, str]
@@ -175,7 +178,8 @@ class System:
         self, relations: Sequence[EntityId], first: Sequence[float]
     ) -> list[tuple[EntityId, Callable[[Frame], list[Dual]]]]:
         setting = Setting(first=self.frame(first), anchor=self.frame(self.anchors))
-        return [(id, _compile(self.document, id, setting)) for id in relations]
+        joints = _joints(self.document, self.relations)
+        return [(id, _compile(self.document, id, setting, joints)) for id in relations]
 
     def indices(self, params: Iterable[Param]) -> set[int]:
         where = {p: i for i, p in enumerate(self.params)}
@@ -192,13 +196,45 @@ class System:
         return {i for q in quantities for i in q.g}
 
 
-def _compile(document: Document, id: EntityId, at: Setting) -> Callable[[Frame], list[Dual]]:
+type Joints = Mapping[tuple[EntityId, EntityId], Ref]
+
+
+def _joints(document: Document, relations: Iterable[EntityId]) -> Joints:
+    """Where a coincident constraint puts an arc's end on another curve (a line or another
+    arc or circle, at its end or anywhere along it): that end, by (arc, other curve).
+    Tangency between the two is written at the joint (`tangent_at_joint`)."""
+    joints: dict[tuple[EntityId, EntityId], Ref] = {}
+    for id in relations:
+        entity = document.entities[id]
+        if not (isinstance(entity, Constraint) and entity.type is ConstraintType.COINCIDENT):
+            continue
+        for end, other in permutations(entity.refs):
+            if (
+                isinstance(document.entities[end.entity], Arc)
+                and end.feature in (Feature.START, Feature.END)
+                and isinstance(document.entities[other.entity], Line | Arc | Circle)
+                and other.feature in (Feature.START, Feature.END, Feature.CURVE)
+                and other.entity != end.entity
+            ):
+                joints.setdefault((end.entity, other.entity), end)
+    return joints
+
+
+def _compile(
+    document: Document, id: EntityId, at: Setting, joints: Joints
+) -> Callable[[Frame], list[Dual]]:
     entity = document.entities[id]
     match entity:
         case Constraint(type=type_, refs=refs):
             found = match(document, type_, refs)
             assert isinstance(found, Match), found
             equations, ordered = found.rule.equations, found.refs
+            if type_ is ConstraintType.TANGENT:
+                joint = joints.get((ordered[0].entity, ordered[1].entity)) or joints.get(
+                    (ordered[1].entity, ordered[0].entity)
+                )
+                if joint is not None:
+                    equations = tangent_at_joint(joint)
             assert equations is not None
             return lambda f: equations(f, ordered, at)
         case DistanceDimension(value=float(target)) | RadialDimension(value=float(target)):

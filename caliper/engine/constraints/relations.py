@@ -223,6 +223,30 @@ def _tangent_line(f: Frame, r: tuple[Ref, ...], at: Setting) -> list[Dual]:
     return [side * _offset(circle.center, f.straight(line_ref)) - circle.radius]
 
 
+def tangent_at_joint(joint: Ref) -> Equations:
+    """Tangency where two curves meet: `joint` is an arc's end that a coincident constraint
+    puts on the other curve. There, tangency is the radius to `joint` being perpendicular to
+    a line, or both radii to it lying on one line. With the joint held, that says exactly
+    what "the centre is `r` from the line" (or "the centres are `r1 + r2` apart") says, but
+    the distance form's gradient at the joint is the joint's own, so a rank test takes it
+    for redundant and never sees the end angle it fixes."""
+
+    def equations(f: Frame, r: tuple[Ref, ...], _: Setting) -> list[Dual]:
+        a, b = f.curve(r[0]), f.curve(r[1])
+        p = f.point(joint)
+        if isinstance(a, Straight) and isinstance(b, Round):
+            a, b = b, a
+        if isinstance(b, Straight):
+            assert isinstance(a, Round)
+            d = _direction(b)
+            return [_dot(_sub(p, a.center), d) / _length(d)]
+        assert isinstance(a, Round)
+        u, v = _sub(p, a.center), _sub(p, b.center)
+        return [_cross(u, v) / (_length(u) * _length(v))]
+
+    return equations
+
+
 def _tangent_circles(f: Frame, r: tuple[Ref, ...], at: Setting) -> list[Dual]:
     a0, b0 = _round(at.first, r[0]), _round(at.first, r[1])
     gap = _length(_sub(b0.center, a0.center)).v
