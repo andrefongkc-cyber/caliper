@@ -146,7 +146,7 @@ class McpHost(QObject):
                 draft.checks,
             )
             assert draft.base is not None
-            self._shown = self.controller.propose(plan, draft.base)
+            self._shown = self.controller.propose(plan, draft.base, result=draft.workspace.document)
         finally:
             self._updating = False
 

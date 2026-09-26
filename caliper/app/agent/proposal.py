@@ -59,21 +59,32 @@ class Proposal:
         )
 
 
-def prepare(plan: Plan, base: Document, user_checks: tuple[Expectation, ...]) -> Proposal:
-    scratch = Bus(base)
+def prepare(
+    plan: Plan,
+    base: Document,
+    user_checks: tuple[Expectation, ...],
+    *,
+    result: Document | None = None,
+) -> Proposal:
+    """`result`, when given, is what `plan.commands` already did to `base` on a scratch bus:
+    an assistant's or MCP client's workspace, whose commands are resolved and all applied.
+    It is used as it is. Replay is deterministic, so running the commands again would only
+    rebuild the same document, and for a large proposal that replay was nearly all the
+    time each change took. Accepting still runs every command through the session's bus."""
     errors: list[Error] = []
-    for command in plan.commands:
-        result = scratch.execute(command)
-        if isinstance(result, Rejected):
-            errors.extend(result.errors)
-            break
-        assert isinstance(result, Applied)
-    before, after = Bus(base).queries, scratch.queries
+    if result is None:
+        scratch = Bus(base)
+        for command in plan.commands:
+            outcome = scratch.execute(command)
+            if isinstance(outcome, Rejected):
+                errors.extend(outcome.errors)
+                break
+            assert isinstance(outcome, Applied)
+        result = scratch.document
+    before, after = Bus(base).queries, Bus(result).queries
     checks = tuple(
         CheckChange(expectation=e, before=before.check(e), after=after.check(e), agent=agent)
         for agent, group in ((True, plan.checks), (False, user_checks))
         for e in group
     )
-    return Proposal(
-        plan=plan, base=base, result=scratch.document, errors=tuple(errors), checks=checks
-    )
+    return Proposal(plan=plan, base=base, result=result, errors=tuple(errors), checks=checks)
