@@ -124,3 +124,72 @@ makes no API request of Caliper's own; Claude Desktop uses your Claude account.
 If step 4 shows no tools, check Claude Desktop's MCP log (Settings → Developer, or
 `~/Library/Logs/Claude/mcp-server-caliper.log`) for the error, usually a wrong path in the
 config.
+
+To keep a record of a test (the prompt, Claude's output, the drawing, the timing, and your
+own notes), follow [test-runs-manual/README.md](../test-runs-manual/README.md).
+
+## Timing
+
+Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** line at the top
+of the Assistant tab shows the latest run, e.g. `▸ Timing   4m 07s · 57 calls`. Click it for
+every field. The numbers stay up after the run ends, and **Copy for timing.md** puts them on
+the clipboard in exactly this format, for a test folder's `timing.md`:
+
+```
+# Timing
+
+Date: YYYY-MM-DD
+
+Total run: Xm XXs
+
+MCP/tool calls: XX
+
+First response: X.Xs
+Longest tool call: X.Xs
+
+Proposal creation: Xm XXs
+Accept: X.Xs
+```
+
+Every AI/MCP test uses these fields, these names, and these definitions:
+
+| Field | What it measures |
+|---|---|
+| **Date** | The day the run started. |
+| **Total run** | From sending the task until Claude's last tool call has its answer. Sending is when you pressed Start run; without it, when Claude's first call reached Caliper. |
+| **MCP/tool calls** | Every tool call that reached Caliper in the run, including refused and failed ones. |
+| **First response** | From sending the task (Start run) until Claude's first tool call reached Caliper. |
+| **Longest tool call** | The slowest single call, from when it reached Caliper until its answer was ready: the command, the solve, and redrawing the proposal. |
+| **Proposal creation** | From the start of the first call that changed the pending proposal to the end of the last one, including any looking in between. If you accepted part-way and Claude carried on, each proposal's time adds up. |
+| **Accept** | From pressing Accept until the changes are in the sketch (every command through the solver, as one undo step). Several accepts in one run add up. |
+
+A value Caliper couldn't measure shows **N/A**, never an estimate:
+
+- **First response** is N/A unless you pressed Start run.
+- **Proposal creation** is N/A when Claude only looked and made no proposal.
+- **Accept** is N/A when you rejected the proposal, it's still pending, the sketch changed
+  under it, or there was none.
+- **Total run** and **Longest tool call** are N/A until Claude's first call.
+
+Rounding: `Xm XXs` is to the nearest second, and `X.Xs` to a tenth of a second (so a call
+under 0.05 s shows `0.0s`). MCP/tool calls is a plain count.
+
+### When a run starts and ends
+
+Caliper sees a task only through Claude's tool calls. It can't see you press Enter in Claude
+Desktop, or Claude's closing message after its last call, so:
+
+- **Press Start run just before you send the prompt**: the button in the Timing section, or
+  Agent → Start Timing Run (⌘⇧R). First response and Total run then count from that press,
+  including the second it takes to switch to Claude Desktop and send.
+- **Without it, a run starts at Claude's first call.** A new run also starts when another
+  document is opened (File → New or Open), or at a call that comes after 3 minutes with
+  none. Pressing Start run and then File → New keeps the run you started.
+- **A run ends when Claude's last call has its answer.** Claude's closing message isn't
+  counted. Accepting part-way doesn't end the run.
+- If you send a new task within 3 minutes without Start run or File → New, it joins the
+  previous run. For tests, press Start run every time.
+
+Only Claude Desktop's MCP tasks are timed; the in-app assistant's aren't. The clock is the
+system's monotonic clock, read twice per call and once each side of Accept, inside Caliper
+(`caliper/app/agent/timing.py`), so timing adds no noticeable time to a call.

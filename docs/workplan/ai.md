@@ -1,4 +1,4 @@
-Status: the assistant (#32), MCP (#34), and the stress-test fixes (#35) are on `main`, next: a live Claude Desktop rerun of the fixes, and a decision on how checks with no pending proposal reach the Checks panel
+Status: MCP timing and the test-run folder convention built on `shared/mcp-timing` (stacked on #39, not pushed), next: a live timed run from Claude Desktop, then review
 
 # AI workplan
 
@@ -7,6 +7,21 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## MCP timing and test-run records (branch `shared/mcp-timing`, 2026-09-26)
+
+User request (2026-09-26): time every Claude Desktop task automatically, shown compactly in the Assistant tab with fixed fields and names, and a permanent folder convention for recording AI/MCP test runs. Stacked on `shared/fix-constrain-menu-hang` (#39) so the checkout keeps that fix; no change to CAD, proposal, or MCP behaviour, and no contract change.
+
+**The design question, and the answer:** Caliper sees a task only through its MCP calls, not the moment the prompt is sent or Claude's closing message. Andre chose automatic runs plus an optional Start run: a run starts at Claude's first call (or on New/Open, or after 3 minutes with no calls), and pressing Start run (⌘⇧R) as the prompt goes out makes First response measurable. Anything not measured shows N/A.
+
+- [x] `caliper/app/agent/timing.py`: `RunTimer` (Qt-free, injected clock): runs, each call from arrival to answer, proposal-building spans, accepts; `markdown()` is the test folder's `timing.md`, exactly
+- [x] `McpHost.handle` times every call and emits `timed`; `AgentController.applied` now carries the Accept's seconds; `start_run()`
+- [x] The Assistant tab: a one-line Timing section above the log (hidden unless Claude Desktop can connect), expandable to the six fields and the date, with Start run and Copy for timing.md; Agent → Start Timing Run (⌘⇧R)
+- [x] Tests: `tests/app/test_timing.py` (the arithmetic on a fake clock: calls, longest, total, first response, proposal creation, accept, no proposal, rejected, several proposals, new runs by Start run, idle, and another document, the formats) and nine window tests in `tests/app/test_mcp.py` (real calls over the socket with a faked clock, accept and reject, stale accept, New, the shortcut, the collapsed section, the copy)
+- [x] Docs: [docs/mcp.md, Timing](../mcp.md#timing) (the fields and definitions, for every future test) and [test-runs-manual/README.md](../../test-runs-manual/README.md) (the folder convention); `001-ball-bearing` brought into it
+- [ ] A live timed run from Claude Desktop (needs Caliper restarted on this branch)
+
+**For Lucas:** `caliper/app/agent/mcp_host.py` (`handle` split into timing and `_respond`), `caliper/app/agent/ui.py` (`applied` has a second argument), `caliper/app/panels/assistant.py` (`TimingSection`), `caliper/app/main_window.py` (the Assistant tab is now a container: `assistant_panel`), `caliper/app/theme.py`.
 
 ## MCP stress-test fixes (branch `shared/mcp-stress-fixes`, 2026-09-25)
 
