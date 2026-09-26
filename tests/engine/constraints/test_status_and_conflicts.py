@@ -368,3 +368,28 @@ def test_constraints_on_an_entity() -> None:
     run(bus, CreateDimension(refs=(curve("e1"),), placement=pt(5, -5)))
     assert bus.queries.constraints_on([E("e1")]) == ("e10", "e8")
     assert bus.queries.constraints_on([E("e4"), E("unknown")]) == ("e9",)
+
+
+def test_a_large_selection_gets_its_answer_without_trying_every_order(monkeypatch) -> None:
+    # Box-selecting a whole traced outline (35 curves) hung the window: `match` tried all
+    # 35! orders of the references before finding that no rule takes more than three.
+    import itertools
+
+    from caliper.engine.constraints import relations
+
+    def permutations(items, *rest):  # type: ignore[no-untyped-def]
+        items = list(items)
+        assert len(items) <= 3, f"tried every order of {len(items)} references"
+        return itertools.permutations(items, *rest)
+
+    monkeypatch.setattr(relations, "permutations", permutations)
+    bus = Bus()
+    for i in range(35):
+        run(bus, CreateLine(start=pt(i * 10, 0), end=pt(i * 10 + 5, 5)))
+    refs = [curve(f"e{i}") for i in range(1, 36)]
+    options = bus.queries.applicable_constraints(refs)
+    constraints = [o for o in options if isinstance(o.type, C)]
+    assert all(o.error is not None for o in constraints)
+    parallel = next(o for o in constraints if o.type is C.PARALLEL)
+    assert parallel.error is not None
+    assert parallel.error.message == "parallel needs two lines; got 35 references"
