@@ -1,10 +1,24 @@
-"""Opening files: File → Open and Open Recent. Settings are per test (conftest)."""
+"""Opening files: File → Open, Open Recent, and files handed over by another Caliper process
+(Finder's double-click, through the launcher app). Settings are per test (conftest)."""
 
+import plistlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
+import pytest
 from PySide6.QtWidgets import QFileDialog
 
+from caliper.app import __main__ as app_main
+from caliper.app import mac_launcher
 from caliper.app.main_window import RECENT_FILES
+from caliper.app.opener import SOCKET_ENV, hand_off
 from caliper.contracts.commands import CreateCircle
 from caliper.contracts.document import Point2
 from caliper.engine.commands.bus import Bus
@@ -107,3 +121,120 @@ def test_every_window_shares_the_list(window, new_window, tmp_path: Path) -> Non
     path = drawing(tmp_path / "part.caliper")
     assert window.open_document(path)
     assert entries(new_window()) == ["part.caliper", "Clear Menu"]
+
+
+# --- Handed over by another process (Finder) ---------------------------------------------
+
+
+@pytest.fixture
+def socket_file() -> Iterator[Path]:
+    directory = Path(tempfile.mkdtemp(prefix="cal", dir="/tmp"))  # short: socket paths are
+    yield directory / "open.sock"
+    shutil.rmtree(directory, ignore_errors=True)
+
+
+@pytest.fixture
+def serving(window, socket_file: Path):
+    assert window.serve_opens(socket_file)
+    yield window
+    window.opener.close()
+
+
+def in_background(qtbot, work: Callable[[], Any]) -> Any:
+    box: dict[str, Any] = {}
+    thread = threading.Thread(target=lambda: box.update(value=work()), daemon=True)
+    thread.start()
+    qtbot.waitUntil(lambda: not thread.is_alive(), timeout=10000)
+    return box["value"]
+
+
+def test_with_no_caliper_open_nothing_takes_the_file(socket_file: Path, tmp_path) -> None:
+    assert not hand_off(tmp_path / "part.caliper", socket_file)
+
+
+def test_a_file_handed_over_opens_in_the_open_window(
+    serving, qtbot, socket_file: Path, tmp_path: Path
+) -> None:
+    path = drawing(tmp_path / "part.caliper")
+    assert in_background(qtbot, lambda: hand_off(path, socket_file))
+    qtbot.waitUntil(lambda: serving.session.path == path)
+    assert serving.recent_files() == [path]
+
+
+def test_the_handover_is_answered_before_any_save_prompt(
+    serving, qtbot, socket_file: Path, tmp_path: Path, monkeypatch
+) -> None:
+    opened: list[Path] = []
+
+    def slow_open(path: Path) -> bool:  # a "save changes?" dialog the user takes a while over
+        time.sleep(0.6)
+        opened.append(path)
+        return True
+
+    monkeypatch.setattr(serving, "open_document", slow_open)
+    path = tmp_path / "part.caliper"
+    assert in_background(qtbot, lambda: hand_off(path, socket_file, timeout=0.3))
+    qtbot.waitUntil(lambda: opened == [path])
+
+
+def test_a_second_window_leaves_the_files_to_the_first(serving, new_window, socket_file) -> None:
+    assert not new_window().serve_opens(socket_file)
+    assert serving.opener.listening
+
+
+def test_starting_caliper_with_a_file_hands_it_to_the_open_window(
+    serving, qtbot, socket_file: Path, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv(SOCKET_ENV, str(socket_file))
+    path = drawing(tmp_path / "part.caliper")
+    # `python -m caliper.app part.caliper`, as the launcher runs it: it returns before
+    # making a window of its own.
+    assert in_background(qtbot, lambda: app_main.main(["caliper", str(path)])) == 0
+    qtbot.waitUntil(lambda: serving.session.path == path)
+
+
+# --- The Finder launcher -----------------------------------------------------------------
+
+
+def test_the_launcher_quotes_paths_for_the_shell_and_applescript() -> None:
+    script = mac_launcher.applescript(Path("/Users/a b/.venv/bin/python"), Path('/Users/a b/"x"'))
+    assert "on open dropped" in script
+    assert "quoted form of POSIX path of (item 1 of dropped)" in script
+    assert "cd '/Users/a b/\\\"x\\\"' && '/Users/a b/.venv/bin/python' -m caliper.app" in script
+
+
+def test_the_launcher_owns_the_caliper_file_type() -> None:
+    types = mac_launcher.document_types()
+    (declared,) = types["UTExportedTypeDeclarations"]
+    assert declared["UTTypeTagSpecification"] == {"public.filename-extension": ["caliper"]}
+    (document,) = types["CFBundleDocumentTypes"]
+    assert document["LSItemContentTypes"] == [declared["UTTypeIdentifier"]]
+    assert document["LSHandlerRank"] == "Owner"
+
+
+mac_only = pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("osacompile") is None, reason="macOS only"
+)
+
+
+@mac_only
+def test_the_launcher_builds_a_signed_app_and_rebuilds_its_own(tmp_path: Path) -> None:
+    target = tmp_path / "Caliper.app"
+    mac_launcher.build(target, Path(sys.executable), mac_launcher.REPO, register=False)
+    with (target / "Contents" / "Info.plist").open("rb") as f:
+        info = plistlib.load(f)
+    assert info["CFBundleIdentifier"] == mac_launcher.BUNDLE_ID
+    assert info["CFBundleDocumentTypes"][0]["CFBundleTypeRole"] == "Editor"
+    subprocess.run(["codesign", "--verify", str(target)], check=True)
+    mac_launcher.build(target, Path(sys.executable), mac_launcher.REPO, register=False)
+
+
+@mac_only
+def test_the_launcher_wont_replace_another_app(tmp_path: Path) -> None:
+    other = tmp_path / "Caliper.app"
+    (other / "Contents").mkdir(parents=True)
+    with (other / "Contents" / "Info.plist").open("wb") as f:
+        plistlib.dump({"CFBundleIdentifier": "com.example.other"}, f)
+    with pytest.raises(FileExistsError):
+        mac_launcher.build(other, Path(sys.executable), mac_launcher.REPO, register=False)
+    assert (other / "Contents" / "Info.plist").exists()
