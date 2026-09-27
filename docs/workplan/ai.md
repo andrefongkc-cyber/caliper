@@ -1,4 +1,4 @@
-Status: timing moved to its own panel above Properties, ticking live, and writing a test folder's 003-timing.md on save, on `shared/timing-dock` (stacked on #43, not pushed), next: a live timed run, then review of #39 → #41 → #42 → #43
+Status: PR #39 carries the selection-hang fix plus #41–#44 (timing, test-run records, browser collapse, opening files, the timing panel), rebased on `main` after the layout-first guidance (#40), next: merge #39, then a live timed run and the Claude Desktop gear rerun
 
 # AI workplan
 
