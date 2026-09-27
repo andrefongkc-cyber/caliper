@@ -325,7 +325,7 @@ class MainWindow(QMainWindow):
         self.timing = TimingSection()
         self.timing.hide()  # until Claude Desktop can connect
         self.timing.start_requested.connect(self._start_run)
-        self.timing.copied.connect(lambda: self.show_message("Copied the timing for timing.md"))
+        self.timing.copied.connect(lambda: self.show_message("Copied the timing for 003-timing.md"))
         self.assistant_panel = QWidget()
         assistant_layout = QVBoxLayout(self.assistant_panel)
         assistant_layout.setContentsMargins(0, 0, 0, 0)

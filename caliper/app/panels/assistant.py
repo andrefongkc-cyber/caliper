@@ -118,7 +118,7 @@ class AssistantLog(QListWidget):
 
 class TimingSection(QFrame):
     """The latest Claude Desktop task's timing (docs/mcp.md, Timing), one line until opened.
-    It stays after the run ends, to copy into a test folder's timing.md."""
+    It stays after the run ends, to copy into a test folder's 003-timing.md."""
 
     start_requested = Signal()
     """Start run was pressed."""
@@ -166,8 +166,8 @@ class TimingSection(QFrame):
             grid.addWidget(label, row, 0)
             grid.addWidget(value, row, 1, Qt.AlignmentFlag.AlignRight)
             self.values[name] = value
-        self.copy_button = QPushButton("Copy for timing.md")
-        self.copy_button.setToolTip("Copy these numbers in the test folder's timing.md format")
+        self.copy_button = QPushButton("Copy for 003-timing.md")
+        self.copy_button.setToolTip("Copy these numbers in the test folder's 003-timing.md format")
         self.copy_button.clicked.connect(self.copy)
         grid.addWidget(self.copy_button, len(FIELDS) + 1, 0, 1, 2)
         layout.addWidget(self.details)
