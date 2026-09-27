@@ -642,4 +642,4 @@ def test_the_section_is_one_line_until_opened_and_copies_timing_md(timed, qtbot)
     assert not section.details.isHidden()
     section.copy_button.click()
     assert QGuiApplication.clipboard().text() == markdown(section.timing)
-    assert window.statusBar().currentMessage() == "Copied the timing for timing.md"
+    assert window.statusBar().currentMessage() == "Copied the timing for 003-timing.md"

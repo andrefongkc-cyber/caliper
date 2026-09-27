@@ -26,7 +26,7 @@ FIELDS = (
     "Proposal creation",
     "Accept",
 )
-"""The fields every test's timing.md has after Date, in order, named exactly so."""
+"""The fields every test's 003-timing.md has after Date, in order, named exactly so."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -179,7 +179,7 @@ def rows(timing: Timing) -> list[tuple[str, str]]:
 
 
 def markdown(timing: Timing) -> str:
-    """The run as a test folder's timing.md, exactly (docs/mcp.md, Timing)."""
+    """The run as a test folder's 003-timing.md, exactly (docs/mcp.md, Timing)."""
     (total, calls, first, longest, creation, accept) = (
         f"{name}: {value}" for name, value in rows(timing)
     )
