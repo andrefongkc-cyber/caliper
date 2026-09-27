@@ -177,6 +177,79 @@ def test_double_click_frames_the_entity(window, sketch) -> None:
     assert box.x_max > 38
 
 
+def click_header(qtbot, browser, name: str, *, double: bool = False) -> None:
+    """Click a group's header; `double` sends a click then a double-click, as a mouse does."""
+    point = browser.visualItemRect(browser.groups[name]).center()
+    qtbot.mouseClick(browser.viewport(), Qt.MouseButton.LeftButton, pos=point)
+    if double:
+        qtbot.mouseDClick(browser.viewport(), Qt.MouseButton.LeftButton, pos=point)
+
+
+def test_a_group_header_collapses_and_expands_its_group(window, qtbot, sketch) -> None:
+    browser = window.browser
+    geometry = browser.groups["Geometry"]
+    assert geometry.text(0) == "▾ GEOMETRY"
+    click_header(qtbot, browser, "Geometry")
+    assert not geometry.isExpanded()
+    assert geometry.text(0) == "▸ GEOMETRY"
+    assert geometry.text(1) == "2"  # the count stays in view
+    click_header(qtbot, browser, "Geometry")
+    assert geometry.isExpanded()
+    assert geometry.text(0) == "▾ GEOMETRY"
+
+
+def test_a_double_click_on_a_header_toggles_twice(window, qtbot, sketch) -> None:
+    browser = window.browser
+    click_header(qtbot, browser, "Geometry", double=True)
+    assert browser.groups["Geometry"].isExpanded()
+
+
+def test_collapsing_a_group_leaves_the_selection_alone(window, qtbot, sketch) -> None:
+    plate, _ = sketch
+    window.session.set_selection(frozenset({plate}))
+    click_header(qtbot, window.browser, "Geometry")
+    assert window.session.selection == {plate}
+    assert window.browser.items[plate].isSelected()
+
+
+def test_a_collapsed_group_stays_collapsed_as_the_sketch_changes(window, qtbot, sketch) -> None:
+    plate, _ = sketch
+    browser = window.browser
+    click_header(qtbot, browser, "Geometry")
+    (circle,) = window.session.execute(
+        CreateCircle(center=Point2(x=200, y=0), radius=4)
+    ).created_ids
+    window.session.execute(ModifyEntity(id=plate, changes={"width": 140.0}))
+    geometry = browser.groups["Geometry"]
+    assert not geometry.isExpanded()
+    assert geometry.text(1) == "3"
+    assert browser.items[circle].parent() is geometry
+    browser.rebuild()  # as when another document opens
+    assert not browser.groups["Geometry"].isExpanded()
+
+
+def test_selecting_on_the_canvas_doesnt_reopen_a_collapsed_group(window, qtbot, sketch) -> None:
+    _, hole = sketch
+    click_header(qtbot, window.browser, "Geometry")
+    window.session.set_selection(frozenset({hole}))
+    assert not window.browser.groups["Geometry"].isExpanded()
+    assert window.browser.items[hole].isSelected()  # selected, ready when it's opened
+
+
+def test_each_group_collapses_on_its_own(window, qtbot, sketch) -> None:
+    plate, _ = sketch
+    window.session.execute(
+        CreateConstraint(
+            type=ConstraintType.FIX, refs=(Ref(entity=plate, feature=Feature.BOTTOM_LEFT),)
+        )
+    )
+    browser = window.browser
+    click_header(qtbot, browser, "Constraints")
+    assert not browser.groups["Constraints"].isExpanded()
+    assert browser.groups["Geometry"].isExpanded()
+    assert browser.groups["Constraints"].text(0) == "▸ CONSTRAINTS"
+
+
 # --- Checks -------------------------------------------------------------------------------
 
 
