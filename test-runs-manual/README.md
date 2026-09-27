@@ -15,12 +15,13 @@ test-runs-manual/
     ├── 003-timing.md
     ├── 004-claude-results.md
     ├── 005-my-results.md
-    └── 006-test.caliper
+    └── test-name.caliper
 ```
 
-Every test folder has exactly these six files, with these names. The numbers give the order
-to read them in; keep them as shown. A test folder has no `README.md`: this file is the only
-one.
+Every test folder has exactly these six files. The five `.md` files are numbered in the order
+to read them, with these exact names. The drawing is named after the test, without a number:
+`001-ball-bearing/ball-bearing.caliper`. A test folder has no `README.md`: this file is the
+only one.
 
 ## Folder names
 
@@ -44,7 +45,7 @@ Each file has one job; don't repeat one file's content in another.
 | `003-timing.md` | How long it took, as Caliper measured it | Caliper |
 | `004-claude-results.md` | Claude's short summary of the result | Claude |
 | `005-my-results.md` | Your own observations and notes | **You only** |
-| `006-test.caliper` | The drawing the test produced | Caliper (File → Save As) |
+| `test-name.caliper` | The drawing the test produced | Caliper (File → Save As) |
 
 **`001-prompt.md`**: the prompt, character for character. Don't rewrite, summarise, or
 correct it, typos included.
@@ -103,8 +104,9 @@ can write the file.
 enough, how the UI behaved, visual problems, anything unexpected, what to test next, and your
 overall view. It starts as an empty template. Claude never fills it in.
 
-**`006-test.caliper`**: Caliper's native file, saved at the end of the test. Nothing else
-goes in it: no notes, timing, or evaluation.
+**`test-name.caliper`**: Caliper's native file, saved at the end of the test and named after
+the test's folder, without its number (`ball-bearing.caliper` in `001-ball-bearing`).
+Nothing else goes in it: no notes, timing, or evaluation.
 
 ## Running a test
 
@@ -116,4 +118,4 @@ goes in it: no notes, timing, or evaluation.
 6. Assistant tab → Timing → **Copy for 003-timing.md**, pasted into `003-timing.md`.
 7. Get `004-claude-results.md` from Claude.
 8. Write `005-my-results.md`.
-9. File → Save As, `006-test.caliper` in the folder.
+9. File → Save As, `test-name.caliper` in the folder.
