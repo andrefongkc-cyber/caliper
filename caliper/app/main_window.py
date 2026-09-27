@@ -23,6 +23,7 @@ from caliper.app import icons, solve_state
 from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
+from caliper.app.opener import OpenServer
 from caliper.app.palette import CommandPalette
 from caliper.app.panels.assistant import AssistantLog, TimingSection
 from caliper.app.panels.browser import SketchBrowser
@@ -86,6 +87,8 @@ class MainWindow(QMainWindow):
         self.agent.proposal_shown.connect(self._frame_proposal)
         self.mcp: McpHost | None = None
         """Claude Desktop's way in, once `serve_mcp` is called."""
+        self.opener: OpenServer | None = None
+        """Files other Caliper processes hand this window, once `serve_opens` is called."""
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
@@ -577,6 +580,21 @@ class MainWindow(QMainWindow):
         self.start_run_action.setEnabled(problem is None)
         return problem is None
 
+    def serve_opens(self, path: Path) -> bool:
+        """Open the files other Caliper processes hand over at `path` (Finder, or
+        `python -m caliper.app file.caliper`), in this window. False if another window
+        already takes them, or this platform can't."""
+        self.opener = OpenServer(path, self)
+        self.opener.requested.connect(self._open_handed)
+        return self.opener.start()
+
+    def _open_handed(self, path: Path) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.open_document(path)
+
     def _start_run(self) -> None:
         if self.mcp is not None and self.mcp.listening:
             self.mcp.start_run()
@@ -586,6 +604,8 @@ class MainWindow(QMainWindow):
         if self.confirm_discard():
             if self.mcp is not None:
                 self.mcp.close()
+            if self.opener is not None:
+                self.opener.close()
             event.accept()
         else:
             event.ignore()
