@@ -157,7 +157,8 @@ class MainWindow(QMainWindow):
     def _build_actions(self) -> None:
         std = QKeySequence.StandardKey
         self.new_action = self._action("New", self.new_document, std.New)
-        self.open_action = self._action("Open…", self.open_document, std.Open)
+        # Not `self.open_document` itself: `triggered` would pass its `checked` flag as the path.
+        self.open_action = self._action("Open…", lambda: self.open_document(), std.Open)
         self.save_action = self._action("Save", self.save_document, std.Save)
         self.save_as_action = self._action("Save As…", self.save_document_as, std.SaveAs)
         self.close_action = self._action("Close Window", self.close, std.Close)
