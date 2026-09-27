@@ -187,9 +187,12 @@ class MainWindow(QMainWindow):
         self.grid_action = self._action("Show Grid", self._toggle_grid, "G")
         self.grid_action.setCheckable(True)
         self.grid_action.setChecked(True)
-        self.constraints_action = self._action("Show Constraints", self._toggle_constraints)
+        self.constraints_action = self._action(
+            "Show Constraints", self._toggle_constraints, "Shift+C"
+        )
         self.constraints_action.setCheckable(True)
         self.constraints_action.setChecked(True)
+        self.constraints_action.setIconText("Constraints")
         self.snap_action = self._action("Snap to Grid", self._toggle_snap)
         self.snap_action.setCheckable(True)
         self.snap_action.setChecked(True)
@@ -198,6 +201,7 @@ class MainWindow(QMainWindow):
             (self.redo_action, "redo"),
             (self.fit_action, "fit"),
             (self.grid_action, "grid"),
+            (self.constraints_action, "badges"),
         ):
             action.setIcon(icons.icon(name))
 
@@ -211,6 +215,7 @@ class MainWindow(QMainWindow):
         for action, tip in (
             (self.fit_action, "Zoom to Fit"),
             (self.grid_action, "Show Grid"),
+            (self.constraints_action, "Show constraint badges (T, =, H…); dimensions stay"),
             (self.undo_action, "Undo"),
             (self.redo_action, "Redo"),
         ):
@@ -320,6 +325,7 @@ class MainWindow(QMainWindow):
                     bar.addAction(self.tool_actions[name])
             bar.addSeparator()
         bar.addAction(self.fit_action)
+        bar.addAction(self.constraints_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar
 
