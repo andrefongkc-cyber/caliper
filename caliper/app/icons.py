@@ -46,6 +46,9 @@ _SHAPES: dict[str, str] = {
     # Two rays from a corner with the arc between them.
     "angle": '<path d="M3.5 16.5 H16.5 M3.5 16.5 L13 5"/><path d="M9.5 16.5 A6 6 0 0 0 7.4 11.9"/>',
     "grid": '<path d="M3.5 7.5 H16.5 M3.5 12.5 H16.5 M7.5 3.5 V16.5 M12.5 3.5 V16.5"/>',
+    # A constraint badge, as drawn beside the geometry: a small box with an equals sign.
+    "badges": '<rect x="4" y="5" width="12" height="10" rx="1.5"/>'
+    '<path d="M7.5 8.8 H12.5 M7.5 11.2 H12.5"/>',
     "undo": '<path d="M7.5 5 L4 8.5 L7.5 12 M4 8.5 H12 A4 4 0 0 1 12 16.5 H9"/>',
     "redo": '<path d="M12.5 5 L16 8.5 L12.5 12 M16 8.5 H8 A4 4 0 0 0 8 16.5 H11"/>',
     "measure": '<path d="M3 13 L13 3 L17 7 L7 17 Z M6 10 L7.5 11.5 M8.5 7.5 L10 9 M11 5 '
