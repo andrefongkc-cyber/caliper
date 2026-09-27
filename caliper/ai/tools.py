@@ -94,6 +94,23 @@ def _description(cls: type) -> str:
     return doc
 
 
+_FIELD_DESCRIPTIONS = {
+    "construction": (
+        "True for layout geometry: centre lines and reference circles that other geometry is "
+        "constrained and dimensioned to. It is solved like any geometry but is not part of the "
+        "part's outline."
+    ),
+}
+"""What a command field is for, where its name and type don't say."""
+
+
+def _field_schema(name: str, tp: object) -> dict[str, object]:
+    schema = _schema(tp)
+    if name in _FIELD_DESCRIPTIONS:
+        return {**schema, "description": _FIELD_DESCRIPTIONS[name]}
+    return schema
+
+
 def _command_spec(kind: str, cls: type) -> ToolSpec:
     hints = get_type_hints(cls)
     names = [f.name for f in fields(cls)]
@@ -105,7 +122,7 @@ def _command_spec(kind: str, cls: type) -> ToolSpec:
         description=_description(cls),
         input_schema={
             "type": "object",
-            "properties": {name: _schema(hints[name]) for name in names},
+            "properties": {name: _field_schema(name, hints[name]) for name in names},
             "required": required,
             "additionalProperties": False,
         },
@@ -116,6 +133,15 @@ CONVENTIONS = (
     "Units are millimetres and degrees, and y points up. A rectangle's corner is its bottom-left "
     "corner. Arcs run counter-clockwise from start_angle through sweep_angle. Refer to entities by "
     "the ids Caliper gives them, which you'll see in tool results and in the document summary."
+    "\n\n"
+    "Build a sketch the way a designer does: the layout first, then the part. Start with "
+    "construction geometry (construction: true) that holds the design intent: centre lines, "
+    "and the circles and lines the sizes are measured on, such as a gear's pitch, root, and tip "
+    "circles or a bolt circle. Drive those with dimensions. Then draw the part's outline on the "
+    "layout and tie it on with constraints (coincident, tangent, concentric, symmetric) instead "
+    "of relying on coordinates you worked out, so changing one layout dimension moves "
+    "everything that depends on it. Finish one feature, such as a tooth or a hole, and check it "
+    "before repeating it from the same layout."
 )
 """What any model driving these tools needs to know, whether in the app or over MCP."""
 
