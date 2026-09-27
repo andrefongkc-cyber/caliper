@@ -438,3 +438,12 @@ At 10,000 entities with 5,000 constraints an edit is 212 ms, of which the engine
 **Risks:** glyph clutter on dense sketches (mitigation: the View toggle, and glyphs stack instead of overlapping); `solve_status` at 22 ms adds to every edit once a sketch has ~1,000 constraints (measured in step 9); the pixel baselines must not move for sketches without constraints (decision 5 keeps them).
 
 **Verify:** `QT_QPA_PLATFORM=offscreen uv run pytest` (baseline on `main`: 841 passed, 16 skipped), `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`, `uv run python .github/scripts/check_boundaries.py --branch stream/shell --base origin/main --head HEAD`, then the real window.
+
+## Collapsible browser groups (branch `shared/browser-collapse`, 2026-09-27)
+
+Andre's request: a way to collapse Geometry, Dimensions, and Constraints in the Sketch browser (a 66-entity bearing makes a long list). Stacked on `shared/mcp-timing`; shell only (a `shared/` branch: `stream/shell` exists on GitHub, so no `stream/shell/<topic>` can).
+
+- [x] Clicking a group's header collapses or expands it; the header shows ▾/▸ and keeps its count. The click doesn't change the selection, and a double-click toggles twice (Qt's own double-click expansion is off, so it doesn't add a third)
+- [x] A collapsed group stays collapsed as entities are added, changed, or removed, and across `rebuild()` (another document). Selecting on the canvas no longer scrolls into a collapsed group, so it isn't reopened; the row is still selected for when it is
+- [x] Tests in `tests/app/test_panels.py`: collapse and expand, double-click, selection untouched, stays collapsed through edits and a rebuild, not reopened by a canvas selection, each group on its own
+- [ ] Not done: remembering collapsed groups across launches (QSettings), and keyboard toggling of a header
