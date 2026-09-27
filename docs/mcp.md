@@ -130,10 +130,15 @@ own notes), follow [test-runs-manual/README.md](../test-runs-manual/README.md).
 
 ## Timing
 
-Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** line at the top
-of the Assistant tab shows the latest run, e.g. `▸ Timing  4m 07s · 57 calls`. Click it for
-every field. The numbers stay up after the run ends, and **Copy for 003-timing.md** puts them
-on the clipboard in exactly this format, for a test folder's `003-timing.md`:
+Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** panel, above
+Properties, shows the latest run on one line, e.g. `▸ 4m 07s · 57 calls · running`. Click the
+line for every field. While the run is live its time ticks every second. The numbers stay up
+after the run ends.
+
+**Saving the drawing into its test folder** (`test-runs-manual/NNN-name/`) writes that
+folder's `003-timing.md` for you, from this panel. It never overwrites one that's already
+there, so save after you accept or reject. **Copy for 003-timing.md** puts the same text on
+the clipboard. The format is exactly:
 
 ```
 # Timing
@@ -179,7 +184,7 @@ under 0.05 s shows `0.0s`). MCP/tool calls is a plain count.
 Caliper sees a task only through Claude's tool calls. It can't see you press Enter in Claude
 Desktop, or Claude's closing message after its last call, so:
 
-- **Press Start run just before you send the prompt**: the button in the Timing section, or
+- **Press Start run just before you send the prompt**: the button in the Timing panel, or
   Agent → Start Timing Run (⌘⇧R). First response and Total run then count from that press,
   including the second it takes to switch to Claude Desktop and send.
 - **Without it, a run starts at Claude's first call.** A new run also starts when another
@@ -187,6 +192,11 @@ Desktop, or Claude's closing message after its last call, so:
   none. Pressing Start run and then File → New keeps the run you started.
 - **A run ends when Claude's last call has its answer.** Claude's closing message isn't
   counted. Accepting part-way doesn't end the run.
+- **On screen, the time keeps ticking while the run is live**: until you accept or reject
+  the proposal, press Start run, open another document, or 3 minutes pass with no call (a
+  call after an accept part-way starts it again). Then Total run settles on the recorded
+  value above, from the start to the end of Claude's last call; your review time isn't
+  counted.
 - If you send a new task within 3 minutes without Start run or File → New, it joins the
   previous run. For tests, press Start run every time.
 

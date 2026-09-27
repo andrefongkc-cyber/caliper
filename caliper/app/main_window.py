@@ -22,13 +22,15 @@ from caliper.ai.agent import from_environment
 from caliper.app import icons, solve_state
 from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
+from caliper.app.agent.timing import TIMING_FILE, markdown, timing_file
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
 from caliper.app.opener import OpenServer
 from caliper.app.palette import CommandPalette
-from caliper.app.panels.assistant import AssistantLog, TimingSection
+from caliper.app.panels.assistant import AssistantLog
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
 from caliper.app.panels.history import HistoryList
+from caliper.app.panels.timing import TimingPanel
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession
 from caliper.app.shortcuts import ShortcutSheet
@@ -333,18 +335,8 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.browser, "Sketch")
         tabs.addTab(self.history, "History")
         self.assistant_log = AssistantLog(self.agent)
-        self.timing = TimingSection()
-        self.timing.hide()  # until Claude Desktop can connect
-        self.timing.start_requested.connect(self._start_run)
-        self.timing.copied.connect(lambda: self.show_message("Copied the timing for 003-timing.md"))
-        self.assistant_panel = QWidget()
-        assistant_layout = QVBoxLayout(self.assistant_panel)
-        assistant_layout.setContentsMargins(0, 0, 0, 0)
-        assistant_layout.setSpacing(0)
-        assistant_layout.addWidget(self.timing)
-        assistant_layout.addWidget(self.assistant_log, 1)
-        tabs.addTab(self.assistant_panel, "Assistant")
-        self.agent.turn_started.connect(lambda _: tabs.setCurrentWidget(self.assistant_panel))
+        tabs.addTab(self.assistant_log, "Assistant")
+        self.agent.turn_started.connect(lambda _: tabs.setCurrentWidget(self.assistant_log))
         self.browser_tabs = tabs
         browser = QDockWidget("Browser", self)
         browser.setObjectName("browser")
@@ -362,6 +354,20 @@ class MainWindow(QMainWindow):
         dock.setMinimumWidth(DOCK_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self.properties_dock = dock
+
+        self.timing = TimingPanel()
+        self.timing.start_requested.connect(self._start_run)
+        copied = f"Copied the timing for {TIMING_FILE}"
+        self.timing.copied.connect(lambda: self.show_message(copied))
+        timing = QDockWidget("Timing", self)
+        timing.setObjectName("timing-dock")
+        timing.setFeatures(features)
+        timing.setWidget(self.timing)
+        timing.setMinimumWidth(DOCK_WIDTH)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, timing)
+        self.splitDockWidget(timing, dock, Qt.Orientation.Vertical)  # above Properties
+        timing.hide()  # until Claude Desktop can connect
+        self.timing_dock = timing
 
         self.checks = ChecksPanel(self.session)
         checks = QDockWidget("Checks", self)
@@ -465,8 +471,21 @@ class MainWindow(QMainWindow):
             return False
         self._remember_directory(path)
         self._remember_file(path)
-        self.show_message(f"Saved {path.name}")
+        self.show_message(f"Saved {path.name}{self._write_test_timing(path)}")
         return True
+
+    def _write_test_timing(self, drawing: Path) -> str:
+        """Saved into a test folder: write its 003-timing.md from the latest run, unless it
+        has one. Returns what to add to the status message."""
+        target = timing_file(drawing)
+        timing = None if self.mcp is None else self.mcp.timer.timing
+        if target is None or timing is None or not timing.calls or target.exists():
+            return ""
+        try:
+            target.write_text(markdown(timing))
+        except OSError as error:
+            return f" · couldn't write {target.name}: {error.strerror or error}"
+        return f" · wrote {target.name}"
 
     def recent_files(self) -> list[Path]:
         """File → Open Recent, newest first."""
@@ -573,10 +592,11 @@ class MainWindow(QMainWindow):
         self.mcp = McpHost(self.session, self.agent, path, self)
         self.mcp.stepped.connect(self.assistant_log.remote_step)
         self.mcp.timed.connect(self.timing.show_timing)
+        self.timing.source = lambda: None if self.mcp is None else self.mcp.timer.timing
         problem = self.mcp.start()
         if problem is not None:
             self.session.message.emit(problem)
-        self.timing.setVisible(problem is None)
+        self.timing_dock.setVisible(problem is None)
         self.start_run_action.setEnabled(problem is None)
         return problem is None
 
