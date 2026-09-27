@@ -1,4 +1,4 @@
-Status: MCP timing and the test-run folder convention built on `shared/mcp-timing` (stacked on #39, not pushed), next: a live timed run from Claude Desktop, then review
+Status: timing moved to its own panel above Properties, ticking live, and writing a test folder's 003-timing.md on save, on `shared/timing-dock` (stacked on #43, not pushed), next: a live timed run, then review of #39 → #41 → #42 → #43
 
 # AI workplan
 
@@ -7,6 +7,16 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## Timing panel, live time, and the timing file (branch `shared/timing-dock`, 2026-09-27)
+
+Andre, after test 002: the Timing section was hard to find in the Assistant tab, Total run should keep going while Claude works, 003-timing.md shouldn't need copying by hand, and the constraint badges crowd a big sketch. Stacked on `shared/open-files` (#43). He chose: the file is written on save, and the time stops on Accept or Reject.
+
+- [x] **Its own panel, above Properties** (`caliper/app/panels/timing.py`, `TimingPanel`, dock `timing-dock`); the Assistant tab is just the log again. Still one line until opened, and hidden unless Claude Desktop can connect
+- [x] **Live time:** `Timing.elapsed` while a run is live, shown every second (`▸ 4m 07s · 57 calls · running`). It stops on Accept or Reject (or a dropped proposal), Start run, another document, or 3 minutes with no call; a call after an accept part-way starts it again. Total run then settles on its recorded value (start to Claude's last call), which is also what's copied and written
+- [x] **003-timing.md on save:** saving a drawing into `test-runs-*/NNN-name/` writes that folder's 003-timing.md from the latest run (`timing.timing_file`), never over an existing one; the status bar says so
+- [x] **Constraint badges:** View → Show Constraints (which already hid the badges and kept the dimensions) now has ⇧C and a toolbar button, with its own icon
+- [x] Tests: live time, stopping, restarting, idle, Start run and another document (`test_timing.py`); which drawings get a timing file; the panel ticking and settling on Accept; the file written on save, not overwritten, not written elsewhere or with no run (`test_mcp.py`); badges hidden while a dimension stays clickable (`test_glyphs.py`)
 
 ## MCP timing and test-run records (branch `shared/mcp-timing`, 2026-09-26)
 
