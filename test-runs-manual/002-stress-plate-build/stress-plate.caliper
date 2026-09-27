@@ -1,0 +1,3342 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "construction": true,
+        "kind": "point",
+        "position": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      "e10": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "fix"
+      },
+      "e100": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e81",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e101": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e82",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e102": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e83",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e103": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e84",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e104": {
+        "kind": "radial_dimension",
+        "label_angle": 225.0,
+        "measure": "diameter",
+        "target": "e65",
+        "value": 6.0
+      },
+      "e105": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e65",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -8.0,
+        "orientation": "horizontal",
+        "value": 60.0
+      },
+      "e106": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e65",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -40.0,
+        "orientation": "vertical",
+        "value": 25.0
+      },
+      "e107": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "center"
+          },
+          {
+            "entity": "e66",
+            "feature": "center"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e108": {
+        "a": {
+          "entity": "e65",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e66",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "horizontal",
+        "value": 30.0
+      },
+      "e109": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e66",
+            "feature": "center"
+          },
+          {
+            "entity": "e67",
+            "feature": "center"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e11": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "start"
+          },
+          {
+            "entity": "e2",
+            "feature": "end"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e110": {
+        "a": {
+          "entity": "e66",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e67",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "horizontal",
+        "value": 30.0
+      },
+      "e111": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e67",
+            "feature": "center"
+          },
+          {
+            "entity": "e68",
+            "feature": "center"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e112": {
+        "a": {
+          "entity": "e67",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e68",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "horizontal",
+        "value": 30.0
+      },
+      "e113": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e68",
+            "feature": "center"
+          },
+          {
+            "entity": "e69",
+            "feature": "center"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e114": {
+        "a": {
+          "entity": "e68",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e69",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "horizontal",
+        "value": 30.0
+      },
+      "e115": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "center"
+          },
+          {
+            "entity": "e70",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e116": {
+        "a": {
+          "entity": "e65",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e70",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e117": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e66",
+            "feature": "center"
+          },
+          {
+            "entity": "e71",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e118": {
+        "a": {
+          "entity": "e66",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e71",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e119": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e67",
+            "feature": "center"
+          },
+          {
+            "entity": "e72",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e12": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "end"
+          },
+          {
+            "entity": "e3",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e120": {
+        "a": {
+          "entity": "e67",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e72",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e121": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e68",
+            "feature": "center"
+          },
+          {
+            "entity": "e73",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e122": {
+        "a": {
+          "entity": "e68",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e73",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e123": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e69",
+            "feature": "center"
+          },
+          {
+            "entity": "e74",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e124": {
+        "a": {
+          "entity": "e69",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e74",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e125": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e70",
+            "feature": "center"
+          },
+          {
+            "entity": "e75",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e126": {
+        "a": {
+          "entity": "e70",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e75",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e127": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e71",
+            "feature": "center"
+          },
+          {
+            "entity": "e76",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e128": {
+        "a": {
+          "entity": "e71",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e76",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e129": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e72",
+            "feature": "center"
+          },
+          {
+            "entity": "e77",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e13": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "start"
+          },
+          {
+            "entity": "e3",
+            "feature": "end"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e130": {
+        "a": {
+          "entity": "e72",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e77",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e131": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e73",
+            "feature": "center"
+          },
+          {
+            "entity": "e78",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e132": {
+        "a": {
+          "entity": "e73",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e78",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e133": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e74",
+            "feature": "center"
+          },
+          {
+            "entity": "e79",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e134": {
+        "a": {
+          "entity": "e74",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e79",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e135": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e75",
+            "feature": "center"
+          },
+          {
+            "entity": "e80",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e136": {
+        "a": {
+          "entity": "e75",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e80",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e137": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e76",
+            "feature": "center"
+          },
+          {
+            "entity": "e81",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e138": {
+        "a": {
+          "entity": "e76",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e81",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e139": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e77",
+            "feature": "center"
+          },
+          {
+            "entity": "e82",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e14": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "end"
+          },
+          {
+            "entity": "e4",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e140": {
+        "a": {
+          "entity": "e77",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e82",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e141": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e78",
+            "feature": "center"
+          },
+          {
+            "entity": "e83",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e142": {
+        "a": {
+          "entity": "e78",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e83",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e143": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e79",
+            "feature": "center"
+          },
+          {
+            "entity": "e84",
+            "feature": "center"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e144": {
+        "a": {
+          "entity": "e79",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e84",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 30.0
+      },
+      "e145": {
+        "center": {
+          "x": 35.0,
+          "y": 133.75
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 16.25,
+        "start_angle": 22.61986494804043,
+        "sweep_angle": 134.76027010391914
+      },
+      "e146": {
+        "construction": false,
+        "end": {
+          "x": 50.0,
+          "y": 140.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 20.0,
+          "y": 140.0
+        }
+      },
+      "e147": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e145",
+            "feature": "start"
+          },
+          {
+            "entity": "e146",
+            "feature": "end"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e148": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e145",
+            "feature": "end"
+          },
+          {
+            "entity": "e146",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e149": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e146",
+            "feature": "curve"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e15": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e8",
+            "feature": "start"
+          },
+          {
+            "entity": "e4",
+            "feature": "end"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e150": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e145",
+          "feature": "start"
+        },
+        "kind": "distance_dimension",
+        "offset": 175.0,
+        "orientation": "horizontal",
+        "value": 50.0
+      },
+      "e151": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e145",
+          "feature": "start"
+        },
+        "kind": "distance_dimension",
+        "offset": -60.0,
+        "orientation": "vertical",
+        "value": 140.0
+      },
+      "e152": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e145",
+          "feature": "end"
+        },
+        "kind": "distance_dimension",
+        "offset": 168.0,
+        "orientation": "horizontal",
+        "value": 20.0
+      },
+      "e153": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e145",
+          "feature": "mid"
+        },
+        "kind": "distance_dimension",
+        "offset": -70.0,
+        "orientation": "vertical",
+        "value": 150.0
+      },
+      "e154": {
+        "construction": true,
+        "kind": "point",
+        "position": {
+          "x": 120.0,
+          "y": 80.0
+        }
+      },
+      "e155": {
+        "center": {
+          "x": 120.0,
+          "y": 80.0
+        },
+        "construction": true,
+        "kind": "circle",
+        "radius": 25.0
+      },
+      "e156": {
+        "center": {
+          "x": 120.0,
+          "y": 80.0
+        },
+        "construction": true,
+        "kind": "circle",
+        "radius": 12.0
+      },
+      "e157": {
+        "construction": true,
+        "end": {
+          "x": 120.0,
+          "y": 55.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 120.0,
+          "y": 105.0
+        }
+      },
+      "e158": {
+        "construction": false,
+        "end": {
+          "x": 116.8941714617,
+          "y": 91.59110991625397
+        },
+        "kind": "line",
+        "start": {
+          "x": 120.0,
+          "y": 105.0
+        }
+      },
+      "e159": {
+        "construction": false,
+        "end": {
+          "x": 107.5000000109466,
+          "y": 101.65063510093098
+        },
+        "kind": "line",
+        "start": {
+          "x": 116.8941714617,
+          "y": 91.59110991625397
+        }
+      },
+      "e16": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e8",
+            "feature": "end"
+          },
+          {
+            "entity": "e5",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e160": {
+        "construction": false,
+        "end": {
+          "x": 111.51471863219669,
+          "y": 88.48528138067383
+        },
+        "kind": "line",
+        "start": {
+          "x": 107.5000000109466,
+          "y": 101.65063510093098
+        }
+      },
+      "e161": {
+        "construction": false,
+        "end": {
+          "x": 98.34936491802907,
+          "y": 92.50000002189319
+        },
+        "kind": "line",
+        "start": {
+          "x": 111.51471863219669,
+          "y": 88.48528138067383
+        }
+      },
+      "e162": {
+        "construction": false,
+        "end": {
+          "x": 108.40889008845696,
+          "y": 83.10582855588144
+        },
+        "kind": "line",
+        "start": {
+          "x": 98.34936491802907,
+          "y": 92.50000002189319
+        }
+      },
+      "e163": {
+        "construction": false,
+        "end": {
+          "x": 95.0,
+          "y": 80.0000000379201
+        },
+        "kind": "line",
+        "start": {
+          "x": 108.40889008845696,
+          "y": 83.10582855588144
+        }
+      },
+      "e164": {
+        "construction": false,
+        "end": {
+          "x": 108.40889007903509,
+          "y": 76.89417147928144
+        },
+        "kind": "line",
+        "start": {
+          "x": 95.0,
+          "y": 80.0000000379201
+        }
+      },
+      "e165": {
+        "construction": false,
+        "end": {
+          "x": 98.34936488010896,
+          "y": 67.50000004378637
+        },
+        "kind": "line",
+        "start": {
+          "x": 108.40889007903509,
+          "y": 76.89417147928144
+        }
+      },
+      "e166": {
+        "construction": false,
+        "end": {
+          "x": 111.51471860645566,
+          "y": 71.5147186450672
+        },
+        "kind": "line",
+        "start": {
+          "x": 98.34936488010896,
+          "y": 67.50000004378637
+        }
+      },
+      "e167": {
+        "construction": false,
+        "end": {
+          "x": 107.49999994526704,
+          "y": 58.349364936989126
+        },
+        "kind": "line",
+        "start": {
+          "x": 111.51471860645566,
+          "y": 71.5147186450672
+        }
+      },
+      "e168": {
+        "construction": false,
+        "end": {
+          "x": 116.89417142653711,
+          "y": 68.40889009316788
+        },
+        "kind": "line",
+        "start": {
+          "x": 107.49999994526704,
+          "y": 58.349364936989126
+        }
+      },
+      "e169": {
+        "construction": false,
+        "end": {
+          "x": 120.0,
+          "y": 55.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 116.89417142653711,
+          "y": 68.40889009316788
+        }
+      },
+      "e17": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e9",
+            "feature": "start"
+          },
+          {
+            "entity": "e5",
+            "feature": "end"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e170": {
+        "construction": false,
+        "end": {
+          "x": 123.10582857346287,
+          "y": 68.40889009316788
+        },
+        "kind": "line",
+        "start": {
+          "x": 120.0,
+          "y": 55.0
+        }
+      },
+      "e171": {
+        "construction": false,
+        "end": {
+          "x": 132.50000005473294,
+          "y": 58.349364936989126
+        },
+        "kind": "line",
+        "start": {
+          "x": 123.10582857346287,
+          "y": 68.40889009316788
+        }
+      },
+      "e172": {
+        "construction": false,
+        "end": {
+          "x": 128.48528139354434,
+          "y": 71.5147186450672
+        },
+        "kind": "line",
+        "start": {
+          "x": 132.50000005473294,
+          "y": 58.349364936989126
+        }
+      },
+      "e173": {
+        "construction": false,
+        "end": {
+          "x": 141.65063511989104,
+          "y": 67.50000004378637
+        },
+        "kind": "line",
+        "start": {
+          "x": 128.48528139354434,
+          "y": 71.5147186450672
+        }
+      },
+      "e174": {
+        "construction": false,
+        "end": {
+          "x": 131.5911099209649,
+          "y": 76.89417147928144
+        },
+        "kind": "line",
+        "start": {
+          "x": 141.65063511989104,
+          "y": 67.50000004378637
+        }
+      },
+      "e175": {
+        "construction": false,
+        "end": {
+          "x": 145.0,
+          "y": 80.0000000379201
+        },
+        "kind": "line",
+        "start": {
+          "x": 131.5911099209649,
+          "y": 76.89417147928144
+        }
+      },
+      "e176": {
+        "construction": false,
+        "end": {
+          "x": 131.59110991154304,
+          "y": 83.10582855588144
+        },
+        "kind": "line",
+        "start": {
+          "x": 145.0,
+          "y": 80.0000000379201
+        }
+      },
+      "e177": {
+        "construction": false,
+        "end": {
+          "x": 141.65063508197093,
+          "y": 92.50000002189319
+        },
+        "kind": "line",
+        "start": {
+          "x": 131.59110991154304,
+          "y": 83.10582855588144
+        }
+      },
+      "e178": {
+        "construction": false,
+        "end": {
+          "x": 128.4852813678033,
+          "y": 88.48528138067383
+        },
+        "kind": "line",
+        "start": {
+          "x": 141.65063508197093,
+          "y": 92.50000002189319
+        }
+      },
+      "e179": {
+        "construction": false,
+        "end": {
+          "x": 132.4999999890534,
+          "y": 101.65063510093098
+        },
+        "kind": "line",
+        "start": {
+          "x": 128.4852813678033,
+          "y": 88.48528138067383
+        }
+      },
+      "e18": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e9",
+            "feature": "end"
+          },
+          {
+            "entity": "e2",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e180": {
+        "construction": false,
+        "end": {
+          "x": 123.10582853829999,
+          "y": 91.59110991625397
+        },
+        "kind": "line",
+        "start": {
+          "x": 132.4999999890534,
+          "y": 101.65063510093098
+        }
+      },
+      "e181": {
+        "construction": false,
+        "end": {
+          "x": 120.0,
+          "y": 105.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 123.10582853829999,
+          "y": 91.59110991625397
+        }
+      },
+      "e182": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "end"
+          },
+          {
+            "entity": "e159",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e183": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e159",
+            "feature": "end"
+          },
+          {
+            "entity": "e160",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e184": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e160",
+            "feature": "end"
+          },
+          {
+            "entity": "e161",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e185": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e161",
+            "feature": "end"
+          },
+          {
+            "entity": "e162",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e186": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e162",
+            "feature": "end"
+          },
+          {
+            "entity": "e163",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e187": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e163",
+            "feature": "end"
+          },
+          {
+            "entity": "e164",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e188": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e164",
+            "feature": "end"
+          },
+          {
+            "entity": "e165",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e189": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e165",
+            "feature": "end"
+          },
+          {
+            "entity": "e166",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e19": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e2",
+            "feature": "curve"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e190": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e166",
+            "feature": "end"
+          },
+          {
+            "entity": "e167",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e191": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e167",
+            "feature": "end"
+          },
+          {
+            "entity": "e168",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e192": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e168",
+            "feature": "end"
+          },
+          {
+            "entity": "e169",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e193": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e169",
+            "feature": "end"
+          },
+          {
+            "entity": "e170",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e194": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e170",
+            "feature": "end"
+          },
+          {
+            "entity": "e171",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e195": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e171",
+            "feature": "end"
+          },
+          {
+            "entity": "e172",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e196": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e172",
+            "feature": "end"
+          },
+          {
+            "entity": "e173",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e197": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e173",
+            "feature": "end"
+          },
+          {
+            "entity": "e174",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e198": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e174",
+            "feature": "end"
+          },
+          {
+            "entity": "e175",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e199": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e175",
+            "feature": "end"
+          },
+          {
+            "entity": "e176",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e2": {
+        "construction": false,
+        "end": {
+          "x": 228.0,
+          "y": 0.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 12.0,
+          "y": 0.0
+        }
+      },
+      "e20": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e200": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e176",
+            "feature": "end"
+          },
+          {
+            "entity": "e177",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e201": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e177",
+            "feature": "end"
+          },
+          {
+            "entity": "e178",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e202": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e178",
+            "feature": "end"
+          },
+          {
+            "entity": "e179",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e203": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e179",
+            "feature": "end"
+          },
+          {
+            "entity": "e180",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e204": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e180",
+            "feature": "end"
+          },
+          {
+            "entity": "e181",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e205": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e181",
+            "feature": "end"
+          },
+          {
+            "entity": "e158",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e206": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e154",
+          "feature": "point"
+        },
+        "kind": "distance_dimension",
+        "offset": -50.0,
+        "orientation": "horizontal",
+        "value": 120.0
+      },
+      "e207": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e154",
+          "feature": "point"
+        },
+        "kind": "distance_dimension",
+        "offset": -80.0,
+        "orientation": "vertical",
+        "value": 80.0
+      },
+      "e208": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "center"
+          },
+          {
+            "entity": "e154",
+            "feature": "point"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e209": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "center"
+          },
+          {
+            "entity": "e154",
+            "feature": "point"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e21": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e210": {
+        "kind": "radial_dimension",
+        "label_angle": 20.0,
+        "measure": "radius",
+        "target": "e155",
+        "value": 25.0
+      },
+      "e211": {
+        "kind": "radial_dimension",
+        "label_angle": 200.0,
+        "measure": "radius",
+        "target": "e156",
+        "value": 12.0
+      },
+      "e212": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e213": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e157",
+            "feature": "start"
+          },
+          {
+            "entity": "e158",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e214": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e157",
+            "feature": "end"
+          },
+          {
+            "entity": "e170",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e215": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e157",
+            "feature": "curve"
+          },
+          {
+            "entity": "e154",
+            "feature": "point"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e216": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e158",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e217": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e160",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e218": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e162",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e219": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e164",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e22": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e5",
+            "feature": "curve"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e220": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e166",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e221": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e168",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e222": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e155",
+            "feature": "curve"
+          },
+          {
+            "entity": "e170",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e223": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "curve"
+          },
+          {
+            "entity": "e159",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e224": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "curve"
+          },
+          {
+            "entity": "e161",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e225": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "curve"
+          },
+          {
+            "entity": "e163",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e226": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "curve"
+          },
+          {
+            "entity": "e165",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e227": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "curve"
+          },
+          {
+            "entity": "e167",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e228": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e156",
+            "feature": "curve"
+          },
+          {
+            "entity": "e169",
+            "feature": "start"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e229": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e159",
+            "feature": "start"
+          },
+          {
+            "entity": "e181",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e23": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e2",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e230": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e160",
+            "feature": "start"
+          },
+          {
+            "entity": "e180",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e231": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e161",
+            "feature": "start"
+          },
+          {
+            "entity": "e179",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e232": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e162",
+            "feature": "start"
+          },
+          {
+            "entity": "e178",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e233": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e163",
+            "feature": "start"
+          },
+          {
+            "entity": "e177",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e234": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e164",
+            "feature": "start"
+          },
+          {
+            "entity": "e176",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e235": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e165",
+            "feature": "start"
+          },
+          {
+            "entity": "e175",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e236": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e166",
+            "feature": "start"
+          },
+          {
+            "entity": "e174",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e237": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e167",
+            "feature": "start"
+          },
+          {
+            "entity": "e173",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e238": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e168",
+            "feature": "start"
+          },
+          {
+            "entity": "e172",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e239": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e169",
+            "feature": "start"
+          },
+          {
+            "entity": "e171",
+            "feature": "start"
+          },
+          {
+            "entity": "e157",
+            "feature": "curve"
+          }
+        ],
+        "type": "symmetric"
+      },
+      "e24": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e240": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e159",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e241": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e160",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e242": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e161",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e243": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e162",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e244": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e163",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e245": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e164",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e246": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e165",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e247": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e166",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e248": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e167",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e249": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e168",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e25": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "curve"
+          },
+          {
+            "entity": "e3",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e250": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e158",
+            "feature": "curve"
+          },
+          {
+            "entity": "e169",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e251": {
+        "center": {
+          "x": 230.0,
+          "y": 150.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 0.1
+      },
+      "e252": {
+        "kind": "radial_dimension",
+        "label_angle": 45.0,
+        "measure": "diameter",
+        "target": "e251",
+        "value": 0.2
+      },
+      "e253": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e251",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": 185.0,
+        "orientation": "horizontal",
+        "value": 230.0
+      },
+      "e254": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e251",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": 260.0,
+        "orientation": "vertical",
+        "value": 150.0
+      },
+      "e255": {
+        "a": {
+          "entity": "e65",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e42",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -20.0,
+        "orientation": "horizontal",
+        "value": null
+      },
+      "e26": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e7",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e27": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e8",
+            "feature": "curve"
+          },
+          {
+            "entity": "e4",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e28": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e8",
+            "feature": "curve"
+          },
+          {
+            "entity": "e5",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e29": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e9",
+            "feature": "curve"
+          },
+          {
+            "entity": "e5",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e3": {
+        "construction": false,
+        "end": {
+          "x": 240.0,
+          "y": 148.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 240.0,
+          "y": 12.0
+        }
+      },
+      "e30": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e9",
+            "feature": "curve"
+          },
+          {
+            "entity": "e2",
+            "feature": "curve"
+          }
+        ],
+        "type": "tangent"
+      },
+      "e31": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e2",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e32": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e5",
+            "feature": "curve"
+          },
+          {
+            "entity": "e1",
+            "feature": "point"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e33": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e7",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e34": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e8",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e35": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e6",
+            "feature": "curve"
+          },
+          {
+            "entity": "e9",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e36": {
+        "kind": "radial_dimension",
+        "label_angle": 315.0,
+        "measure": "radius",
+        "target": "e6",
+        "value": 12.0
+      },
+      "e37": {
+        "a": {
+          "entity": "e5",
+          "feature": "start"
+        },
+        "b": {
+          "entity": "e3",
+          "feature": "start"
+        },
+        "kind": "distance_dimension",
+        "offset": -15.0,
+        "orientation": "horizontal",
+        "value": 240.0
+      },
+      "e38": {
+        "a": {
+          "entity": "e2",
+          "feature": "start"
+        },
+        "b": {
+          "entity": "e4",
+          "feature": "start"
+        },
+        "kind": "distance_dimension",
+        "offset": -15.0,
+        "orientation": "vertical",
+        "value": 160.0
+      },
+      "e39": {
+        "construction": false,
+        "corner": {
+          "x": 40.0,
+          "y": 115.0
+        },
+        "height": 10.0,
+        "kind": "rectangle",
+        "width": 40.0
+      },
+      "e4": {
+        "construction": false,
+        "end": {
+          "x": 12.0,
+          "y": 160.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 228.0,
+          "y": 160.0
+        }
+      },
+      "e40": {
+        "center": {
+          "x": 40.0,
+          "y": 120.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 5.0,
+        "start_angle": 90.0,
+        "sweep_angle": 180.0
+      },
+      "e41": {
+        "center": {
+          "x": 80.0,
+          "y": 120.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 5.0,
+        "start_angle": 270.0,
+        "sweep_angle": 180.0
+      },
+      "e42": {
+        "construction": false,
+        "corner": {
+          "x": 160.0,
+          "y": 115.0
+        },
+        "height": 10.0,
+        "kind": "rectangle",
+        "width": 40.0
+      },
+      "e43": {
+        "center": {
+          "x": 160.0,
+          "y": 120.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 5.0,
+        "start_angle": 90.0,
+        "sweep_angle": 180.0
+      },
+      "e44": {
+        "center": {
+          "x": 200.0,
+          "y": 120.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 5.0,
+        "start_angle": 270.0,
+        "sweep_angle": 180.0
+      },
+      "e45": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e40",
+            "feature": "start"
+          },
+          {
+            "entity": "e39",
+            "feature": "top_left"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e46": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e40",
+            "feature": "end"
+          },
+          {
+            "entity": "e39",
+            "feature": "bottom_left"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e47": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e41",
+            "feature": "start"
+          },
+          {
+            "entity": "e39",
+            "feature": "bottom_right"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e48": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e41",
+            "feature": "end"
+          },
+          {
+            "entity": "e39",
+            "feature": "top_right"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e49": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e43",
+            "feature": "start"
+          },
+          {
+            "entity": "e42",
+            "feature": "top_left"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e5": {
+        "construction": false,
+        "end": {
+          "x": 0.0,
+          "y": 12.0
+        },
+        "kind": "line",
+        "start": {
+          "x": 0.0,
+          "y": 148.0
+        }
+      },
+      "e50": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e43",
+            "feature": "end"
+          },
+          {
+            "entity": "e42",
+            "feature": "bottom_left"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e51": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e44",
+            "feature": "start"
+          },
+          {
+            "entity": "e42",
+            "feature": "bottom_right"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e52": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e44",
+            "feature": "end"
+          },
+          {
+            "entity": "e42",
+            "feature": "top_right"
+          }
+        ],
+        "type": "coincident"
+      },
+      "e53": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e40",
+            "feature": "center"
+          },
+          {
+            "entity": "e39",
+            "feature": "top_left"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e54": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e41",
+            "feature": "center"
+          },
+          {
+            "entity": "e39",
+            "feature": "top_right"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e55": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e43",
+            "feature": "center"
+          },
+          {
+            "entity": "e42",
+            "feature": "top_left"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e56": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e44",
+            "feature": "center"
+          },
+          {
+            "entity": "e42",
+            "feature": "top_right"
+          }
+        ],
+        "type": "vertical"
+      },
+      "e57": {
+        "a": {
+          "entity": "e40",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e41",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": 12.0,
+        "orientation": "horizontal",
+        "value": 40.0
+      },
+      "e58": {
+        "a": {
+          "entity": "e39",
+          "feature": "bottom_left"
+        },
+        "b": {
+          "entity": "e39",
+          "feature": "top_left"
+        },
+        "kind": "distance_dimension",
+        "offset": -12.0,
+        "orientation": "vertical",
+        "value": 10.0
+      },
+      "e59": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e40",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": 128.0,
+        "orientation": "horizontal",
+        "value": 40.0
+      },
+      "e6": {
+        "center": {
+          "x": 228.0,
+          "y": 12.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 12.0,
+        "start_angle": 270.0,
+        "sweep_angle": 90.0
+      },
+      "e60": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e40",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -28.0,
+        "orientation": "vertical",
+        "value": 120.0
+      },
+      "e61": {
+        "a": {
+          "entity": "e43",
+          "feature": "center"
+        },
+        "b": {
+          "entity": "e44",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": 12.0,
+        "orientation": "horizontal",
+        "value": 40.0
+      },
+      "e62": {
+        "a": {
+          "entity": "e42",
+          "feature": "bottom_right"
+        },
+        "b": {
+          "entity": "e42",
+          "feature": "top_right"
+        },
+        "kind": "distance_dimension",
+        "offset": 12.0,
+        "orientation": "vertical",
+        "value": 10.0
+      },
+      "e63": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e43",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": 132.0,
+        "orientation": "horizontal",
+        "value": 160.0
+      },
+      "e64": {
+        "a": {
+          "entity": "e1",
+          "feature": "point"
+        },
+        "b": {
+          "entity": "e43",
+          "feature": "center"
+        },
+        "kind": "distance_dimension",
+        "offset": -150.0,
+        "orientation": "vertical",
+        "value": 120.0
+      },
+      "e65": {
+        "center": {
+          "x": 60.0,
+          "y": 25.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e66": {
+        "center": {
+          "x": 90.0,
+          "y": 25.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e67": {
+        "center": {
+          "x": 120.0,
+          "y": 25.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e68": {
+        "center": {
+          "x": 150.0,
+          "y": 25.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e69": {
+        "center": {
+          "x": 180.0,
+          "y": 25.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e7": {
+        "center": {
+          "x": 228.0,
+          "y": 148.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 12.0,
+        "start_angle": 0.0,
+        "sweep_angle": 90.0
+      },
+      "e70": {
+        "center": {
+          "x": 60.0,
+          "y": 55.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e71": {
+        "center": {
+          "x": 90.0,
+          "y": 55.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e72": {
+        "center": {
+          "x": 120.0,
+          "y": 55.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e73": {
+        "center": {
+          "x": 150.0,
+          "y": 55.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e74": {
+        "center": {
+          "x": 180.0,
+          "y": 55.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e75": {
+        "center": {
+          "x": 60.0,
+          "y": 85.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e76": {
+        "center": {
+          "x": 90.0,
+          "y": 85.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e77": {
+        "center": {
+          "x": 120.0,
+          "y": 85.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e78": {
+        "center": {
+          "x": 150.0,
+          "y": 85.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e79": {
+        "center": {
+          "x": 180.0,
+          "y": 85.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e8": {
+        "center": {
+          "x": 12.0,
+          "y": 148.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 12.0,
+        "start_angle": 90.0,
+        "sweep_angle": 90.0
+      },
+      "e80": {
+        "center": {
+          "x": 60.0,
+          "y": 115.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e81": {
+        "center": {
+          "x": 90.0,
+          "y": 115.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e82": {
+        "center": {
+          "x": 120.0,
+          "y": 115.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e83": {
+        "center": {
+          "x": 150.0,
+          "y": 115.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e84": {
+        "center": {
+          "x": 180.0,
+          "y": 115.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 3.0
+      },
+      "e85": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e66",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e86": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e67",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e87": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e68",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e88": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e69",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e89": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e70",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e9": {
+        "center": {
+          "x": 12.0,
+          "y": 12.0
+        },
+        "construction": false,
+        "kind": "arc",
+        "radius": 12.0,
+        "start_angle": 180.0,
+        "sweep_angle": 90.0
+      },
+      "e90": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e71",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e91": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e72",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e92": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e73",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e93": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e74",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e94": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e75",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e95": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e76",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e96": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e77",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e97": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e78",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e98": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e79",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      },
+      "e99": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e65",
+            "feature": "curve"
+          },
+          {
+            "entity": "e80",
+            "feature": "curve"
+          }
+        ],
+        "type": "equal"
+      }
+    },
+    "next_id": 256
+  },
+  "format": "caliper.document",
+  "schema_version": 2,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}
