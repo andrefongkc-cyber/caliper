@@ -25,7 +25,7 @@ def pytest_ignore_collect(collection_path: Path) -> bool | None:
 
 
 if HAVE_QT:
-    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QApplication
     from pytestqt.qtbot import QtBot
@@ -129,6 +129,14 @@ if HAVE_QT:
         # Never block a test on a modal dialog.
         window.confirm_discard = lambda: True  # type: ignore[method-assign]
         return window
+
+    @pytest.fixture(autouse=True)
+    def settings(tmp_path_factory: pytest.TempPathFactory) -> None:
+        """Each test's settings (Open Recent, the last folder) in a folder of its own, never
+        the user's."""
+        QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+        folder = str(tmp_path_factory.mktemp("settings"))
+        QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, folder)
 
     @pytest.fixture
     def bus() -> RecordingBus:
