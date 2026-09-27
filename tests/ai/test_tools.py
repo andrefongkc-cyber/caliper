@@ -7,7 +7,7 @@ from typing import get_args
 import pytest
 
 from caliper.ai.model import ToolCall
-from caliper.ai.tools import TOOLS, Workspace
+from caliper.ai.tools import CONVENTIONS, TOOLS, Workspace
 from caliper.contracts.commands import (
     Command,
     CreateConstraint,
@@ -51,6 +51,25 @@ def test_every_command_is_a_tool_with_a_schema_for_its_fields() -> None:
         assert set(schema["properties"]) == names  # type: ignore[arg-type]
         assert schema["additionalProperties"] is False
         json.dumps(schema)  # plain JSON, ready for any model API
+
+
+def test_the_construction_flag_says_what_it_is_for() -> None:
+    # Without this the model saw a bare boolean and never drew layout geometry: a 16-tooth
+    # gear came back as 100 outline curves and no pitch, root, or tip circle.
+    tools = {t.name: t for t in TOOLS}
+    creates = [
+        c for c in get_args(Command) if "construction" in {f.name for f in dataclasses.fields(c)}
+    ]
+    assert creates
+    for command in creates:
+        field = tools[command.kind].input_schema["properties"]["construction"]  # type: ignore[index]
+        assert field["type"] == "boolean"
+        assert "layout" in field["description"]
+
+
+def test_the_conventions_ask_for_the_layout_before_the_part() -> None:
+    assert "construction: true" in CONVENTIONS
+    assert "layout first" in CONVENTIONS
 
 
 def test_tool_names_are_unique_and_safe_for_model_apis() -> None:
