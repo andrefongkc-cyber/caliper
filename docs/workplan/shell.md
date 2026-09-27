@@ -447,3 +447,14 @@ Andre's request: a way to collapse Geometry, Dimensions, and Constraints in the 
 - [x] A collapsed group stays collapsed as entities are added, changed, or removed, and across `rebuild()` (another document). Selecting on the canvas no longer scrolls into a collapsed group, so it isn't reopened; the row is still selected for when it is
 - [x] Tests in `tests/app/test_panels.py`: collapse and expand, double-click, selection untouched, stays collapsed through edits and a rebuild, not reopened by a canvas selection, each group on its own
 - [ ] Not done: remembering collapsed groups across launches (QSettings), and keyboard toggling of a header
+
+## Opening files (branch `shared/open-files`, 2026-09-27)
+
+Andre's report: File → Open didn't open anything (`AttributeError: 'bool' object has no attribute 'read_bytes'` in the terminal), and there was no recent-files list or Finder double-click. Stacked on `shared/browser-collapse`.
+
+- [x] **File → Open was broken:** `triggered` passes its `checked` flag, and `open_document(path=None)` took it as the path. Tests called `open_document(path)` directly, never the action; `test_file_open_opens_the_chosen_file` triggers the action and fails with the same error on the old code
+- [x] **File → Open Recent:** the last 10 files opened or saved, newest first, shared by every window (QSettings `recent_files`); same-named files show their folder; a file that has gone is dropped with a message; Clear Menu
+- [x] **One window takes the files:** `caliper/app/opener.py`. `python -m caliper.app file.caliper` hands the path to an open Caliper window over `~/.caliper/open.sock` (user-only, like the MCP socket) and exits; the window answers before any "save changes?" prompt, then opens it. A second window leaves the socket to the first
+- [x] **Finder double-click:** `python -m caliper.app.mac_launcher` builds `~/Applications/Caliper.app`, an AppleScript applet that declares the .caliper type (UTI `io.github.andrefongkc-cyber.caliper.document`) and runs this checkout's `.venv` Python with the file; ad-hoc signed and registered with Launch Services. Checked end to end with a stand-in for Python (the path, spaces included, arrives as the argument), and `NSWorkspace` names the launcher as the app for .caliper files. Rebuild it after moving the checkout
+- [x] Tests: `tests/app/test_open_files.py` (18); `tests/app/conftest.py` now gives each test its own settings folder, so tests never write the user's Open Recent
+- [ ] README's Quick start could mention the launcher (maintainer file, a `shared/` change)
