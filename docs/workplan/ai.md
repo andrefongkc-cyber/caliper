@@ -1,4 +1,4 @@
-Status: the assistant (#32), MCP (#34), and the stress-test fixes (#35) are on `main`, next: a live Claude Desktop rerun of the fixes, and a decision on how checks with no pending proposal reach the Checks panel
+Status: layout-first guidance for the model on `ai/construction-first` (local, uncommitted), next: a live Claude Desktop gear rerun, then Andre's review
 
 # AI workplan
 
@@ -7,6 +7,16 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## Layout first (branch `ai/construction-first`, 2026-09-26)
+
+A 16-tooth gear drawn over MCP (`gearv1.caliper`, not in git) came back as 65 arcs, 35 lines, and 261 constraints with **no construction geometry**: tip and root arcs at r 27 and 20.25, but no pitch, root, or tip circle and no centre lines. The model worked every coordinate out itself and chained the outline edge to edge. Cause: nothing told it the layout exists. `CONVENTIONS` covered units only, and every create tool showed `construction` as a bare boolean under the description "Caliper's CreateCircle command."
+
+- [x] `CONVENTIONS` (both prompts): build the layout first as construction geometry driven by dimensions, then draw the outline on it with constraints, and finish and check one feature before repeating it
+- [x] Every create tool's `construction` field says what it is for (`_FIELD_DESCRIPTIONS` in `caliper/ai/tools.py`; the contract dataclasses are untouched)
+- [x] Tests in `tests/ai/test_tools.py`; removing the field description fails them. 1140 passed, 16 skipped
+- [ ] Live rerun in Claude Desktop: the same gear request should start with construction circles. Unverified until then: a prompt change is only proven by the model's behaviour
+- [ ] Open question for Andre: a circular pattern command. Without one, "repeat from the layout" still means placing each tooth by hand. It would be a contracts change (joint review)
 
 ## MCP stress-test fixes (branch `shared/mcp-stress-fixes`, 2026-09-25)
 
