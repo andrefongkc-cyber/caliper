@@ -1,5 +1,6 @@
 """The main window: menus, tool bar, canvas, properties dock, status bar."""
 
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -42,6 +43,8 @@ from caliper.engine.io.canonical import LoadError
 
 FILE_FILTER = "Caliper documents (*.caliper)"
 SUFFIX = ".caliper"
+RECENT_FILES = 10
+"""How many files File → Open Recent lists, newest first."""
 MESSAGE_MS = 5000
 DOCK_WIDTH = 260
 BROWSER_WIDTH = 250
@@ -243,6 +246,10 @@ class MainWindow(QMainWindow):
         file_menu = bar.addMenu("File")
         for action in (self.new_action, self.open_action):
             file_menu.addAction(action)
+        self.recent_menu = file_menu.addMenu("Open Recent")
+        self.recent_menu.setToolTipsVisible(True)
+        self.recent_menu.aboutToShow.connect(self._fill_recent)
+        self._fill_recent()
         file_menu.addSeparator()
         for action in (self.save_action, self.save_as_action):
             file_menu.addAction(action)
@@ -425,6 +432,7 @@ class MainWindow(QMainWindow):
             self.show_load_error(path, LoadError(error.strerror or str(error)))
             return False
         self._remember_directory(path)
+        self._remember_file(path)
         self.canvas.zoom_to_fit()
         steps = self.session.opened_steps
         recorded = f" · {steps} recorded step{'s' if steps != 1 else ''}" if steps else ""
@@ -453,8 +461,51 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Couldn't save", f"{path}\n\n{error.strerror or error}")
             return False
         self._remember_directory(path)
+        self._remember_file(path)
         self.show_message(f"Saved {path.name}")
         return True
+
+    def recent_files(self) -> list[Path]:
+        """File → Open Recent, newest first."""
+        value = QSettings().value("recent_files", [])
+        if isinstance(value, str):  # one entry comes back as a string
+            value = [value]
+        return [Path(p) for p in value or []]
+
+    def open_recent(self, path: Path) -> bool:
+        if not path.is_file():
+            self._forget_file(path)
+            self.show_message(f"{path.name} isn't in {path.parent} any more")
+            return False
+        return self.open_document(path)
+
+    def _remember_file(self, path: Path) -> None:
+        path = path.absolute()
+        paths = [path, *(p for p in self.recent_files() if p != path)][:RECENT_FILES]
+        QSettings().setValue("recent_files", [str(p) for p in paths])
+
+    def _forget_file(self, path: Path) -> None:
+        paths = [p for p in self.recent_files() if p != path]
+        QSettings().setValue("recent_files", [str(p) for p in paths])
+
+    def _clear_recent(self) -> None:
+        QSettings().remove("recent_files")
+
+    def _fill_recent(self) -> None:
+        """Rebuilt each time the menu opens, so it lists what another window saved too."""
+        menu = self.recent_menu
+        menu.clear()
+        paths = self.recent_files()
+        names = Counter(p.name for p in paths)
+        for path in paths:
+            label = path.name if names[path.name] == 1 else f"{path.name} — {path.parent.name}"
+            action = menu.addAction(label)
+            action.setToolTip(str(path))
+            action.triggered.connect(lambda _=False, p=path: self.open_recent(p))
+        menu.addSeparator()
+        clear = menu.addAction("Clear Menu")
+        clear.setEnabled(bool(paths))
+        clear.triggered.connect(self._clear_recent)
 
     def confirm_discard(self) -> bool:
         """True if there are no unsaved changes, or the user saved or chose to discard them."""
