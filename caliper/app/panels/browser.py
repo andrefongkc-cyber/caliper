@@ -1,11 +1,14 @@
 """Sketch browser: every entity in the document, grouped, kept in sync with the selection.
 
-Click selects (Cmd or Shift adds), double-click frames the entity on the canvas.
+Click selects (Cmd or Shift adds), double-click frames the entity on the canvas. Click a
+group's header (Geometry, Dimensions, Constraints) to collapse or expand it; a collapsed group
+stays collapsed while the sketch changes, and selecting on the canvas doesn't reopen it.
 """
 
 import bisect
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -32,6 +35,7 @@ from caliper.contracts.queries import Queries
 
 GROUPS = ("Geometry", "Dimensions", "Constraints")
 ID_ROLE = Qt.ItemDataRole.UserRole
+GROUP_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class SketchBrowser(QTreeWidget):
@@ -62,13 +66,21 @@ class SketchBrowser(QTreeWidget):
         """Text width of each row's value (and each group's count), keyed by id or group name."""
         self.groups: dict[str, QTreeWidgetItem] = {}
         for name in GROUPS:
-            group = QTreeWidgetItem([name.upper(), ""])
+            group = QTreeWidgetItem(["", ""])
+            group.setData(0, GROUP_ROLE, name)
             group.setFlags(Qt.ItemFlag.ItemIsEnabled)
             group.setFont(0, theme.font(size=11, bold=True))
             group.setForeground(0, theme.TEXT_DIM)
+            group.setToolTip(0, "Click to collapse or expand")
             self.addTopLevelItem(group)
             group.setExpanded(True)
             self.groups[name] = group
+            self._label(group)
+        # A header click toggles its group itself (mousePressEvent), so a double-click is two
+        # toggles, not one more from Qt.
+        self.setExpandsOnDoubleClick(False)
+        self.itemExpanded.connect(self._label)
+        self.itemCollapsed.connect(self._label)
         self.itemSelectionChanged.connect(self._push_selection)
         self.itemDoubleClicked.connect(self._frame)
         session.changed.connect(self._apply)
@@ -158,6 +170,30 @@ class SketchBrowser(QTreeWidget):
         if self.header().sectionSize(1) != width:
             self.header().resizeSection(1, width)
 
+    def _label(self, group: QTreeWidgetItem) -> None:
+        if group.parent() is None:
+            arrow = "▾" if group.isExpanded() else "▸"
+            group.setText(0, f"{arrow} {group.data(0, GROUP_ROLE).upper()}")
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        """A click on a group's header collapses or expands it, and leaves the selection."""
+        item = self.itemAt(event.position().toPoint())
+        if (
+            item is not None
+            and item.parent() is None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            item.setExpanded(not item.isExpanded())
+            return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        item = self.itemAt(event.position().toPoint())
+        if item is not None and item.parent() is None:
+            self.mousePressEvent(event)  # the second click of a double-click toggles again
+            return
+        super().mouseDoubleClickEvent(event)
+
     def _pull_selection(self) -> None:
         blocker = QSignalBlocker(self)
         selected = self.session.selection
@@ -165,8 +201,10 @@ class SketchBrowser(QTreeWidget):
             item.setSelected(id in selected)
         if len(selected) == 1:
             (only,) = selected
-            if only in self.items:
-                self.scrollToItem(self.items[only])
+            item = self.items.get(only)
+            # Scrolling to a row opens its group; one the user collapsed stays collapsed.
+            if item is not None and item.parent().isExpanded():
+                self.scrollToItem(item)
         del blocker
         self.viewport().update()
 
