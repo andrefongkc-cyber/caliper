@@ -14,11 +14,11 @@ User request (2026-09-26): time every Claude Desktop task automatically, shown c
 
 **The design question, and the answer:** Caliper sees a task only through its MCP calls, not the moment the prompt is sent or Claude's closing message. Andre chose automatic runs plus an optional Start run: a run starts at Claude's first call (or on New/Open, or after 3 minutes with no calls), and pressing Start run (⌘⇧R) as the prompt goes out makes First response measurable. Anything not measured shows N/A.
 
-- [x] `caliper/app/agent/timing.py`: `RunTimer` (Qt-free, injected clock): runs, each call from arrival to answer, proposal-building spans, accepts; `markdown()` is the test folder's `timing.md`, exactly
+- [x] `caliper/app/agent/timing.py`: `RunTimer` (Qt-free, injected clock): runs, each call from arrival to answer, proposal-building spans, accepts; `markdown()` is the test folder's `003-timing.md`, exactly
 - [x] `McpHost.handle` times every call and emits `timed`; `AgentController.applied` now carries the Accept's seconds; `start_run()`
-- [x] The Assistant tab: a one-line Timing section above the log (hidden unless Claude Desktop can connect), expandable to the six fields and the date, with Start run and Copy for timing.md; Agent → Start Timing Run (⌘⇧R)
+- [x] The Assistant tab: a one-line Timing section above the log (hidden unless Claude Desktop can connect), expandable to the six fields and the date, with Start run and Copy for 003-timing.md; Agent → Start Timing Run (⌘⇧R)
 - [x] Tests: `tests/app/test_timing.py` (the arithmetic on a fake clock: calls, longest, total, first response, proposal creation, accept, no proposal, rejected, several proposals, new runs by Start run, idle, and another document, the formats) and nine window tests in `tests/app/test_mcp.py` (real calls over the socket with a faked clock, accept and reject, stale accept, New, the shortcut, the collapsed section, the copy)
-- [x] Docs: [docs/mcp.md, Timing](../mcp.md#timing) (the fields and definitions, for every future test) and [test-runs-manual/README.md](../../test-runs-manual/README.md) (the folder convention); `001-ball-bearing` brought into it
+- [x] Docs: [docs/mcp.md, Timing](../mcp.md#timing) (the fields and definitions, for every future test) and [test-runs-manual/README.md](../../test-runs-manual/README.md) (the folder convention: six numbered files per test, `001-prompt.md` to `006-test.caliper`, and no README in a test folder); `001-ball-bearing` brought into it
 - [ ] A live timed run from Claude Desktop (needs Caliper restarted on this branch)
 
 **For Lucas:** `caliper/app/agent/mcp_host.py` (`handle` split into timing and `_respond`), `caliper/app/agent/ui.py` (`applied` has a second argument), `caliper/app/panels/assistant.py` (`TimingSection`), `caliper/app/main_window.py` (the Assistant tab is now a container: `assistant_panel`), `caliper/app/theme.py`.
