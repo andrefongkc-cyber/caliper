@@ -131,9 +131,9 @@ own notes), follow [test-runs-manual/README.md](../test-runs-manual/README.md).
 ## Timing
 
 Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** line at the top
-of the Assistant tab shows the latest run, e.g. `▸ Timing   4m 07s · 57 calls`. Click it for
-every field. The numbers stay up after the run ends, and **Copy for timing.md** puts them on
-the clipboard in exactly this format, for a test folder's `timing.md`:
+of the Assistant tab shows the latest run, e.g. `▸ Timing  4m 07s · 57 calls`. Click it for
+every field. The numbers stay up after the run ends, and **Copy for 003-timing.md** puts them
+on the clipboard in exactly this format, for a test folder's `003-timing.md`:
 
 ```
 # Timing
