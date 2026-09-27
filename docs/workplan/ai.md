@@ -1,4 +1,4 @@
-Status: layout-first guidance for the model on `ai/construction-first` (local, uncommitted), next: a live Claude Desktop gear rerun, then Andre's review
+Status: layout-first guidance in PR #40 (CI green, awaiting Andre), next: a live Claude Desktop gear rerun
 
 # AI workplan
 
