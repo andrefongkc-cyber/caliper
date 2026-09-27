@@ -7,13 +7,20 @@ the end of its latest call. The next run starts on Start run, when another docum
 opened, or at a call after `IDLE` seconds with none. Every call is timed inside Caliper, from
 when it arrives until its answer is ready. Definitions of each field: docs/mcp.md, Timing.
 
+While a run is live its elapsed time ticks on screen; it stops when the proposal is accepted
+or rejected (or dropped), when another run starts or a document opens, or after `IDLE`
+seconds with no call, and Total run settles on the recorded value. Saving a drawing into a
+test folder writes that folder's 003-timing.md (`timing_file`, test-runs-manual/README.md).
+
 Qt-free: the MCP host reports calls, proposals, and accepts; the clock is injected for tests.
 """
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 IDLE = 180.0
 """Seconds with no MCP call after which the next call starts a new run."""
@@ -27,6 +34,9 @@ FIELDS = (
     "Accept",
 )
 """The fields every test's 003-timing.md has after Date, in order, named exactly so."""
+TIMING_FILE = "003-timing.md"
+TEST_FOLDER = re.compile(r"\d{3}-[a-z0-9]+(?:-[a-z0-9]+)*")
+"""A test folder's name: a three-digit number and a short hyphenated name."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -40,6 +50,13 @@ class Timing:
     longest_call: float | None
     proposal_creation: float | None
     accept: float | None
+    elapsed: float | None = None
+    """While the run is live: seconds since it started, to tick on screen. None once it's
+    settled; `total` is the recorded value either way."""
+
+    @property
+    def live(self) -> bool:
+        return self.elapsed is not None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -67,6 +84,8 @@ class RunTimer:
         self._clock = clock
         self._today = today
         self._run: _Run | None = None
+        self._live = False
+        """Whether the current run's time is still running (see the module docstring)."""
         self._open = False
         """Whether the next call joins the current run (subject to `IDLE`)."""
         self._proposal_run: _Run | None = None
@@ -75,13 +94,13 @@ class RunTimer:
     def start(self) -> None:
         """Start run: a new run from now, so First response can be measured."""
         self._run = _Run(date=self._today(), marked=self._clock())
-        self._open = True
+        self._open = self._live = True
 
     def end(self) -> None:
         """Another document was opened: the next call starts a new run. A run started with
         Start run and still waiting for its first call carries on."""
         if self._run is not None and self._run.calls:
-            self._open = False
+            self._open = self._live = False
 
     def arrived(self) -> float:
         """A call arrived. Returns the time to pass to `finished`."""
@@ -93,6 +112,7 @@ class RunTimer:
             self._open = True
         if run.first_call is None:
             run.first_call = now
+        self._live = True  # again, if an accept part-way had stopped it
         return now
 
     def finished(self, arrived: float, *, changed: bool) -> None:
@@ -117,7 +137,8 @@ class RunTimer:
             run.accept = seconds if run.accept is None else run.accept + seconds
 
     def proposal_ended(self) -> None:
-        """The pending proposal is gone: accepted, rejected, or dropped."""
+        """The pending proposal is gone: accepted, rejected, or dropped. The time stops."""
+        self._live = False
         run, self._proposal_run = self._proposal_run, None
         if run is not None and run.building is not None:
             began, ended = run.building
@@ -130,7 +151,10 @@ class RunTimer:
         run = self._run
         if run is None:
             return None
+        now = self._clock()
         began = run.marked if run.marked is not None else run.first_call
+        since = run.last_done if run.last_done is not None else began
+        live = self._live and since is not None and now - since < IDLE
         creation = run.built
         if run.building is not None:
             creation = (creation or 0.0) + run.building[1] - run.building[0]
@@ -146,7 +170,17 @@ class RunTimer:
             longest_call=run.longest,
             proposal_creation=creation,
             accept=run.accept,
+            elapsed=now - began if live and began is not None else None,
         )
+
+
+def timing_file(drawing: Path) -> Path | None:
+    """Where a test's timing goes when its drawing is saved in a test folder
+    (`test-runs-manual/NNN-name/`, test-runs-manual/README.md); None anywhere else."""
+    folder = drawing.parent
+    if TEST_FOLDER.fullmatch(folder.name) and folder.parent.name.startswith("test-runs"):
+        return folder / TIMING_FILE
+    return None
 
 
 # --- Showing it --------------------------------------------------------------------------

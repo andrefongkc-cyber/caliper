@@ -5,10 +5,19 @@ timer, and the section in the window, are tested in test_mcp.py.
 """
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
-from caliper.app.agent.timing import IDLE, RunTimer, Timing, markdown, minutes, seconds
+from caliper.app.agent.timing import (
+    IDLE,
+    RunTimer,
+    Timing,
+    markdown,
+    minutes,
+    seconds,
+    timing_file,
+)
 
 DAY = date(2026, 9, 26)
 
@@ -223,6 +232,81 @@ def test_each_run_is_dated_the_day_it_started(clock: Clock) -> None:
     assert now(timer).date == date(2026, 9, 26)
     call(timer, clock, 0.1, after=IDLE + 1)
     assert now(timer).date == date(2026, 9, 27)
+
+
+# --- Live time -------------------------------------------------------------------------
+
+
+def test_a_run_ticks_while_its_proposal_is_pending(timer: RunTimer, clock: Clock) -> None:
+    call(timer, clock, 1.0, changed=True)
+    clock.advance(20)  # Claude writes its reply; you review
+    timing = now(timer)
+    assert timing.live
+    assert timing.elapsed == pytest.approx(21.0)
+    assert timing.total == pytest.approx(1.0)  # the recorded value doesn't move
+
+
+def test_accept_or_reject_stops_the_time(timer: RunTimer, clock: Clock) -> None:
+    call(timer, clock, 1.0, changed=True)
+    clock.advance(20)
+    timer.proposal_ended()
+    clock.advance(20)
+    timing = now(timer)
+    assert not timing.live
+    assert timing.elapsed is None
+    assert timing.total == pytest.approx(1.0)
+
+
+def test_a_call_after_an_accept_part_way_starts_the_time_again(
+    timer: RunTimer, clock: Clock
+) -> None:
+    call(timer, clock, 1.0, changed=True)
+    timer.accepted(0.3)
+    timer.proposal_ended()
+    call(timer, clock, 1.0, after=5, changed=True)
+    assert now(timer).live
+
+
+def test_a_run_with_no_proposal_stops_ticking_after_a_quiet_spell(
+    timer: RunTimer, clock: Clock
+) -> None:
+    call(timer, clock, 0.2)
+    clock.advance(IDLE - 1)
+    assert now(timer).live
+    clock.advance(2)
+    assert not now(timer).live
+
+
+def test_start_run_ticks_from_the_press_and_another_document_stops_it(
+    timer: RunTimer, clock: Clock
+) -> None:
+    timer.start()
+    clock.advance(3)
+    assert now(timer).elapsed == pytest.approx(3.0)
+    call(timer, clock, 0.5)
+    timer.end()
+    assert not now(timer).live
+
+
+# --- The test folder's file -------------------------------------------------------------
+
+
+def test_a_drawing_in_a_test_folder_gets_its_timing_file() -> None:
+    folder = Path("/x/test-runs-manual/002-stress-plate-build")
+    assert timing_file(folder / "stress-plate-build.caliper") == folder / "003-timing.md"
+
+
+@pytest.mark.parametrize(
+    "drawing",
+    [
+        "/x/parts/002-plate/plate.caliper",  # not under test-runs
+        "/x/test-runs-manual/plate.caliper",  # not in a test's own folder
+        "/x/test-runs-manual/2-plate/plate.caliper",  # not a three-digit number
+        "/x/test-runs-manual/002-Plate/plate.caliper",  # not lowercase
+    ],
+)
+def test_other_drawings_get_no_timing_file(drawing: str) -> None:
+    assert timing_file(Path(drawing)) is None
 
 
 # --- How it reads -----------------------------------------------------------------------

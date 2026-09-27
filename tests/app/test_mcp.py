@@ -534,7 +534,7 @@ def shown(window) -> dict[str, str]:
 
 
 def test_timing_shows_only_while_claude_desktop_can_connect(window) -> None:
-    assert window.timing.isHidden()
+    assert window.timing_dock.isHidden()
     assert not window.start_run_action.isEnabled()
 
 
@@ -564,7 +564,7 @@ def test_start_run_measures_the_first_response(timed, qtbot) -> None:
     window, clock, took = timed
     took.update(inspect_document=0.2)
     window.timing.start_button.click()
-    assert window.timing.summary() == "waiting for Claude…"
+    assert window.timing.summary() == "0m 00s · waiting for Claude…"  # ticking from the press
     clock.now += 7.3  # the prompt goes out and Claude thinks
     call(window, qtbot, "inspect_document")
     values = shown(window)
@@ -633,13 +633,57 @@ def test_the_section_is_one_line_until_opened_and_copies_timing_md(timed, qtbot)
     took.update(create_rectangle=65.0)
     call(window, qtbot, "create_rectangle", RECTANGLE)
     section = window.timing
-    assert not section.isHidden()
+    assert not window.timing_dock.isHidden()
     assert not section.expanded
     assert section.details.isHidden()
-    assert section.heading == "▸ Timing  1m 05s · 1 call"
+    assert section.heading == "▸ 1m 05s · 1 call · running"  # the proposal is still pending
     assert section.toggle.text() == section.heading  # it fits
     section.toggle.click()
     assert not section.details.isHidden()
     section.copy_button.click()
     assert QGuiApplication.clipboard().text() == markdown(section.timing)
     assert window.statusBar().currentMessage() == "Copied the timing for 003-timing.md"
+
+
+def test_the_panel_ticks_while_the_run_is_live_and_settles_on_accept(
+    timed, qtbot, monkeypatch
+) -> None:
+    window, clock, took = timed
+    took.update(create_rectangle=2.0)
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    panel = window.timing
+    assert panel.ticking
+    clock.now += 40  # you're reviewing the proposal
+    panel._refresh()  # what the one-second tick does
+    assert shown(window)["Total run"] == "0m 42s"
+    accept_taking(monkeypatch, 0.4)
+    window.proposal_card.accept_button.click()
+    assert not panel.ticking
+    assert shown(window)["Total run"] == "0m 02s"  # from the start to Claude's last call
+
+
+def test_saving_into_a_test_folder_writes_its_timing_file(timed, qtbot, tmp_path) -> None:
+    window, _, took = timed
+    took.update(create_rectangle=2.0)
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.proposal_card.accept_button.click()
+    folder = tmp_path / "test-runs-manual" / "004-demo"
+    folder.mkdir(parents=True)
+    assert window._save_to(folder / "demo.caliper")
+    written = (folder / "003-timing.md").read_text()
+    assert written == markdown(window.mcp.timer.timing)
+    assert window.statusBar().currentMessage() == "Saved demo.caliper · wrote 003-timing.md"
+    (folder / "003-timing.md").write_text("mine")
+    assert window._save_to(folder / "demo.caliper")
+    assert (folder / "003-timing.md").read_text() == "mine"  # never overwritten
+
+
+def test_saving_elsewhere_or_with_no_run_writes_no_timing(timed, qtbot, tmp_path) -> None:
+    window, _, _ = timed
+    folder = tmp_path / "test-runs-manual" / "005-empty"
+    folder.mkdir(parents=True)
+    assert window._save_to(folder / "empty.caliper")  # no run yet
+    assert not (folder / "003-timing.md").exists()
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    assert window._save_to(tmp_path / "part.caliper")
+    assert list(tmp_path.glob("*.md")) == []

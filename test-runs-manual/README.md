@@ -53,9 +53,10 @@ correct it, typos included.
 **`002-claude-output.md`**: everything Claude said during the task: progress updates,
 explanations, assumptions, errors, workarounds, and the final response. Not a summary.
 
-**`003-timing.md`**: when the run is over, open Timing at the top of Caliper's Assistant tab
-and press **Copy for 003-timing.md**, then paste it as the whole file. Exactly this structure,
-with no Notes section:
+**`003-timing.md`**: Caliper writes it when you save the drawing into the test folder, from
+its Timing panel (above Properties); save after you accept or reject. It never overwrites an
+existing one. By hand instead: open the Timing panel, press **Copy for 003-timing.md**, and
+paste it as the whole file. Exactly this structure, with no Notes section:
 
 ```
 # Timing
@@ -115,7 +116,7 @@ Nothing else goes in it: no notes, timing, or evaluation.
 3. Send the prompt, and copy it into `001-prompt.md`.
 4. When Claude is done, review the proposal and accept or reject it.
 5. Copy Claude's whole output into `002-claude-output.md`.
-6. Assistant tab → Timing → **Copy for 003-timing.md**, pasted into `003-timing.md`.
+6. File → Save As, `test-name.caliper` in the folder. Caliper writes `003-timing.md` next
+   to it.
 7. Get `004-claude-results.md` from Claude.
 8. Write `005-my-results.md`.
-9. File → Save As, `test-name.caliper` in the folder.

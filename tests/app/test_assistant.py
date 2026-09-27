@@ -73,7 +73,7 @@ def test_a_request_creates_real_geometry_once_accepted_and_undoes_normally(windo
     assert window.proposal_card.isVisible()
     assert window.proposal_card.title.text() == "Create Rectangle"
     assert dict(session.document.entities) == {}
-    assert window.browser_tabs.currentWidget() is window.assistant_panel
+    assert window.browser_tabs.currentWidget() is window.assistant_log
     assert window.assistant_log.lines() == [
         "You: Create a rectangle 100mm wide and 50mm tall.",
         "→ create_rectangle: Create Rectangle (e1)",
