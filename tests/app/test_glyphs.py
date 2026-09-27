@@ -148,6 +148,21 @@ def test_hiding_constraints_removes_glyphs_and_lets_clicks_through(window, qtbot
     assert window.session.selection == frozenset()
 
 
+def test_hiding_constraints_keeps_the_dimensions(window, qtbot) -> None:
+    a = line(window, P(x=0, y=20), P(x=60, y=20))
+    constrain(window, ConstraintType.HORIZONTAL, curve(a))
+    (dim,) = window.session.execute(
+        CreateDimension(refs=(curve(a),), placement=P(x=30, y=40))
+    ).created_ids
+    assert window.constraints_action.shortcut().toString() == "Shift+C"
+    assert window.constraints_action in window.tool_bar.actions()  # a toolbar toggle too
+    window.constraints_action.trigger()
+    assert window.canvas.constraint_glyphs == []
+    wx, wy = window.canvas.view.to_widget(P(x=30, y=40))
+    click_at(qtbot, window, QPoint(round(wx), round(wy)))
+    assert window.session.selection == frozenset({dim})  # still drawn, still clickable
+
+
 def test_clicking_a_dimension_label_selects_the_dimension(window, qtbot) -> None:
     a = line(window, P(x=0, y=20), P(x=60, y=20))
     (dim,) = window.session.execute(
