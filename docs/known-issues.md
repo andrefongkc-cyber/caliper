@@ -12,24 +12,13 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
-| AI side | AI-1, AI-2, AI-3 | AI-9, AI-10 | AI-4 |
+| AI side | AI-2, AI-3 | AI-9, AI-10 | AI-4 |
 | AI side, untested or limited | AI-5, AI-6, AI-7, AI-8 | | |
-| Client side | C-1, C-2, C-3, C-4 | C-5, C-6 | C-7, C-8, C-9, C-10, C-11 |
+| Client side | C-1, C-2, C-3, C-4 | C-6 | C-7, C-8, C-9, C-11 |
 
 ---
 
 ## AI side
-
-### AI-1. Checks run with no pending proposal are dropped
-- **What happens:** Claude runs `run_check` and gets a pass or fail, but the check is kept
-  only if a proposal is pending. If you've just accepted, or Claude only looks, the check
-  never reaches the Checks panel. In the second stress test (a 28-entity part), 30 of 36
-  passing checks were lost this way.
-- **Where:** `caliper/ai/draft.py`, `Draft.call`. With no draft open, the call runs on a
-  throwaway `Workspace`.
-- **Workaround:** have Claude check before you accept, while its changes are still pending.
-- **Fix needs a decision:** either record a check-only call as a small proposal, or add it
-  to the Checks panel directly (which is also blocked by C-1).
 
 ### AI-2. A check can't be taken back
 - **What happens:** every check Claude runs stays on the proposal. A check with the wrong
@@ -140,20 +129,15 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Where:** `caliper/contracts/commands.py`, `Change`.
 - **Status:** [#17](https://github.com/andrefongkc-cyber/caliper/issues/17) item 1.
 
-### C-5. Accepting a very large proposal freezes the window
-- **What happens:** Accept runs every command through the solver once, on the UI thread.
-  That's about 0.7 s at 128 changes and 9.7 s at 254.
-- **Where:** `AgentController.accept` in `caliper/app/agent/ui.py`, and the solver's cost per
-  command.
-- **Status:** Performance V2 (engine), paused.
-
-### C-6. Each AI change briefly blocks the window
-- **What happens:** MCP calls run on the UI thread, one at a time. That's about 25–35 ms
-  each around 130 pending changes, and 0.2 s at 250. A slow solve blocks the window for as
-  long as it takes.
-- **Where:** `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
-- **Fix:** mostly the solver (Performance V2). Moving the draft off the UI thread would
-  need care, because it has to stay in step with the document.
+### C-6. A change to one large, tightly joined shape takes tens of milliseconds
+- **What happens:** MCP calls run on the UI thread, one at a time. Most take a millisecond or
+  two at any proposal size (Performance V2), but a command still solves the whole cluster it
+  touches: in the recorded plate, each constraint on the 12-point star (24 lines, one
+  cluster) took 20–35 ms, the slowest calls of the run.
+- **Where:** the solver's cost per cluster (`caliper/engine/constraints/sketch.py`), called
+  from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
+- **Fix, if it matters:** solve only the part of a cluster a command can move. Moving the
+  draft off the UI thread would need care, because it has to stay in step with the document.
 
 ### C-7. Solver round-off is saved in files
 - **What happens:** after a solve, coordinates that should be exactly 0 can be stored as
@@ -175,11 +159,6 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Where:** `caliper/app/agent/ui.py`, `_command_text` and `_value`.
 - **Fix:** format refs as `e1.end`, or reuse the History panel's labels.
 
-### C-10. The Assistant log grows without limit
-- **What happens:** every request and tool call is another line, and there's no clearing or
-  collapsing.
-- **Where:** `caliper/app/panels/assistant.py`.
-
 ### C-11. App tests abort in a shell with no display
 - **What happens:** `uv run pytest` aborts with a Qt fatal error in shells without a window
   server (SSH, sandboxes) unless `QT_QPA_PLATFORM=offscreen` is set. The test setup documents
@@ -190,6 +169,21 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 ---
 
 ## Recently fixed
+
+On `shared/performance-v2` (Performance V2, not merged yet):
+
+- AI-1: checks Claude ran with no change pending (after an Accept, or when it only looked)
+  never reached the Checks panel. Now they go straight there, from Claude Desktop and from
+  the in-app assistant.
+- C-5: accepting a large proposal froze the window (25 s for the 255-change stress plate).
+  Accept now commits what the draft already validated and solved: 0.02 s.
+- C-6, mostly: each MCP call slowed as the proposal grew (1.1 s at worst in the stress
+  plate, 0.46 s at the 95th percentile). Now 1.2 ms typically and 36 ms at worst; what's
+  left is above.
+- C-10: the Assistant log laid out every line again on each call. It's plain text now and
+  shows the last 5,000 lines, keeping every one for `lines()`.
+
+Earlier:
 
 - Box-selecting many curves (e.g. a whole traced outline) froze the window for good. The
   Constrain menu asked which constraints apply, and `relations.match` tried all n! orders of

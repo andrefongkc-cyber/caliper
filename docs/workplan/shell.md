@@ -1,10 +1,22 @@
-Status: P7 open as PR #27 (CI green, awaiting Andre), findings filed as #28, next: Andre's review, then the H/V offset rule and ADR 0008/0009 acceptance
+Status: P7 and its follow-ups merged; Performance V2's shell side (one redraw per transaction, a lazy proposal card, a plain-text Assistant log, hidden glyphs cost nothing, Stop) on `shared/performance-v2`, local commits, not pushed, next: Andre's review
 
 # Shell workplan — Stream B
 
 Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contracts` and the in-memory engine; never imports a kernel.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Performance V2, the shell side (branch `shared/performance-v2`, 2026-09-27)
+
+Part of the whole-app pass in [core.md](core.md#performance-v2-branch-sharedperformance-v2-2026-09-24-to-2026-09-27), which has the numbers (the stress plate: 20 s of calls in the window → 0.77 s, Accept 25 s → 0.02 s).
+
+- [x] `DocumentSession.transaction` announces its changes once, when it closes, as one `COMMIT` change: Accept redraws, re-lists, and re-measures once, not once per command
+- [x] Accept runs inside `handlers.already(plan.executed)` (`AgentController.accept`)
+- [x] `ProposalCard` writes its list of changes only while it's shown; `MainWindow._frame_proposal` moves the view only when a growing proposal outgrows it (`Canvas.shows`)
+- [x] The canvas re-lays out labels and glyphs from `sketch.referrers`, and doesn't work out where hidden glyphs would hang
+- [x] `AssistantLog` is a `QPlainTextEdit` showing the last 5,000 lines (`SHOWN_LINES`), keeping every one for `lines()`
+- [x] The prompt bar's Stop, while the in-app assistant works
+- [x] Tests: `tests/app/test_performance.py`, `tests/app/test_mcp.py`, `tests/app/test_assistant.py`
 
 ## Plan (2026-09-15)
 

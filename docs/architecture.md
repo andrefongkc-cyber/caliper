@@ -80,9 +80,11 @@ flowchart TD
   (`ai/model.py`); `ai/claude.py` is the Anthropic implementation, the only code that knows a
   provider. Its credentials are the SDK's own (`ANTHROPIC_API_KEY`), never read by Caliper.
   Another provider would be another `Model`, with its own credentials, used by the same tools.
-- **Either way, the user decides.** Proposals are prepared on a copy; `Accept` replays the
+- **Either way, the user decides.** Proposals are prepared on a copy; `Accept` runs the
   resolved commands through the session in one transaction, so undo, redo, the file, and
-  replay behave exactly as for the user's own changes.
+  replay behave exactly as for the user's own changes. Each command's outcome is the one the
+  workspace already validated and solved, starting from the very same document
+  (`engine/commands/handlers.py`, `already`), so nothing is solved twice.
 
 ## Packages and what may import what
 
@@ -169,6 +171,34 @@ implement the same provisional protocol:
 - `OCCTKernel`: OpenCascade, behind the optional `occt` extra.
 
 One conformance suite runs against both, so they can't drift apart.
+
+## Doing each thing once
+
+Documents are immutable and share every entity a change left alone, so comparing entities by
+identity says exactly what a change touched. Everything derived is worked out from the last
+document's version of it, for the entities that changed:
+
+- **What refers to what.** `sketch.referrers` turns `references` around (the constraints and
+  dimensions on each entity). Deleting, finding constraints, and re-laying out labels use it
+  instead of scanning the sketch.
+- **Clusters.** Relations join geometry into clusters (`sketch.grouped`), and a command
+  solves only the clusters it touched. Geometry a Fix pins completely (a fixed origin) is a
+  constant in each cluster that refers to it rather than a member, so features dimensioned
+  from the same origin solve separately. What the split clusters can't settle (a conflict, a
+  repeated constraint, a degenerate start) is decided on the whole sketch, so accepting and
+  rejecting, and the messages, are what solving everything together gives.
+- **Solve status and checks.** Status is kept per cluster and redone only for the clusters a
+  change touched. A check is measured again only when an entity it reads changed.
+- **The solver's linear algebra** skips products of rows that share no unknown, which are
+  exactly zero, so results are the same to the bit.
+- **The shell** draws the sketch into a cached layer and repaints only what moves over it,
+  hears of a transaction once when it closes, and doesn't work out constraint glyphs that are
+  hidden.
+
+These values live in small caches of recent documents (`engine/document/recent.py`), safe to
+share between threads, since the in-app assistant's tool calls run on a worker thread. The
+numbers: `bench/perf.py`, which replays recorded Claude Desktop sessions (`bench/sessions/`)
+with and without the window.
 
 ## Files
 
