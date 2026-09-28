@@ -55,7 +55,6 @@ from caliper.engine.commands.validation import (
 )
 from caliper.engine.constraints import dimensions, sketch
 from caliper.engine.constraints.suggest import suggest
-from caliper.engine.document.recent import Recent
 from caliper.engine.geometry import default_kernel
 from caliper.engine.spatial import grid
 
@@ -73,14 +72,11 @@ _SIDES = {
 type KernelSource = Kernel | Callable[[], Kernel | None] | None
 """A kernel, no kernel, or a function that returns one when first needed."""
 
-_STATUS: Recent[SolveStatus] = Recent(16)
-"""Solve status of recent documents."""
-
 _CHECKS: OrderedDict[
     tuple[Expectation, int], tuple[KernelSource, tuple[Entity | None, ...], CheckResult]
 ] = OrderedDict()
 """The last result of each check, with the kernel it had and the entities it read (see
-`check`). Shared between threads like `_STATUS`, so used only under `_CHECKS_LOCK`."""
+`check`). Shared between threads, so used only under `_CHECKS_LOCK`."""
 _CHECKS_LOCK = threading.Lock()
 CHECK_CACHE = 4096
 
@@ -232,11 +228,7 @@ class DocumentQueries:
         return min(ranked)[3] if ranked else None
 
     def solve_status(self) -> SolveStatus:
-        result = _STATUS.get(self._document)
-        if result is None:
-            result = sketch.status(self._document)
-            _STATUS.put(self._document, result)
-        return result
+        return sketch.status(self._document)  # kept for recent documents there
 
     def applicable_constraints(self, refs: Sequence[Ref]) -> tuple[ConstraintOption, ...]:
         errors: list[Error] = []

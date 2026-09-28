@@ -20,10 +20,19 @@ Within a stage, Newton steps take the smallest change that satisfies the equatio
 unrelated geometry stays put. When no stage works, the constraints conflict: each relation
 in the cluster (and the command's own edit) is dropped in turn, and the ones whose removal
 lets the rest solve are reported.
+
+Every solve starts from the stored geometry, the last solution with the command's own change
+applied, and a stored value the solve changed by no more than `tolerance.UNCHANGED` stays as
+stored when every relation holds without the change (`_kept`), so solving again changes
+nothing and unchanged geometry never drifts. What "holds", "unchanged", and "the same
+solution" mean is `tolerance`. `reference()` solves the way Caliper did before clusters split
+and values were kept: the oracle `equivalence` compares this solver with.
 """
 
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from itertools import permutations
 from types import MappingProxyType
@@ -49,6 +58,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import ConstraintState, SolveStatus
+from caliper.engine.constraints import tolerance
 from caliper.engine.constraints.ad import Dual, hypot
 from caliper.engine.constraints.linalg import RowBasis
 from caliper.engine.constraints.model import PARAMS, Frame, read, write
@@ -69,14 +79,14 @@ GEOMETRY = (Point, *[t for t in PARAMS if t is not Point])
 
 ITERATIONS = 64
 POLISH = 3
+"""Extra Newton steps once within tolerance, while they still reduce the error. They take
+results to the last bit, so a width driven to 120 is stored as exactly 120.0."""
 RESHAPE_COST = 100.0
 """How much more a unit change of a size (radius, width, height) costs than a unit move.
 
 Steps minimize the weighted change, so a free circle or rectangle translates to meet a
 constraint rather than shrinking or growing to reach it, as in any CAD sketcher."""
 _SIZES = frozenset({"radius", "width", "height"})
-"""Extra Newton steps once within tolerance, while they still reduce the error. They take
-results to the last bit, so a width driven to 120 is stored as exactly 120.0."""
 
 
 # --- What refers to what ------------------------------------------------------------------
@@ -200,12 +210,31 @@ def anchored(document: Document) -> frozenset[EntityId]:
     return frozenset(id for id, paths in pinned.items() if len(paths) == sizes[id])
 
 
+_REFERENCE: ContextVar[bool] = ContextVar("caliper_solver_reference", default=False)
+
+
+@contextmanager
+def reference() -> Iterator[None]:
+    """Solve as Caliper did before Performance V2, for tests and diagnostics: every cluster
+    whole (anchored geometry joins like any other geometry), every value written as solved,
+    and nothing cached or reused. It writes exactly the files the old solver wrote, which
+    makes it the oracle the optimized solver is compared with (`equivalence`). Only the
+    current thread (or context) solves this way while it's open."""
+    token = _REFERENCE.set(True)
+    try:
+        yield
+    finally:
+        _REFERENCE.reset(token)
+
+
 def clusters(document: Document) -> list[Cluster]:
     """Geometry joined by relations, each group with its relations. Lone geometry is omitted.
 
     Anchored geometry joins only relations that refer to nothing else, such as its own Fix;
-    elsewhere it's one of the cluster's `fixed` constants."""
-    return _clusters_of(document, _relation_ids(document), anchored(document))
+    elsewhere it's one of the cluster's `fixed` constants. (Under `reference`, it joins like
+    any other geometry.)"""
+    fixed = frozenset() if _REFERENCE.get() else anchored(document)
+    return _clusters_of(document, _relation_ids(document), fixed)
 
 
 def _relation_ids(document: Document) -> list[EntityId]:
@@ -271,6 +300,8 @@ def grouped(document: Document) -> Mapping[EntityId, Cluster]:
 
 
 def _grouping(document: Document) -> tuple[Mapping[EntityId, Cluster], frozenset[EntityId]]:
+    if _REFERENCE.get():
+        return _whole(document), frozenset()
     cached = _GROUPS.get(document)
     if cached is not None:
         return cached
@@ -342,6 +373,10 @@ class System:
     relations: list[EntityId] = field(default_factory=list)
     constant: frozenset[int] = frozenset()
     """Parameters of the cluster's anchored `fixed` geometry: read, never solved for."""
+    compiled: list[tuple[EntityId, Callable[[Frame], list[Dual]]]] | None = field(
+        default=None, repr=False, compare=False
+    )
+    """`stored_equations`, once worked out."""
 
     @classmethod
     def build(
@@ -393,6 +428,13 @@ class System:
         setting = Setting(first=self.frame(first), anchor=self.frame(self.anchors))
         joints = _joints(self.document, self.relations)
         return [(id, _compile(self.document, id, setting, joints)) for id in relations]
+
+    def stored_equations(self) -> list[tuple[EntityId, Callable[[Frame], list[Dual]]]]:
+        """Every relation's equations, with signs and branches set by the stored values:
+        compiled once per system, for each stage's Newton attempt and for `_kept`."""
+        if self.compiled is None:
+            self.compiled = self.equations(self.relations, self.values)
+        return self.compiled
 
     def indices(self, params: Iterable[Param]) -> set[int]:
         where = {p: i for i, p in enumerate(self.params)}
@@ -472,10 +514,6 @@ def _evaluate(
     return residuals, gradients, owners
 
 
-def _tolerance(values: Sequence[float]) -> float:
-    return 1e-10 * max(1.0, *(abs(v) for v in values)) if values else 1e-10
-
-
 def _dense(gradients: Sequence[dict[int, float]], columns: Mapping[int, int]) -> list[list[float]]:
     rows = []
     for g in gradients:
@@ -494,6 +532,7 @@ def _newton(
     *,
     nudge: bool = False,
     hold_lengths: Iterable[EntityId] = (),
+    patient: bool = True,
 ) -> tuple[list[float], bool]:
     """Minimum-norm Newton with backtracking on the free unknowns. True when solved.
 
@@ -503,20 +542,30 @@ def _newton(
 
     `hold_lengths` adds, for this solve only, equations keeping those lines as long as they
     were: they come last, so they only decide what the real constraints leave open.
+
+    Not `patient`: a stage that isn't solved and whose best step lowers the squared residuals
+    by less than the tolerance squared has stalled, and fails there. Such a step moves no
+    residual by an amount the convergence test can tell apart, so no number of them solves
+    the stage: typically the unknowns it may move can't satisfy the relations, and all that's
+    left to lower is round-off, or residuals `_kept` left within tolerance elsewhere. (The
+    reference is patient, as the solver always was: it tries every iteration.)
     """
     held_lines = [id for id in hold_lengths if system.kinds.get(id) is Line]
-    equations = system.equations(relations, list(system.values)) + [
-        (id, _length_keeper(system, id)) for id in held_lines
-    ]
+    compiled = (
+        system.stored_equations()
+        if list(relations) == system.relations
+        else system.equations(relations, list(system.values))
+    )
+    equations = compiled + [(id, _length_keeper(system, id)) for id in held_lines]
     x = list(system.values)
     if nudge:
-        size = 1e-3 * max(1.0, *(abs(v) for v in x))
+        size = tolerance.NUDGE * tolerance.scale(x)
         for n, i in enumerate(free):
             x[i] += size * ((n * 7919) % 13 - 6) / 6  # a fixed spread in [-1, 1]
         if not _in_domain(system, x):
             x = list(system.values)
     columns = {p: c for c, p in enumerate(free)}
-    tolerance = _tolerance(x)
+    allowed = tolerance.solved(x)
     # Weighted minimum norm: solve for u = W Δx with J W⁻¹ u = -r, then Δx = W⁻¹ u.
     costs = [RESHAPE_COST if system.params[p][1] in _SIZES else 1.0 for p in free]
 
@@ -535,7 +584,7 @@ def _newton(
         return x, False
     polished = 0
     for _ in range(ITERATIONS):
-        if max((abs(v) for v in r), default=0.0) <= tolerance:
+        if max((abs(v) for v in r), default=0.0) <= allowed:
             if norm == 0.0 or polished == POLISH or not free:
                 return x, True
             polished += 1
@@ -555,9 +604,12 @@ def _newton(
                 break
             alpha /= 2.0
         else:
-            return x, max((abs(v) for v in r), default=0.0) <= tolerance
+            return x, max((abs(v) for v in r), default=0.0) <= allowed
+        stalled = not patient and not polished and norm - norm2 < allowed * allowed
+        if stalled and not max((abs(v) for v in r2), default=0.0) <= allowed:
+            return trial, False
         x, r, g, norm = trial, r2, g2, norm2
-    return x, max((abs(v) for v in r), default=0.0) <= tolerance
+    return x, max((abs(v) for v in r), default=0.0) <= allowed
 
 
 def _length_keeper(system: System, id: EntityId) -> Callable[[Frame], list[Dual]]:
@@ -610,16 +662,23 @@ def settle(before: Document, after: Document, request: Request) -> Document | li
     """Solve every cluster the command touched. The document to keep, or why not.
 
     The clusters are the split ones (see `clusters`) when that gives what solving the whole
-    sketch would: when the command changed no Fix and no anchored geometry. Anything they
-    can't settle, a conflict or a repeated constraint, is worked out on the whole sketch
-    instead, so rejections and their messages are exactly what they always were."""
+    sketch would: when the command changed no Fix and no anchored geometry. Whatever they
+    can't decide exactly as the whole sketch would (see `_settle`: a failure, a repeated
+    constraint, a decision close to its threshold) is worked out on the whole sketch instead,
+    so rejections and their messages are exactly what they always were. Either way, values a
+    solve didn't need to change stay as stored (`_kept`); under `reference`, nothing splits
+    and every value is written as solved."""
+    if _REFERENCE.get():
+        outcome = _settle(before, after, request, _whole(after), local=False, keep=False)
+        assert outcome is not None
+        return outcome
     where, fixed = _grouping(after)
     if fixed and _split_safe(before, after, fixed):
-        split = _settle(before, after, request, where, final=False)
+        split = _settle(before, after, request, where, local=True, keep=True)
         if split is not None:
             return split
     whole = _whole(after) if fixed else where
-    outcome = _settle(before, after, request, whole, final=True)
+    outcome = _settle(before, after, request, whole, local=False, keep=True)
     assert outcome is not None
     return outcome
 
@@ -630,23 +689,32 @@ def _settle(
     request: Request,
     where: Mapping[EntityId, Cluster],
     *,
-    final: bool,
+    local: bool,
+    keep: bool,
 ) -> Document | list[Error] | None:
-    """Solve the touched clusters of `where`. When not `final`, None instead of an error, for
-    the whole sketch to decide."""
+    """Solve the touched clusters of `where`, keeping stored values the solve didn't need to
+    change when `keep` (`_kept`).
+
+    `local`: the clusters are split ones, which decide only what they decide exactly as the
+    whole sketch would. Anything else is None, for the whole sketch to decide: no solution
+    without the nudge (a degenerate start, where the nudge's direction depends on the
+    system's unknowns), any sign of a repeated relation, a new relation close to repeating the
+    others, or geometry close to collapsing. Otherwise a failure is an error."""
     solved: dict[EntityId, Entity] = {}
     touched = {where[id] for id in request.touched if id in where}
     for cluster in sorted(touched, key=lambda c: c.geometry[0]):  # `clusters` order
         system = System.build(after, cluster, before)
-        # The nudge only rescues a degenerate start, and where it pushes depends on which
-        # unknowns the system holds: split clusters leave it to the whole sketch.
-        outcome = _attempt(system, request, nudge=final)
+        outcome = _attempt(system, request, nudge=not local, keep=keep)
         if outcome is None:
-            return [_conflict(system, request)] if final else None
+            return None if local else [_conflict(system, request)]
         values, entities = outcome
-        redundant = _redundancy(system, values, request.new)
-        if redundant is not None:
-            return [redundant] if final else None
+        redundant = _redundancy(system, values, request.new, local=local)
+        if redundant is _UNDECIDED:
+            return None
+        if isinstance(redundant, Error):
+            return None if local else [redundant]
+        if local and _near_collapse(entities.values(), after):
+            return None
         solved.update(entities)
     if not solved:
         return after
@@ -695,20 +763,147 @@ def _stages(system: System, request: Request) -> list[list[int]]:
 
 
 def _attempt(
-    system: System, request: Request, *, nudge: bool = True
+    system: System, request: Request, *, nudge: bool = True, keep: bool = True
 ) -> tuple[list[float], dict[EntityId, Entity]] | None:
-    """The solved values and the geometry they describe, or None if no stage works. Last,
-    unless `nudge` is False, everything is tried again from slightly off the stored values."""
+    """The solved values and the geometry to write, or None if no stage works. Last, unless
+    `nudge` is False, everything is tried again from slightly off the stored values. With
+    `keep`, the geometry keeps stored values the solve didn't need to change (`_kept`); the
+    values returned, which the caller's decisions use, are always the solved ones."""
     stages = _stages(system, request)
     holds = [request.turning, frozenset()] if request.turning else [frozenset()]
     attempts = [(free, False, hold) for free in stages for hold in holds]
     if nudge:
         attempts += [(stages[-1], True, hold) for hold in holds]
     for free, nudged, hold in attempts:
-        values, ok = _newton(system, system.relations, free, nudge=nudged, hold_lengths=hold)
-        if ok and (entities := _written(system, values)) is not None:
-            return values, entities
+        values, ok = _newton(
+            system, system.relations, free, nudge=nudged, hold_lengths=hold, patient=not keep
+        )
+        if not ok or (entities := _written(system, values)) is None:
+            continue
+        # Decided on the solved values, as the reference decides. Keeping stored values only
+        # changes what's written, and only if what's kept is as valid as what was solved.
+        if (
+            keep
+            and (kept := _kept(system, values)) is not values
+            and (written := _written(system, kept)) is not None
+        ):
+            entities = written
+        return values, entities
     return None
+
+
+KEEPING_ROUNDS = 8
+"""How many times `_kept` narrows what it puts back before writing every value as solved."""
+
+
+def _kept(system: System, values: list[float]) -> list[float]:
+    """`values`, with each unknown the solve changed by no more than `tolerance.UNCHANGED`
+    put back as stored, as long as every relation still holds within `tolerance.SOLVED`, at
+    the scale of both the stored values and the ones kept.
+
+    A solve moves each unknown it may by the least that satisfies the relations, then polishes
+    to the last bit, so geometry that already satisfied them picks up changes it never needed:
+    round-off (a stored 0 becoming 5e-63), or a closer approach to a root it was already within
+    tolerance of (a typed 22.619865 becoming 22.61986494804043). Keeping the stored value there
+    keeps what the user or the model wrote, makes solving again change nothing, and stops
+    round-off from building up over many edits. A change some relation needs always stays:
+    each round checks every relation that reads a value put back (the others are exactly as
+    solved), and gives up putting back the largest changes any relation still failing reads,
+    until none fails. The caller decides everything on the solved values; this only chooses
+    what's written.
+    """
+    stored = system.values
+    changes = {
+        i: abs(new - old)
+        for i, (old, new) in enumerate(zip(stored, values, strict=True))
+        if new != old
+    }
+    bound = tolerance.unchanged(stored)
+    candidates = {i for i, change in changes.items() if change <= bound}
+    if not candidates:
+        return values
+    equations = system.stored_equations()
+    reading: dict[EntityId, list[int]] = {}  # a relation reads only what it refers to
+    for k, (owner, _) in enumerate(equations):
+        for entity in _geometry_of(system.document, owner):
+            reading.setdefault(entity, []).append(k)
+    for _ in range(KEEPING_ROUNDS):
+        trial = [stored[i] if i in candidates else v for i, v in enumerate(values)]
+        if not _in_domain(system, trial):
+            return values
+        affected = sorted({k for i in candidates for k in reading.get(system.params[i][0], ())})
+        try:
+            residuals, gradients, _ = _evaluate(
+                [equations[k] for k in affected], system.frame(trial, candidates)
+            )
+        except (ZeroDivisionError, ValueError, OverflowError):
+            return values
+        # Within the tolerance the solve met, and the one at the scale of what's kept as it
+        # will be stored: a solve that shrinks the geometry (a radius driven from 11 to 1), or
+        # a start angle past 360 stored as a few degrees, tightens it.
+        allowed = min(tolerance.solved(stored), tolerance.solved(_as_stored(system, trial)))
+        failing = [k for k, r in enumerate(residuals) if not abs(r) <= allowed]
+        if not failing:
+            return trial
+        read = {i for k in failing for i in gradients[k]} & candidates
+        if not read:
+            return values  # it fails for a reason putting values back can't explain
+        cut = max(changes[i] for i in read)
+        candidates = {i for i in candidates if changes[i] < cut}
+        if not candidates:
+            return values
+    return values
+
+
+def _as_stored(system: System, values: Sequence[float]) -> list[float]:
+    """`values` as `_written` stores them: start angles in [0, 360)."""
+    from caliper.engine.commands.validation import canonical_angle  # the command layer is above
+
+    return [
+        canonical_angle(v) if path == "start_angle" else v
+        for (_, path), v in zip(system.params, values, strict=True)
+    ]
+
+
+def _near_collapse(entities: Iterable[Entity], document: Document) -> bool:
+    """Whether any of `entities` is within `tolerance.DECIDED` of collapsing at the whole
+    document's scale: the whole sketch, with a scale at least a split cluster's, could call it
+    collapsed where the split cluster didn't."""
+    geometry = [e for e in entities if isinstance(e, GEOMETRY)]
+    if not geometry:
+        return False
+    threshold = tolerance.DECIDED * tolerance.UNCHANGED * _document_scale(document)
+    return any(_collapsed(e, threshold) for e in geometry)
+
+
+_SCALES: Recent[float] = Recent(4)
+"""`_document_scale` for recent documents."""
+
+
+def _document_scale(document: Document) -> float:
+    """`tolerance.scale` of every value of the document's geometry. Worked out from the last
+    document asked about: only the entities a change replaced are read again, unless one of
+    them was the largest."""
+    found = _SCALES.get(document)
+    if found is not None:
+        return found
+    latest = _SCALES.latest()
+    if latest is not None:
+        base, size = latest
+        changed = _changed(base, document)
+        if all(_magnitude(base.entities.get(id)) < size for id in changed):
+            found = max([size, *(_magnitude(document.entities.get(id)) for id in changed)])
+    if found is None:
+        found = tolerance.scale(_magnitude(e) for e in document.entities.values())
+    _SCALES.put(document, found)
+    return found
+
+
+def _magnitude(entity: Entity | None) -> float:
+    """The largest magnitude among a geometry entity's values; 0 for anything else."""
+    if not isinstance(entity, GEOMETRY):
+        return 0.0
+    return max(abs(read(entity, path)) for path in PARAMS[type(entity)])
 
 
 def _written(system: System, values: Sequence[float]) -> dict[EntityId, Entity] | None:
@@ -722,7 +917,7 @@ def _written(system: System, values: Sequence[float]) -> dict[EntityId, Entity] 
         domain_errors,
     )
 
-    tiny = 1e-9 * max(1.0, *(abs(v) for v in values))
+    tiny = tolerance.unchanged(values)
     changes: dict[EntityId, dict[str, float]] = {}
     for (id, path), old, new in zip(system.params, system.values, values, strict=True):
         if new != old:
@@ -853,8 +1048,22 @@ def _geometry_of(document: Document, id: EntityId) -> set[EntityId]:
     return {r.entity for r in references(entity)} or {id}
 
 
-def _redundancy(system: System, values: Sequence[float], new: frozenset[EntityId]) -> Error | None:
-    """An error when a new relation repeats what the others already say."""
+class _Undecided:
+    """A redundancy decision a split cluster leaves to the whole sketch (see `_redundancy`)."""
+
+
+_UNDECIDED = _Undecided()
+
+
+def _redundancy(
+    system: System, values: Sequence[float], new: frozenset[EntityId], *, local: bool = False
+) -> Error | _Undecided | None:
+    """An error when a new relation repeats what the others already say.
+
+    `local`: the system is a split cluster. Its rows lack the anchored constants' columns, so
+    a row's length, and what `tolerance.INDEPENDENT` compares it with, differ from the whole
+    sketch's. A new relation clearly independent is so either way; one within
+    `tolerance.DECIDED` of the threshold is `_UNDECIDED`, for the whole sketch to decide."""
     added = [id for id in system.relations if id in new]
     if not added:
         return None
@@ -866,6 +1075,17 @@ def _redundancy(system: System, values: Sequence[float], new: frozenset[EntityId
     rows = _dense(gradients, {i: i for i in everything})
     for i, row in enumerate(rows):
         basis.add(i, row)
+    if local:
+        # A kept row's last entry in `lower` is what was left of it after the rows before it.
+        close = tolerance.DECIDED * tolerance.INDEPENDENT
+        position = {i: k for k, i in enumerate(basis.kept)}
+        if any(
+            owner in new
+            and i in position
+            and basis.lower[position[i]][-1] <= close * math.sqrt(sum(x * x for x in rows[i]))
+            for i, owner in enumerate(owners)
+        ):
+            return _UNDECIDED
     for i, owner in enumerate(owners):
         if owner in new and i in basis.dependent:
             weights = basis.dependent[i]
@@ -874,7 +1094,7 @@ def _redundancy(system: System, values: Sequence[float], new: frozenset[EntityId
                 {
                     owners[basis.kept[j]]
                     for j, w in enumerate(weights)
-                    if largest > 0 and abs(w) > 1e-8 * largest
+                    if largest > 0 and abs(w) > tolerance.IMPLYING * largest
                 }
                 - new
             )
@@ -1006,6 +1226,31 @@ class _Adding(Mapping[EntityId, Entity]):
         return len(self._entities) + (self._id not in self._entities)
 
 
+# --- How well relations hold ------------------------------------------------------------
+
+
+def residuals(document: Document) -> dict[EntityId, tuple[float, float]]:
+    """How far each relation is from holding in the stored geometry, and how far it may be:
+    its largest residual, and `tolerance.SOLVED` at the scale of its whole cluster (what a
+    solve of the sketch as the old solver grouped it allows, so a split cluster's stricter
+    answer always fits). For tests and diagnostics; a solved document has every residual
+    within what's allowed."""
+    found: dict[EntityId, tuple[float, float]] = {}
+    for cluster in {id(c): c for c in _whole(document).values()}.values():
+        system = System.build(document, cluster)
+        allowed = tolerance.solved(system.values)
+        try:
+            equations = system.equations(system.relations, system.values)
+            values, _, owners = _evaluate(equations, system.frame(system.values))
+        except (ZeroDivisionError, ValueError, OverflowError):  # degenerate: nothing holds
+            found.update(dict.fromkeys(system.relations, (math.inf, allowed)))
+            continue
+        for owner, value in zip(owners, values, strict=True):
+            size = abs(value) if math.isfinite(value) else math.inf
+            found[owner] = (max(found.get(owner, (0.0, allowed))[0], size), allowed)
+    return found
+
+
 # --- Status -------------------------------------------------------------------------------
 
 
@@ -1039,23 +1284,35 @@ class _Solved:
     """Anchored geometry some cluster holds as a constant."""
 
 
-_LAST: list[_Solved] = []
-"""The last document `status` saw. Documents share the entity objects an edit didn't change,
-so the next one is compared by identity, and only the clusters an edit touched are redone."""
+_SOLVED: Recent[tuple[_Solved, SolveStatus]] = Recent(4)
+"""Status of recent documents (the window asks about its own, a proposal's, and the one it's
+based on), with the pieces the next document's status reuses: documents share the entity
+objects an edit didn't change, so only the clusters an edit touched are redone."""
 
 
 def status(document: Document) -> SolveStatus:
     """Degrees of freedom and constraint health of the stored geometry."""
-    last = _LAST[0] if _LAST else None
-    if last is None:
+    if _REFERENCE.get():
+        return _status(_solved(document, None))
+    cached = _SOLVED.get(document)
+    if cached is not None:
+        return cached[1]
+    latest = _SOLVED.latest()
+    if latest is None:
         solved = _solved(document, None)
     else:
+        last = latest[1][0]
         changed = _changed(last.document, document)
         if _any_relation(changed, last.document, document):
             solved = _solved(document, last)  # clusters may have joined or split
         else:
             solved = _updated(last, document, changed)
-    _LAST[:] = [solved]
+    found = _status(solved)
+    _SOLVED.put(document, (solved, found))
+    return found
+
+
+def _status(solved: _Solved) -> SolveStatus:
     dof = solved.unknowns - sum(h.rank for h in solved.health)
     conflicting = sorted(id for h in solved.health for id in h.conflicting)
     redundant = sorted(id for h in solved.health for id in h.redundant)
@@ -1173,8 +1430,8 @@ def _health(document: Document, cluster: Cluster) -> _Health:
     everything = system.unknowns
     equations = system.equations(system.relations, values)
     residuals, gradients, owners = _evaluate(equations, system.frame(values, everything))
-    tolerance = 1e3 * _tolerance(values)
-    broken = {owners[i] for i, r in enumerate(residuals) if abs(r) > tolerance}
+    allowed = tolerance.broken(values)
+    broken = {owners[i] for i, r in enumerate(residuals) if abs(r) > allowed}
     basis = RowBasis(len(values))
     for i, row in enumerate(_dense(gradients, {i: i for i in everything})):
         basis.add(i, row)
