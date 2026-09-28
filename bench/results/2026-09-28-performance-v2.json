@@ -1,0 +1,190 @@
+{
+ "bridge/round-trip": {
+  "calls": 200.0,
+  "max_ms": 4.106374923139811,
+  "median_ms": 0.3417915431782603,
+  "p95_ms": 0.4747500643134117,
+  "total": 0.0747300791554153
+ },
+ "session/ball-bearing/accept-engine": {
+  "replay": 0.09861204191111028,
+  "total": 0.0006757080554962158
+ },
+ "session/ball-bearing/engine": {
+  "calls": 74.0,
+  "check_ms": 0.11066789738833904,
+  "checks": 5.0,
+  "commands": 66.0,
+  "deferred": 0.0,
+  "evaluations": 829.0,
+  "max_ms": 8.991374867036939,
+  "median_ms": 0.18239545170217752,
+  "p95_ms": 6.464832928031683,
+  "solve_ms": 96.32274741306901,
+  "status_ms": 1.8106671050190926,
+  "total": 0.10382933495566249
+ },
+ "session/ball-bearing/memory": {
+  "accept_peak_mib": 0.06287193298339844,
+  "peak_mib": 0.7144966125488281,
+  "retained_mib": 0.13045501708984375
+ },
+ "session/ball-bearing/results": {
+  "calls": 74.0,
+  "max_kib": 1.4990234375,
+  "total_kib": 26.951171875
+ },
+ "session/ball-bearing/window": {
+  "calls": 74.0,
+  "max_ms": 10.709209134802222,
+  "median_ms": 1.498208031989634,
+  "p95_ms": 7.456833031028509,
+  "total": 0.18289378797635436,
+  "ui_share_ms": 0.607646070420742
+ },
+ "session/ball-bearing/window-accept": {
+  "entities": 66.0,
+  "total": 0.01845604181289673
+ },
+ "session/ball-bearing/window-reject": {
+  "total": 0.00022862502373754978
+ },
+ "session/ball-bearing/workflow": {
+  "total": 0.2013498297892511
+ },
+ "session/rectangle/accept-engine": {
+  "replay": 0.00045062508434057236,
+  "total": 7.37910158932209e-05
+ },
+ "session/rectangle/engine": {
+  "calls": 10.0,
+  "check_ms": 0.04174979403614998,
+  "checks": 2.0,
+  "commands": 6.0,
+  "deferred": 0.0,
+  "evaluations": 10.0,
+  "max_ms": 0.19637495279312134,
+  "median_ms": 0.10187446605414152,
+  "p95_ms": 0.19637495279312134,
+  "solve_ms": 0.34466711804270744,
+  "status_ms": 0.09808293543756008,
+  "total": 0.0010785805061459541
+ },
+ "session/rectangle/memory": {
+  "accept_peak_mib": 0.01052093505859375,
+  "peak_mib": 0.04326343536376953,
+  "retained_mib": 0.01697540283203125
+ },
+ "session/rectangle/results": {
+  "calls": 10.0,
+  "max_kib": 0.3203125,
+  "total_kib": 1.9111328125
+ },
+ "session/rectangle/window": {
+  "calls": 10.0,
+  "max_ms": 6.083124782890081,
+  "median_ms": 1.5362079720944166,
+  "p95_ms": 6.083124782890081,
+  "total": 0.0201967500615865,
+  "ui_share_ms": 0.7219380931928754
+ },
+ "session/rectangle/window-accept": {
+  "entities": 6.0,
+  "total": 0.008868499891832471
+ },
+ "session/rectangle/window-reject": {
+  "total": 0.0001898328773677349
+ },
+ "session/rectangle/workflow": {
+  "total": 0.02906524995341897
+ },
+ "session/stress-plate-build/accept-engine": {
+  "replay": 0.48694445891305804,
+  "total": 0.003977416083216667
+ },
+ "session/stress-plate-build/engine": {
+  "calls": 281.0,
+  "check_ms": 0.3495838027447462,
+  "checks": 10.0,
+  "commands": 255.0,
+  "deferred": 2.0,
+  "evaluations": 1730.0,
+  "max_ms": 33.39079208672047,
+  "median_ms": 0.35149999894201756,
+  "p95_ms": 11.483791982755065,
+  "solve_ms": 484.29895751178265,
+  "status_ms": 17.560668289661407,
+  "total": 0.5294875483959913
+ },
+ "session/stress-plate-build/memory": {
+  "accept_peak_mib": 0.23609352111816406,
+  "peak_mib": 1.774184226989746,
+  "retained_mib": 0.47112083435058594
+ },
+ "session/stress-plate-build/results": {
+  "calls": 281.0,
+  "max_kib": 5.1396484375,
+  "total_kib": 92.5146484375
+ },
+ "session/stress-plate-build/window": {
+  "calls": 281.0,
+  "max_ms": 38.209165912121534,
+  "median_ms": 1.5345411375164986,
+  "p95_ms": 14.272833010181785,
+  "total": 0.8403205454815179,
+  "ui_share_ms": 0.517458887770772
+ },
+ "session/stress-plate-build/window-accept": {
+  "entities": 255.0,
+  "total": 0.02390629192814231
+ },
+ "session/stress-plate-build/window-reject": {
+  "total": 0.0001910831779241562
+ },
+ "session/stress-plate-build/workflow": {
+  "total": 0.8642268374096602
+ },
+ "synthetic/file/2000": {
+  "dumps_ms": 9.193375008180737,
+  "loads_ms": 54.77254209108651,
+  "save_ms": 9.637083858251572,
+  "size_kib": 622.13671875
+ },
+ "synthetic/inspect-document/2000": {
+  "calls": 4.0,
+  "max_kib": 41.865234375,
+  "max_ms": 3.9752500597387552,
+  "median_ms": 2.749250503256917,
+  "p95_ms": 3.9752500597387552,
+  "total": 0.011855834163725376
+ },
+ "synthetic/many-checks/prepare-200": {
+  "calls": 20.0,
+  "max_ms": 1.4788750559091568,
+  "median_ms": 0.8058745879679918,
+  "p95_ms": 1.4788750559091568,
+  "total": 0.016838625073432922
+ },
+ "synthetic/many-constraints/chain-150": {
+  "calls": 299.0,
+  "max_ms": 55.70874991826713,
+  "median_ms": 0.6333750206977129,
+  "p95_ms": 33.91620796173811,
+  "status_ms": 68.01479193381965,
+  "total": 2.4273332764860243
+ },
+ "synthetic/many-entities/create": {
+  "calls": 50.0,
+  "max_ms": 0.23833313025534153,
+  "median_ms": 0.1471454743295908,
+  "p95_ms": 0.17850007861852646,
+  "total": 0.0075942466501146555
+ },
+ "synthetic/render/2000": {
+  "badges_ms": 11.81008294224739,
+  "no_badges_ms": 6.658624857664108
+ },
+ "timing/overhead": {
+  "per_call_us": 16.999896615743637
+ }
+}
