@@ -17,7 +17,10 @@ stated once. None of this is a reason to add constraints for their own sake.
   arcs), midpoint, symmetric (two points about a line), fix, normal, and curvature.
 - **Dimensions:** distance (aligned, horizontal, or vertical), radius or diameter, and angle. Each
   is driving, or a reference if it has no value.
-- **Not yet available:** pattern, mirror, and three-point-arc tools.
+- **Repeating:** `linear_pattern` (rows and grids of points, lines, circles, and rectangles)
+  and `mirror_entities` (about a line; arcs too), one call each, with the copies tied to the
+  original.
+- **Not yet available:** circular pattern and three-point-arc tools.
 - **Rejections:** Caliper rejects a constraint that's already implied (`constraint.redundant`) or
   impossible (`constraint.conflict`).
 
@@ -42,8 +45,12 @@ changing the spacing means editing 19 values. Andre's 002 notes: cluttered, and 
 used construction lines and equal constraints instead.
 
 **Preferred approach**
-- Draw construction lines between neighbouring centres along one row and one column, with
-  their ends coincident with the centres.
+- In one call: `linear_pattern` on the dimensioned first feature. It joins each copy to the
+  previous one with a construction line, all equal and parallel to the first, which carries
+  one spacing dimension each way, and makes every copy equal to the original. Hypothesis:
+  not yet used in a run.
+- By hand, the same intent: draw construction lines between neighbouring centres along one
+  row and one column, with their ends coincident with the centres.
 - Make the row lines horizontal and the column lines vertical.
 - Make them all equal to one line, and dimension that one.
 - Align every other hole to its neighbours with horizontal and vertical constraints, with no
@@ -65,8 +72,8 @@ see the layout practice below.
 
 **When not to use**
 - Two features, or spacings that differ; each of those is its own requirement.
-- When call count matters. Each construction line costs a create and two coincidents: about 20
-  more calls than direct dimensions for 002's grid. Caliper has no pattern command yet.
+- By hand when call count matters: each construction line costs a create and two coincidents,
+  about 20 more calls than direct dimensions for 002's grid. `linear_pattern` is one call.
 
 **Example**
 002: 20 holes, Ø6 at 30 mm.
@@ -88,7 +95,9 @@ two dimensions from the origin point: 14 dimensions from the origin in all.
 - Draw a construction centreline. For 002 that's from the midpoint of the bottom edge to the
   midpoint of the top edge.
 - Put centred features on it: the star's centre coincident with the line.
-- Mirror paired features with `symmetric`: the two slot centres about the line.
+- Mirror paired features about the line: `mirror_entities` copies a finished feature (a
+  slot's rectangle and arcs) and ties the copy with symmetric constraints; `symmetric` pairs
+  two points you drew yourself.
 - Dimension the pair once: the distance between the slots, or one slot from the line.
 
 **Why**
@@ -262,7 +271,9 @@ Never add a truly redundant constraint. Some rejections are false, though (C-2):
 practice.
 
 **Example**
-002's star: one half pinned to the circles, the other half mirrored.
+002's star: one half pinned to the circles, the other half mirrored. With `mirror_entities`
+the other half is one call: 62 calls for the whole star, layout included, in a workspace
+trial, against over 100 in the 002 run.
 
 ## Practice: Plan the degrees of freedom per feature, and confirm them with solve_status
 *Constraint structure. Observed in 001 and 002; it worked.*
