@@ -23,7 +23,9 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.queries import Expectation, Metric
+from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
+from caliper.engine.commands.handlers import already
 from caliper.engine.io import codec, script, snapshot
 
 E1 = EntityId("e1")
@@ -190,6 +192,38 @@ def test_the_commands_replay_on_the_original_document_to_the_same_bytes() -> Non
         replayed.execute(command)
     assert snapshot.dumps(replayed.document) == snapshot.dumps(workspace.document)
     assert snapshot.loads(snapshot.dumps(workspace.document)) == workspace.document
+
+
+def test_what_ran_is_committed_again_without_solving_even_after_an_undo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accepting commits the workspace's outcomes (`already`): the record of what ran must take
+    the base to the workspace's very document, however the model got there."""
+    base = plate()
+    workspace = Workspace(base)
+    workspace.call(call("create_circle", center={"x": 10, "y": 10}, radius=3))
+    workspace.call(call("create_circle", center={"x": 40, "y": 10}, radius=3))
+    workspace.call(call("undo"))
+    workspace.call(
+        call(
+            "create_constraint",
+            type="horizontal",
+            refs=[{"entity": "e1", "feature": "center"}, {"entity": "e2", "feature": "center"}],
+        )
+    )
+    workspace.call(call("modify_entity", id="e1", changes={"width": 140}))
+    executed = workspace.executed
+    assert executed.base is base
+    assert [step.command for step in executed.steps] == list(workspace.commands)
+    ran: list[Command] = []
+    real = handlers._apply
+    monkeypatch.setattr(handlers, "_apply", lambda d, c: ran.append(c) or real(d, c))
+    accepted = Bus(base)
+    with already(executed), accepted.transaction("Accept"):
+        for command in workspace.commands:
+            accepted.execute(command)
+    assert ran == []  # nothing validated or solved again
+    assert accepted.document is workspace.document
 
 
 # --- Queries ----------------------------------------------------------------------------

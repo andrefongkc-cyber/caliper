@@ -30,6 +30,7 @@ from caliper.ai.tools import CONVENTIONS, TOOLS, Workspace
 from caliper.contracts.commands import Command
 from caliper.contracts.document import Document, EntityId
 from caliper.contracts.queries import Expectation
+from caliper.engine.commands.handlers import Executed
 
 SYSTEM = f"""\
 You are the assistant inside Caliper, a parametric 2D sketcher. You change the user's sketch \
@@ -48,6 +49,8 @@ what you did, and say so plainly if you couldn't do some of it.\
 MAX_REPLIES = 16
 """Model replies per turn. A turn that needs more stops and says so."""
 
+STOPPED = "Stopped before finishing. Nothing it did was kept."
+
 
 @dataclass(frozen=True, slots=True)
 class Turn:
@@ -62,6 +65,9 @@ class Turn:
     labels: tuple[str, ...]
     checks: tuple[Expectation, ...]
     error: str | None = None
+    executed: Executed | None = None
+    """How the commands took `base` to `result`, for accepting them without solving each one
+    again."""
 
     @property
     def label(self) -> str:
@@ -89,7 +95,11 @@ class Assistant:
         selection: Collection[EntityId] = (),
         *,
         on_step: Callable[[ToolOutcome], None] | None = None,
+        stop: Callable[[], bool] | None = None,
     ) -> Turn:
+        """`stop` is asked before each request to the model (the user pressed Stop): when it
+        says so, the turn ends there and is forgotten, as if never asked, with no changes."""
+        seen, start = self._last_seen, len(self.conversation)
         workspace = Workspace(document, frozenset(selection))
         context = describe(
             document,
@@ -104,6 +114,10 @@ class Assistant:
         steps: list[ToolOutcome] = []
         reply_text, error = "", None
         for _ in range(self.max_replies):
+            if stop is not None and stop():
+                del self.conversation[start:]
+                self._last_seen = seen
+                return Turn(request, document, document, tuple(steps), "", (), (), (), STOPPED)
             try:
                 reply = self.model.reply(SYSTEM, self.conversation, TOOLS)
             except ModelError as e:
@@ -137,6 +151,7 @@ class Assistant:
             labels=workspace.labels,
             checks=workspace.checks,
             error=error,
+            executed=workspace.executed,
         )
 
 

@@ -22,6 +22,7 @@ from caliper.ai.tools import Workspace
 from caliper.contracts.commands import Command
 from caliper.contracts.document import Document, EntityId
 from caliper.contracts.queries import Expectation
+from caliper.engine.commands.handlers import Executed
 from caliper.engine.io.codec import COMMAND_KINDS
 
 
@@ -47,6 +48,9 @@ class Answer:
     """What happened to the client's earlier changes since its last call, if anything."""
     changed: bool = False
     """The draft's commands or checks changed: the shell should show it again."""
+    checked: tuple[Expectation, ...] = ()
+    """Checks this call ran with no change pending, so no proposal will carry them: the shell
+    adds them to the user's checks, or they'd be lost."""
 
 
 class Draft:
@@ -70,6 +74,11 @@ class Draft:
     @property
     def checks(self) -> tuple[Expectation, ...]:
         return () if self._workspace is None else self._workspace.checks
+
+    @property
+    def executed(self) -> Executed | None:
+        """How the commands ran, for accepting them without solving each one again."""
+        return None if self._workspace is None else self._workspace.executed
 
     @property
     def label(self) -> str:
@@ -109,7 +118,7 @@ class Draft:
             if name in COMMAND_KINDS and workspace.commands:
                 self._workspace = workspace
                 return Answer(outcome, note, changed=True)
-            return Answer(outcome, note)
+            return Answer(outcome, note, checked=workspace.checks)
         changed = (workspace.commands, workspace.checks) != before
         if not workspace.commands:
             self._workspace = None  # the client undid all of it: nothing is pending

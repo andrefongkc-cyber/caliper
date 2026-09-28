@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from caliper.ai.agent import SYSTEM, Assistant, from_environment
+from caliper.ai.agent import STOPPED, SYSTEM, Assistant, from_environment
 from caliper.ai.model import (
     Message,
     ModelError,
@@ -122,6 +122,29 @@ def test_a_model_that_never_finishes_is_stopped(scripted: Any) -> None:
     turn = Assistant(model, max_replies=3).ask("loop forever", Document.empty())
     assert turn.error == "Stopped after 3 steps without finishing."
     assert len(turn.steps) == 3
+
+
+def test_a_stopped_turn_ends_before_the_next_step_and_is_forgotten(scripted: Any) -> None:
+    model = scripted(
+        [
+            scripted.calls(RECTANGLE),
+            scripted.answer("Done."),
+            scripted.calls(RECTANGLE),
+            scripted.answer("Done."),
+        ]
+    )
+    assistant = Assistant(model)
+    first = assistant.ask("a rectangle", Document.empty())
+    kept = list(assistant.conversation)
+    steps: list[object] = []
+    turn = assistant.ask(
+        "another", first.result, on_step=steps.append, stop=lambda: bool(steps)
+    )  # Stop pressed while its first step ran
+    assert turn.error == STOPPED
+    assert turn.commands == ()  # nothing to propose
+    assert turn.result is first.result
+    assert len(model.requests) == 3  # no request after the step it was on
+    assert assistant.conversation == kept  # as if "another" was never asked
 
 
 def test_model_failures_and_refusals_end_the_turn_with_a_reason(scripted: Any) -> None:
