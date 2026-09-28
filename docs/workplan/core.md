@@ -1,15 +1,77 @@
-Status: Performance V2 paused after item 1 (per-command overhead, committed on `stream/core/performance-v2`, not pushed) for the AI interface milestone, next: resume with item 2 (large clusters) when Andre says so
+Status: Performance V2 done on `shared/performance-v2` (local commits, not pushed): all 27 items implemented or assessed, next: Andre's review, including the last-digit note below, then a PR
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-## Performance V2 (branch `stream/core/performance-v2`, started 2026-09-24, paused)
+## Performance V2 (branch `shared/performance-v2`, 2026-09-24 to 2026-09-27)
 
-User request (2026-09-24): profile every engine area before optimizing; keep results bit-for-bit, public contracts, replay, and suggestions unchanged; stop and report anything that would change them. Paused the same day for the AI interface milestone (a separate branch from `main`). Nothing pushed; resume here.
+Two requests. 2026-09-24: profile every engine area before optimizing, keep results bit-for-bit, and stop and report anything that would change them (paused after item 1 for the AI milestone). 2026-09-27: one cohesive pass over 27 items, from proposal building, solving, checks, Accept, and Reject to MCP, rendering, the Assistant log, timing, files, memory, threads, and a benchmark suite, measured on the recorded stress tests; don't push. The branch started as `stream/core/performance-v2` and became `shared/` because the work spans every area. Local commits only.
 
-Baseline on `main` (5102c2b), this Mac, medians:
+### Before and after
+
+`bench/perf.py` (see its docstring), this Mac, `main` (a394639) against this branch. The sessions replay every Caliper call Claude made in test 002 (stress plate, 281 calls, 255 changes) and test 001 (ball bearing, 74 calls), and a 10-call rectangle written by hand.
+
+| Measure | `main` | Now |
+|---|---|---|
+| Stress plate: all 281 calls in the window | 20.0 s | 0.77 s |
+| · median call / slowest call | 9.6 ms / 1.12 s | 1.2 ms / 36 ms |
+| · solving, of the calls (headless) | 16.3 s | 0.49 s |
+| · solve status / checks, of the calls | 0.72 s / 0.3 ms | 0.017 s / 0.4 ms |
+| · Accept (in the window) | 25.0 s | 0.024 s |
+| · Reject | under 1 ms | under 1 ms |
+| · Caliper's whole share (calls and Accept) | 45.0 s | 0.79 s |
+| · memory: peak building it / added by Accept | 3.8 / 3.3 MiB | 1.8 / 0.24 MiB |
+| · tool results sent to Claude | 138 KiB | 92.5 KiB |
+| Ball bearing: calls and Accept | 0.77 s | 0.20 s |
+| Rectangle: calls and Accept | 0.034 s | 0.033 s |
+| MCP round trip over the socket, median | 1.9 ms | 0.35 ms |
+| 150-line chain, built constraint by constraint | 52.7 s | 2.3 s |
+| Preparing a proposal with 200 checks | 2.6 ms | 0.8 ms |
+| Redrawing 2,000 entities with glyphs / hidden | 16.9 / 6.8 ms | 10.3 / 6.7 ms |
+| 3,000 entities: `dumps` / `loads` / save | 9 / 55 / 10 ms | unchanged |
+| Timing bookkeeping and panel, per call | 19 µs | unchanged |
+
+End to end: test 002 ran 9 m 17 s from Start run to Claude's last call, and Accept took about 25 s more. Caliper's share of that was about 45 s and is now under 1 s, so the same run would reach an accepted plate about 44 s sooner; nearly all of the rest is Claude's own time. Not yet confirmed by a live rerun.
+
+Results are unchanged: the golden bench cases and the rectangle and ball-bearing sessions give byte-identical files, and every tool result of the stress plate (pass or fail, measured values, rejections, status) is identical. The stress plate's file differs in the last digits of 86 values, at most 1.0e-7 (an arc's sweep in degrees): see the notes for review.
+
+### Items
+
+- [x] **1. Per-command overhead** (3 commits, 2026-09-24). `diff` compares by identity first and runs once per command; `sketch.grouped` works each document's clusters out from the last one's, so `settle`, `status`, and suggestions no longer regroup the whole document; the solver's `_written` stores arcs in [0, 360) itself, so `handle()` no longer scans every entity. At 10,000: geometry edit 9.1 → 1.7 ms, add + delete constraint 15.3 → 5.5 ms, replaying 9,500 creates 11.7 → 3.4 s. Tests: `diff` against the old comparison; `grouped` against `clusters()` after every step of random sessions with undo and redo, and `settle`'s cluster choice and order; which conflict is reported for two touched clusters. Six deliberate breaks each failed tests. What's left per command at 10,000 is the snapshot dict copy (0.4 ms, inherent to ADR 0002's snapshots) and two identity scans (about 0.5 to 0.7 ms each)
+- [x] **Accept commits the draft (items 7, 20, 21).** Accept used to validate and solve every command again (25 s for the plate). A workspace now hands over an `Executed` record (the base document, each step's `Applied`, the result) and `handlers.already` commits each recorded outcome when the same command meets the same document object, so the session still runs every command, in one undo step, without solving any of them twice. Each document in between is rebuilt from its step's delta, not kept, so a record costs its deltas (holding every document grew with the square of the proposal); the last step returns the workspace's own document, whose caches are warm. Anything that doesn't match, from the first mismatch on, runs as usual
+- [x] **Clusters split at anchored geometry (items 2, 12).** Geometry a Fix pins in every parameter (a fixed origin, say) is a constant in each cluster that refers to it rather than a member, so the plate's holes, slots, and outline, all dimensioned from its origin, are separate clusters and a command solves only its own. A command that moves anchored geometry or changes a Fix, or that the split clusters can't settle (a conflict, a repeated constraint, a degenerate start needing the nudge), is decided on the whole sketch, so rejections and their messages are unchanged. Status (`_Solved`) reuses a cluster's health while its members and constants are the same objects
+- [x] **Sparse `RowBasis` (item 2, the old item 2).** Each orthonormal row keeps where it is nonzero; products of rows sharing no column are skipped, and updates run over the support. Skipped terms are exact zeros, so results are the same to the bit (a property test against the dense version)
+- [x] **Reverse references (item 11).** `sketch.referrers`, kept from the last document: delete, `constraints_on`, and the canvas's label and glyph re-layout use it instead of scanning every entity
+- [x] **Checks (item 5).** `check` answers from a cache while every entity it reads (plus a dimension's references) is the same object, with the same kernel; a check of the whole sketch is never cached. The known issue AI-1: checks run with nothing pending now reach the Checks panel, from MCP and from the in-app assistant
+- [x] **Window updates (items 4, 14, 15, 16).** A session transaction is announced to the views once, when it closes; the proposal card writes its list of changes only while shown; the view re-frames a growing proposal only when it outgrows it; hidden constraint glyphs aren't laid out or even hung; the Assistant log is plain text showing the last 5,000 lines, keeping all of them
+- [x] **Tool results (item 10).** No echo of the command, and a solve's modified entities in full for the first 8 (`also_modified` names the rest): 138 → 92.5 KiB for the plate. `inspect_document` was already capped by `limit`
+- [x] **Threads (item 22).** The recent-document caches (`engine/document/recent.py`, `Recent`) and the check cache take a lock: the in-app assistant's tool calls run on a worker thread. The old unlocked pattern never failed in testing under the GIL; this is insurance, and one cache class instead of three copies
+- [x] **Stop (item 24).** The in-app assistant's prompt bar shows Stop while it works: the turn ends before its next model request and is forgotten, and the sketch is untouched. Over MCP, Claude Desktop's own stop and Reject already do this; no single Caliper call runs long enough to need interrupting
+- [x] **Benchmarks (items 1, 25, 26, 27).** `bench/perf.py`, replaying `bench/sessions/` (small, medium, large) headless and in an offscreen window: calls, solving, checks, status, Accept (and the old replay), Reject, memory, result sizes, the socket round trip, the workflow total, and synthetic scale (entities, a 150-line chain, 200 checks, `inspect_document`, files, drawing, timing). It runs on `main`'s code too, for the baseline
+- Assessed, left as they are:
+  - 3, batching MCP calls: Claude Desktop sends one call and waits for its answer, so there's nothing to batch without a new protocol; the draft already makes every change one proposal and one transaction, and a call costs about a millisecond against Claude's seconds
+  - 6, validation levels: each command is validated and solved once, in the draft, which Claude needs at once to react to a rejection; the duplicate was Accept's, now gone. Checks run only when asked for
+  - 8, Reject: already under a millisecond (closing the card); it runs nothing
+  - 9, MCP overhead: 0.35 ms a round trip; the 1.9 ms on `main` was mostly the Assistant log laying out every line again
+  - 13, geometry caching: covered by the check cache, status per cluster, the canvas's cached layer and label layout; nothing else measured shows
+  - 17 and 18, timing: 19 µs a call and a one-second tick; the timing file is written once, on save, never over an existing one
+  - 19, files: serialized only on save and open (3,000 entities: 9 ms to write, 55 ms to read, mostly validation); the one encoding per command is the undo stack sizing its entry, 0.8% of a session
+  - 23, progress: nothing Caliper does takes long enough now; the Timing panel already shows a run's live time and calls
+- [ ] 3. `loads`: 55 ms at 3,000 entities, on open only; not pursued
+- [ ] 4. Grid: deriving each document's picking grid from the last one's; not on any measured path
+- Tests: `tests/engine/test_performance_invariants.py` (committing what ran, an equal document or another command running as usual; the sparse factorization bit for bit against the dense one; `referrers` against a scan through random sessions with undo and redo; the check cache; `Recent`; the caches under four threads), `tests/engine/constraints/test_split_clusters.py` (what splits and what's anchored; a split solve's size; moving fixed geometry refused the same way; the nudge and tangent cases; for random anchored sessions, every command from the same document split and whole: the same outcome, message, status, and geometry to the solver's precision; checked at 10,000 examples), `tests/ai/test_tools.py` (the record after an undo), `tests/ai/test_agent.py` and `tests/app/test_assistant.py` (Stop), `tests/app/test_mcp.py` (Accept commits the draft, the card lists changes only when shown, framing, checks with nothing pending, no command echo), `tests/app/test_performance.py` (one announcement per transaction, none for a failed one, the log cap, hidden glyphs cost nothing, an assistant turn that only checks)
+
+### Notes for review
+
+- **Last digits.** In a sketch with anchored geometry, `main` solved everything joined through the anchor as one cluster, so every command re-solved and re-polished geometry it didn't touch, moving it in the last digits. Now untouched clusters stay exactly as stored. Results and every accept, reject, and message are the same; stored values can differ from what `main` would have written by round-off (the plate: 86 values, at most 1.0e-7). Replay is still byte-identical run to run, and the golden fixtures didn't change. The 2026-09-24 request asked to stop and report this: it's reported here for Andre to accept, or to keep whole clusters (drop the anchoring in `sketch.anchored`) at the cost of the solve speed-up.
+- **Tolerances.** A split cluster's solve tolerance scales with its own geometry, not the whole sketch's, so it is slightly stricter. Where two constraints meet tangentially (a double root), Newton stops within the tolerance of the root, and split and whole can stop a step apart: about a millionth of a millimetre.
+- **Arcs outside [0, 360)** (item 1): a document built by hand (not through commands or files) holding an arc outside [0, 360) no longer has that arc normalized by an unrelated solve; `_arcs_in_range` used to do that as a side effect
+
+### The engine baseline of 2026-09-24
+
+On `main` (5102c2b), this Mac, medians, before item 1:
 
 | Case | 100 | 2,000 | 10,000 |
 |---|---|---|---|
@@ -19,13 +81,6 @@ Baseline on `main` (5102c2b), this Mac, medians:
 | Undo + redo | 0.01 | 0.15 | 0.86 |
 
 One connected chain of lines (coincident ends, alternately horizontal and vertical, first start fixed): 160 unknowns, edit 54 ms, status 28 ms, building it constraint by constraint 3.1 s; 240 unknowns, edit 167 ms, status 88 ms, building it 14.7 s. 85% of that is dense dot products in `RowBasis.add`. Files at 10,000 entities: `dumps` 46 ms, `loads` 279 ms (parse 13 ms, the rest decoding and validating each entity), replaying 9,500 creates 11.7 s. Memory at 10,000: document 3.7 MB, status 2.5 MB, grid 3.0 MB, 100 edits of history 1.0 MB, peak 24 MB. The engine has no intersection queries yet.
-
-- [x] **1. Per-command overhead** (3 commits). `diff` compares by identity first and runs once per command; `sketch.grouped` works each document's clusters out from the last one's, so `settle`, `status`, and suggestions no longer regroup the whole document; the solver's `_written` stores arcs in [0, 360) itself, so `handle()` no longer scans every entity. At 10,000: geometry edit 9.1 → 1.7 ms, add + delete constraint 15.3 → 5.5 ms, replaying 9,500 creates 11.7 → 3.4 s. Tests: `diff` against the old comparison; `grouped` against `clusters()` after every step of random sessions with undo and redo, and `settle`'s cluster choice and order; which conflict is reported for two touched clusters. Six deliberate breaks each failed tests. What's left per command at 10,000 is the snapshot dict copy (0.4 ms, inherent to ADR 0002's snapshots) and two identity scans (about 0.5 to 0.7 ms each)
-- [ ] 2. Large clusters: skip `RowBasis` dot products whose rows' nonzero entries can't overlap. Those products are exactly zero and already skipped, so results stay bit-for-bit; stop and report if a faster method would change the last bits of solved positions (the golden replay fixtures pin them)
-- [ ] 3. `loads`: profile the 265 ms of decoding and validation at 10,000 entities
-- [ ] 4. Grid: derive each document's grid from the last one's (8 ms rebuild after an edit at 10,000); memory
-- [ ] 5. Geometry queries and caching audit; 6. memory report; 7. parallelism report (profile only)
-- Behaviour note for review: a document built by hand (not through commands or files) holding an arc outside [0, 360) no longer has that arc normalized by an unrelated solve; `_arcs_in_range` used to do that as a side effect
 
 ## Tangency at a joint (branch `shared/mcp-stress-fixes`, 2026-09-25)
 

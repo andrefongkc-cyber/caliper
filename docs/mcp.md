@@ -79,8 +79,13 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
 - A call that changes something (create, edit, constrain, ...) runs on a draft of your
   sketch. The draft appears as a proposal on the canvas, with ghost geometry and each check
   before and after. Further changes join the same proposal.
-- **Accept** applies the whole proposal as one undo step, credited to the agent. **Reject**
-  discards it. Claude can't accept.
+- **Accept** applies the whole proposal as one undo step, credited to the agent. It applies
+  what the draft already built and checked, without solving any of it again, so even a
+  250-change proposal applies at once. **Reject** discards it. Claude can't accept.
+- To stop Claude part-way, stop it in Claude Desktop, then press **Reject**: the draft is
+  dropped and your sketch is as it was. Nothing Claude does touches the sketch before Accept.
+- A check Claude runs while nothing is pending (just after you accepted, or when it only
+  looks) goes straight to your Checks panel, as a check on a proposal does when you accept it.
 - If you edit the sketch or open another document while a proposal is pending, it's
   dropped. Claude's next call starts from your sketch as it is, and its result begins with a
   note saying what happened (accepted, rejected, sketch changed, another document opened).
@@ -92,6 +97,15 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
   and Accept stays in reach; errors and failing checks are always shown.
 - Only one Caliper window serves Claude Desktop at a time; a second one says so in its status
   bar. macOS and Linux only (Unix sockets).
+
+### What a change's result tells Claude
+
+A call that changes the sketch answers with `applied`, the undo `label`, the ids it
+`created`, and `changed`: each entity `added`, in full; each one `modified`, in full for the
+first 8 and then by id in `also_modified` (a solve can move dozens of points a little); and
+the ids `removed`. `inspect_entities` gives any of them in full. The command isn't echoed
+back: the stored entities say the same, resolved, in fewer tokens. A change that changes
+nothing answers `"changed": "nothing: the document already was that way"`.
 
 ## Manual test
 

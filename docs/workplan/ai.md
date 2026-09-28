@@ -1,4 +1,4 @@
-Status: PR #39 carries the selection-hang fix plus #41–#44 (timing, test-run records, browser collapse, opening files, the timing panel), rebased on `main` after the layout-first guidance (#40), next: merge #39, then a live timed run and the Claude Desktop gear rerun
+Status: #39–#46 merged; Performance V2's AI side (Accept without solving again, checks with nothing pending kept, smaller tool results, Stop for the in-app assistant) on `shared/performance-v2`, local commits, not pushed, next: Andre's review, then a live timed rerun of test 002 on it
 
 # AI workplan
 
@@ -7,6 +7,17 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## Performance V2, the AI side (branch `shared/performance-v2`, 2026-09-27)
+
+Part of the whole-app pass in [core.md](core.md#performance-v2-branch-sharedperformance-v2-2026-09-24-to-2026-09-27), which has the numbers. For the AI layer:
+
+- [x] **Accept doesn't solve again.** `Workspace.executed` (and `Draft.executed`, `Turn.executed`, `Plan.executed`) is the record of what ran: the base, each step's `Applied`, and the result. Accepting commits it through `handlers.already`: 25 s → 0.02 s for the 255-change plate, still one undo step
+- [x] **AI-1 fixed.** A check run with nothing pending (`Answer.checked`, or a turn with only checks) goes to the user's Checks panel instead of being lost
+- [x] **Smaller results.** A change's result no longer echoes the command, and shows a solve's modified entities in full for the first 8, naming the rest in `also_modified`: the plate's results went from 138 to 92.5 KiB. [docs/mcp.md](../mcp.md#what-a-changes-result-tells-claude) says what a result holds
+- [x] **Stop.** `Assistant.ask(stop=...)` ends a turn before its next model request and forgets it (`STOPPED`); the prompt bar shows Stop while the assistant works
+- [x] Tests: `tests/ai/test_tools.py` (the record commits after an undo), `tests/ai/test_agent.py` (a stopped turn), `tests/app/test_mcp.py`, `tests/app/test_assistant.py`, `tests/app/test_performance.py`
+- [ ] A live timed rerun of test 002 from Claude Desktop on this branch, for the end-to-end number
 
 ## Timing panel, live time, and the timing file (branch `shared/timing-dock`, 2026-09-27)
 
