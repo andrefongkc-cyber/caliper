@@ -1,0 +1,18 @@
+{
+  "format": "caliper.mcp_session",
+  "note": "The small end: the calls a short request makes (a 100 x 50 rectangle at the origin, fixed, dimensioned, and checked), in the shape Claude sends them. Replayed by bench/perf.py.",
+  "source": "written by hand",
+  "version": 1,
+  "calls": [
+    {"tool": "inspect_document", "arguments": {"limit": 5}},
+    {"tool": "create_rectangle", "arguments": {"corner": {"x": 0, "y": 0}, "height": 50, "width": 100}},
+    {"tool": "create_point", "arguments": {"construction": true, "position": {"x": 0, "y": 0}}},
+    {"tool": "create_constraint", "arguments": {"refs": [{"entity": "e2", "feature": "point"}], "type": "fix"}},
+    {"tool": "create_constraint", "arguments": {"refs": [{"entity": "e1", "feature": "bottom_left"}, {"entity": "e2", "feature": "point"}], "type": "coincident"}},
+    {"tool": "create_distance_dimension", "arguments": {"a": {"entity": "e1", "feature": "bottom_left"}, "b": {"entity": "e1", "feature": "bottom_right"}, "offset": -10, "orientation": "horizontal", "value": 100}},
+    {"tool": "create_distance_dimension", "arguments": {"a": {"entity": "e1", "feature": "bottom_left"}, "b": {"entity": "e1", "feature": "top_left"}, "offset": -10, "orientation": "vertical", "value": 50}},
+    {"tool": "solve_status", "arguments": {}},
+    {"tool": "run_check", "arguments": {"expected": 100, "ids": ["e1"], "metric": "bbox_width", "tolerance": 0.001}},
+    {"tool": "run_check", "arguments": {"expected": 50, "ids": ["e1"], "metric": "bbox_height", "tolerance": 0.001}}
+  ]
+}
