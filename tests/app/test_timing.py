@@ -11,6 +11,9 @@ import pytest
 
 from caliper.app.agent.timing import (
     IDLE,
+    PACE,
+    PACE_CALLS,
+    QUIET,
     RunTimer,
     Timing,
     markdown,
@@ -267,14 +270,134 @@ def test_a_call_after_an_accept_part_way_starts_the_time_again(
     assert now(timer).live
 
 
-def test_a_run_with_no_proposal_stops_ticking_after_a_quiet_spell(
+def test_the_time_stops_by_itself_after_a_quiet_spell(timer: RunTimer, clock: Clock) -> None:
+    # Claude has stopped calling: done, or it would have called by now. Total run was always
+    # going to end at its last call, so that's what the time settles on.
+    call(timer, clock, 0.2, changed=True)
+    clock.advance(QUIET - 1)
+    assert now(timer).live
+    clock.advance(2)
+    timing = now(timer)
+    assert not timing.live
+    assert timing.total == pytest.approx(0.2)
+    call(timer, clock, 0.2, after=10)  # it was only thinking: the same run carries on
+    assert now(timer).live
+    assert now(timer).calls == 2
+
+
+def test_before_the_first_call_the_time_waits_for_claude_as_long_as_a_run_lasts(
     timer: RunTimer, clock: Clock
 ) -> None:
-    call(timer, clock, 0.2)
-    clock.advance(IDLE - 1)
+    timer.start()
+    clock.advance(IDLE - 1)  # planning a big task before its first call
     assert now(timer).live
     clock.advance(2)
     assert not now(timer).live
+
+
+# --- Time left --------------------------------------------------------------------------
+
+
+def progress(timer: RunTimer, clock: Clock, calls_left: int, *, after: float = 0.0) -> None:
+    """Claude's report_progress call, which takes no time inside Caliper."""
+    clock.advance(after)
+    arrived = timer.arrived()
+    timer.progress(calls_left)
+    timer.finished(arrived, changed=False)
+
+
+def test_there_is_no_time_left_until_claude_says_how_many_calls(
+    timer: RunTimer, clock: Clock
+) -> None:
+    call(timer, clock, 0.5, changed=True)
+    assert now(timer).left is None
+    assert now(timer).expected is None
+
+
+def test_the_estimate_counts_down_at_the_usual_pace_until_the_run_has_its_own(
+    timer: RunTimer, clock: Clock
+) -> None:
+    timer.start()
+    progress(timer, clock, 30, after=4)
+    timing = now(timer)
+    assert timing.expected == 31  # counting the call that said so
+    assert timing.left == pytest.approx(30 * PACE)
+    clock.advance(5)
+    assert now(timer).left == pytest.approx(30 * PACE - 5)  # ticking down between calls
+    call(timer, clock, 1.0)  # a call: worked out again from its end
+    assert now(timer).left == pytest.approx(29 * PACE)
+
+
+def test_once_the_run_has_its_own_pace_the_estimate_uses_it(timer: RunTimer, clock: Clock) -> None:
+    progress(timer, clock, 40)
+    for _ in range(PACE_CALLS - 1):
+        call(timer, clock, 0.5, after=2.5)  # 3 s a call, slower than PACE
+    timing = now(timer)
+    assert timing.calls == PACE_CALLS
+    pace = (timing.total or 0) / PACE_CALLS
+    assert pace == pytest.approx(0.9 * 3.0)  # the first call, the estimate, took no time
+    assert timing.left == pytest.approx((41 - PACE_CALLS) * pace)
+
+
+def test_a_new_estimate_replaces_the_old(timer: RunTimer, clock: Clock) -> None:
+    progress(timer, clock, 100)
+    call(timer, clock, 1.0)
+    progress(timer, clock, 5)
+    assert now(timer).expected == 3 + 5
+    assert now(timer).left == pytest.approx(5 * PACE)
+
+
+def test_the_time_left_never_goes_below_nothing(timer: RunTimer, clock: Clock) -> None:
+    progress(timer, clock, 2)
+    clock.advance(30)  # thinking longer than two calls' worth
+    timing = now(timer)
+    assert timing.live
+    assert timing.left == 0.0
+
+
+def test_claude_still_short_of_its_estimate_is_thinking_not_done(
+    timer: RunTimer, clock: Clock
+) -> None:
+    progress(timer, clock, 50)
+    call(timer, clock, 0.5)
+    clock.advance(QUIET + 30)  # a long think mid-task: the time keeps going
+    assert now(timer).live
+    clock.advance(IDLE)
+    assert not now(timer).live
+
+
+def test_past_its_estimate_there_is_no_time_left_and_a_quiet_spell_stops_the_time(
+    timer: RunTimer, clock: Clock
+) -> None:
+    progress(timer, clock, 1)
+    call(timer, clock, 0.5)
+    call(timer, clock, 0.5)
+    timing = now(timer)
+    assert timing.live
+    assert timing.left is None
+    clock.advance(QUIET + 1)
+    assert not now(timer).live
+
+
+def test_claude_saying_it_is_done_stops_the_time_at_once(timer: RunTimer, clock: Clock) -> None:
+    timer.start()
+    progress(timer, clock, 3, after=2)
+    call(timer, clock, 1.0, after=1, changed=True)
+    progress(timer, clock, 0, after=1)
+    timing = now(timer)
+    assert not timing.live
+    assert timing.left is None
+    assert timing.total == pytest.approx(5.0)  # to the end of the call that said so
+    assert timing.calls == 3
+    call(timer, clock, 1.0, after=5)  # a call after all: the time runs again
+    assert now(timer).live
+
+
+def test_start_run_forgets_the_last_estimate(timer: RunTimer, clock: Clock) -> None:
+    progress(timer, clock, 10)
+    timer.start()
+    assert now(timer).expected is None
+    assert now(timer).left is None
 
 
 def test_start_run_ticks_from_the_press_and_another_document_stops_it(

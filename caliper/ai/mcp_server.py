@@ -2,8 +2,9 @@
 
     uv run caliper-mcp        # speaks MCP on stdin/stdout; Claude Desktop starts it
 
-It lists Caliper's tools, the same `TOOLS` the in-app assistant uses, and forwards each call
-to the running Caliper app over `caliper.ai.bridge`. There the call runs in a draft
+It lists Caliper's tools, the same `TOOLS` the in-app assistant uses plus `PROGRESS` for the
+Timing panel's time left, and forwards each call to the running Caliper app over
+`caliper.ai.bridge`. There the call runs in a draft
 (`caliper.ai.draft`) on a copy of the document, through Caliper's own command bus, and the
 user accepts or rejects the result in Caliper. The client is the model, so this server needs
 no API key and reads none. It exposes Caliper's tools and nothing else: no shell, files, code,
@@ -17,6 +18,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from caliper.ai.bridge import BridgeError, Request, Response, ask
+from caliper.ai.model import ToolSpec
 from caliper.ai.tools import CONVENTIONS, TOOLS
 
 if TYPE_CHECKING:
@@ -36,9 +38,28 @@ Your changes are not applied straight away. They collect as a proposal on the Ca
 and the user accepts or rejects them there, as one step; you can't accept them. Work in small \
 steps: act, look at the result, then continue. When a request states a size, position, or \
 distance, confirm it with run_check. A tool result may begin with a note saying the user \
-accepted, rejected, or overtook your earlier changes: read it before continuing. When you are \
-done, tell the user to review the proposal in Caliper.\
+accepted, rejected, or overtook your earlier changes: read it before continuing. For a task \
+of more than about ten calls, call report_progress before you start, with the number of calls \
+you plan, so Caliper can show the user the time left. When you are done, call it with 0, then \
+tell the user to review the proposal in Caliper.\
 """
+
+PROGRESS = ToolSpec(
+    name="report_progress",
+    description=(
+        "Say how many more Caliper tool calls you expect this task to take, so Caliper can show "
+        "the user the time left. Call it once before you start a task of more than about ten "
+        "calls, again only if your plan changes a lot, and with 0 when you are done, just "
+        "before your final message. It changes nothing in the sketch."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {"calls_left": {"type": "integer", "minimum": 0}},
+        "required": ["calls_left"],
+        "additionalProperties": False,
+    },
+)
+"""Over MCP only: the Timing panel is where the time left shows (`caliper.app.agent.timing`)."""
 
 READ_ONLY = frozenset(
     {
@@ -48,9 +69,12 @@ READ_ONLY = frozenset(
         "run_check",
         "solve_status",
         "applicable_constraints",
+        PROGRESS.name,
     }
 )
 """Tools that never change the sketch (run_check only records the check for the proposal)."""
+
+MCP_TOOLS = (*TOOLS, PROGRESS)
 
 Forward = Callable[[Request], Response]
 
@@ -71,9 +95,9 @@ def build(forward: Forward = ask) -> "Server[Any]":
                 read_only_hint=spec.name in READ_ONLY, open_world_hint=False
             ),
         )
-        for spec in TOOLS
+        for spec in MCP_TOOLS
     ]
-    names = frozenset(spec.name for spec in TOOLS)
+    names = frozenset(spec.name for spec in MCP_TOOLS)
 
     async def list_tools(
         ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None

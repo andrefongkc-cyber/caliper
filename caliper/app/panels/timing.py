@@ -2,8 +2,9 @@
 
 One line until opened (`▸ 4m 07s · 57 calls`), then the six fields of docs/mcp.md, Timing,
 with Start run and a copy in the test folders' 003-timing.md format. While a run is live its
-time ticks every second; it settles on the recorded Total run when the run stops
-(`caliper.app.agent.timing`). Shown only while Claude Desktop can connect.
+time ticks every second, with the time left once Claude has said how many calls it expects
+(`▸ 1m 12s · ~3m 40s left · 35 calls`); it settles on the recorded Total run when the run
+stops (`caliper.app.agent.timing`). Shown only while Claude Desktop can connect.
 """
 
 from collections.abc import Callable
@@ -122,6 +123,9 @@ class TimingPanel(QFrame):
         if not timing.calls:
             return f"{shown} · waiting for Claude…" if timing.live else "waiting for Claude…"
         calls = f"{timing.calls} call{'s' if timing.calls != 1 else ''}"
+        if timing.left is not None:
+            left = f"~{minutes(timing.left)} left" if timing.left >= 1 else "almost done"
+            return f"{shown} · {left} · {calls}"  # before the calls, which elide first
         return f"{shown} · {calls}" + (" · running" if timing.live else "")
 
     def copy(self) -> None:
