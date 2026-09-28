@@ -98,6 +98,8 @@ QTabBar::tab {{ background: {P.window}; color: {P.ink_dim}; padding: {s.s}px {s.
 QTabBar::tab:selected {{ color: {P.ink}; border-bottom-color: {P.accent}; }}
 QTabBar::tab:hover {{ color: {P.ink}; }}
 QTreeWidget, QListWidget {{ background: {P.panel}; border: none; outline: none; }}
+QPlainTextEdit#assistant-log {{ background: {P.panel}; border: none;
+    padding: {s.xxs}px {s.xs}px; }}
 QTreeWidget::item, QListWidget::item {{ padding: {s.xxs}px 0; }}
 QTreeWidget::item:selected {{ background: {P.field}; color: {P.ink}; }}
 QTreeWidget::item:hover {{ background: {P.field}; }}
