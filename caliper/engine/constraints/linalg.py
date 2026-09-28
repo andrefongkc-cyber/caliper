@@ -17,12 +17,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from operator import mul
 
-RELATIVE_TOLERANCE = 1e-9
-"""A row is dependent when what's left of it after removing the earlier rows' directions
-is below this fraction of its own size."""
-
-ZERO_ROW = 1e-14
-"""Rows smaller than this carry no direction at all."""
+from caliper.engine.constraints.tolerance import INDEPENDENT, ZERO_ROW
 
 
 @dataclass
@@ -68,7 +63,7 @@ class RowBasis:
                             v[i] -= p * qj[i]
                         mask |= self.masks[j]
         rest = _norm(v)
-        if size > ZERO_ROW and rest > RELATIVE_TOLERANCE * size:
+        if size > ZERO_ROW and rest > INDEPENDENT * size:
             unit = [x / rest for x in v]
             support = tuple(i for i, x in enumerate(unit) if x != 0.0)
             self.q.append(unit)

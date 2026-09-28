@@ -210,7 +210,7 @@ def test_the_status_after_every_step_matches_one_computed_from_scratch(
 
     def check() -> None:
         kept = sketch.status(bus.document)
-        sketch._LAST.clear()
+        sketch._SOLVED.clear()
         fresh = sketch.status(bus.document)
         assert kept == fresh
         assert list(kept.entity_dof.items()) == list(fresh.entity_dof.items())  # sorted too

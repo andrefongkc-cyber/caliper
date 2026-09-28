@@ -5,12 +5,11 @@ so two features dimensioned from it aren't coupled through it. Splitting there i
 optimization: for any sketch, the split clusters must accept and reject the same commands, with
 the same messages, and report the same degrees of freedom, as the whole clusters did, with
 solved positions equal to within the solver's precision (see `close`). The whole clusters are
-what `sketch.anchored` returning nothing gives.
+`sketch.reference()`: the solver as it was, which also writes every value as solved.
 """
 
-import math
-from collections.abc import Iterator
-from contextlib import contextmanager
+import json
+import re
 
 import pytest
 from hypothesis import given
@@ -26,6 +25,7 @@ from caliper.contracts.commands import (
     CreateLine,
     CreatePoint,
     CreateRadialDimension,
+    DeleteEntities,
     ModifyEntity,
     MoveEntities,
     Rejected,
@@ -42,7 +42,7 @@ from caliper.contracts.document import (
 )
 from caliper.engine import queries
 from caliper.engine.commands.bus import Bus
-from caliper.engine.constraints import sketch
+from caliper.engine.constraints import equivalence, sketch
 from caliper.engine.io import codec
 from tests.engine.constraints.test_constraint_properties import (
     PROPERTIES,
@@ -81,23 +81,11 @@ def placed(bus: Bus, id: EntityId, x: float, y: float) -> None:
         assert isinstance(result, Applied), result
 
 
-@contextmanager
-def whole() -> Iterator[None]:
-    """Solve as before splitting: nothing counts as anchored."""
-    real = sketch.anchored
-    sketch.anchored = lambda document: frozenset()  # type: ignore[assignment]
-    _forget()
-    try:
-        yield
-    finally:
-        sketch.anchored = real  # type: ignore[assignment]
-        _forget()
-
-
 def _forget() -> None:
+    """Start with nothing cached, as a fresh process would."""
     sketch._GROUPS.clear()
-    sketch._LAST.clear()
-    queries._STATUS.clear()
+    sketch._SOLVED.clear()
+    sketch._REFERRERS.clear()
     queries._CHECKS.clear()
 
 
@@ -115,7 +103,7 @@ def test_features_dimensioned_from_a_fixed_origin_are_separate_clusters() -> Non
     assert [c.geometry for c in found] == [(E1,), (a,), (b,)]
     assert [c.fixed for c in found] == [(), (E1,), (E1,)]
     assert found[0].relations == ("e2",)  # the origin's cluster holds its Fix
-    with whole():
+    with sketch.reference():
         assert [c.geometry for c in sketch.clusters(bus.document)] == [(E1, a, b)]
 
 
@@ -175,7 +163,7 @@ def test_moving_fixed_geometry_is_refused_exactly_as_before() -> None:
     (a,) = bus.execute(CreateCircle(center=Point2(x=10, y=10), radius=2)).created_ids  # type: ignore[union-attr]
     placed(bus, a, 10, 10)
     split = bus.execute(MoveEntities(ids=(E1,), dx=5, dy=0))
-    with whole():
+    with sketch.reference():
         before = Bus(kernel=None)
         origin(before)
         before.execute(CreateCircle(center=Point2(x=10, y=10), radius=2))
@@ -204,9 +192,9 @@ def test_a_degenerate_start_moves_the_way_it_always_did() -> None:
     ]
     _forget()
     split = replay(commands)
-    with whole():
+    with sketch.reference():
         unsplit = replay(commands)
-    assert close(split, unsplit)
+    assert same(split, unsplit)
 
 
 def test_a_tangential_solve_agrees_to_the_solvers_precision() -> None:
@@ -239,13 +227,15 @@ def test_a_tangential_solve_agrees_to_the_solvers_precision() -> None:
         )
     _forget()
     split = replay(commands)
-    with whole():
+    with sketch.reference():
         unsplit = replay(commands)
-    assert [step[:2] for step in split] == [step[:2] for step in unsplit]
-    assert split[-1][0][0] == "applied"
-    assert close(split, unsplit)
-    y = split[-1][2]["e5"]["end"]["y"]  # type: ignore[index]
-    assert abs(y) < 1e-4  # on the root, to the solver's precision
+    assert split[-1][0][0] == "applied"  # type: ignore[index]
+    assert same(split, unsplit)
+    (difference,) = (
+        d for d in equivalence.differences(unsplit[-1][2], split[-1][2]) if d.entity == "e5"
+    )
+    assert not difference.same  # a step apart: more than round-off,
+    assert not difference.significant  # but the same solution
 
 
 # --- Split and whole agree on everything ------------------------------------------------
@@ -274,7 +264,8 @@ def anchored_sessions(draw: st.DrawFn) -> list[Command]:
         geometry_ids = sorted({r.entity for r in refs if r.entity != E1})
         if not geometry_ids:
             break
-        match draw(st.sampled_from(["from-origin", "constraint", "dimension", "edit", "move"])):
+        actions = ["from-origin", "constraint", "dimension", "nearly", "edit", "move", "delete"]
+        match draw(st.sampled_from(actions)):
             case "from-origin":
                 target = draw(st.sampled_from([r for r in refs if r.entity != E1]))
                 if target.feature is Feature.CURVE:
@@ -307,6 +298,26 @@ def anchored_sessions(draw: st.DrawFn) -> list[Command]:
                 attempt(
                     CreateDimension(refs=tuple(chosen), placement=draw(points), value=draw(size))
                 )
+            case "nearly":
+                # A dimension of what already is, or nearly: close to repeating the relations
+                # that fix it, where deciding whether it does is hardest.
+                chosen = draw(st.lists(st.sampled_from(refs), min_size=1, max_size=2, unique=True))
+                placement = draw(points)
+                probe = Bus(bus.document, kernel=None)
+                made = probe.execute(
+                    CreateDimension(refs=tuple(chosen), placement=placement, value=None)
+                )
+                if not isinstance(made, Applied):
+                    continue
+                measured = probe.queries.dimension_value(made.created_ids[0])
+                if not isinstance(measured, float) or not measured > 0:
+                    continue
+                off = draw(st.sampled_from([0.0, 1e-12, -1e-12, 1e-9, -1e-9, 1e-6, 1e-3]))
+                attempt(
+                    CreateDimension(
+                        refs=tuple(chosen), placement=placement, value=measured * (1 + off)
+                    )
+                )
             case "edit":
                 id = draw(st.sampled_from(geometry_ids))
                 entity = bus.document.entities[id]
@@ -318,14 +329,16 @@ def anchored_sessions(draw: st.DrawFn) -> list[Command]:
                     attempt(ModifyEntity(id=id, changes={field: draw(points)}))
                 elif isinstance(current, float):
                     attempt(ModifyEntity(id=id, changes={field: draw(size)}))
+            case "delete":
+                attempt(DeleteEntities(ids=(draw(st.sampled_from(sorted(bus.document.entities))),)))
             case _:
                 id = draw(st.sampled_from(geometry_ids))
                 attempt(MoveEntities(ids=(id,), dx=draw(coordinate), dy=draw(coordinate)))
     return commands
 
 
-def step(bus: Bus, command: Command) -> tuple[object, ...]:
-    """Run `command`: its outcome, the status after it, and the geometry, comparably."""
+def step(bus: Bus, command: Command) -> tuple[object, object, Document]:
+    """Run `command`: its outcome, the status after it, and the document."""
     result = bus.execute(command)
     status = bus.queries.solve_status()
     outcome: object
@@ -337,32 +350,59 @@ def step(bus: Bus, command: Command) -> tuple[object, ...]:
     return (
         outcome,
         (status.state, status.dof, dict(status.entity_dof), status.conflicting, status.redundant),
-        codec.encode(bus.document.entities),
+        bus.document,
     )
 
 
-def replay(commands: list[Command]) -> list[tuple[object, ...]]:
+def replay(commands: list[Command]) -> list[tuple[object, object, Document]]:
     """Each command's `step`, one after another."""
     bus = Bus(kernel=None)
     return [step(bus, command) for command in commands]
 
 
-def close(a: object, b: object) -> bool:
-    """Equal, with floats equal to within the solver's precision.
+def same(
+    split: list[tuple[object, object, Document]], whole: list[tuple[object, object, Document]]
+) -> bool:
+    """The same outcome and status at every step, and documents with no significant
+    difference (`equivalence`: within the solver's precision)."""
+    return all(
+        a[:2] == b[:2] and not any(d.significant for d in equivalence.differences(b[2], a[2]))
+        for a, b in zip(split, whole, strict=True)
+    )
 
-    That is round-off almost everywhere. But where two constraints meet tangentially (a double
-    root: an aligned and a horizontal distance of 1 to the same point) Newton closes in slowly
-    and stops once within its tolerance, which fixes the point only to about the tolerance's
-    square root. The tolerance scales with the largest value in the system solved, which for a
-    split cluster is its own geometry and for the whole sketch everything, so the two can stop
-    a step apart: a millionth of a millimetre, far below anything visible."""
-    if isinstance(a, float) and isinstance(b, float):
-        return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-4)
-    if isinstance(a, dict) and isinstance(b, dict):
-        return a.keys() == b.keys() and all(close(a[k], b[k]) for k in a)
-    if isinstance(a, list | tuple) and isinstance(b, list | tuple):
-        return len(a) == len(b) and all(close(x, y) for x, y in zip(a, b, strict=True))
-    return a == b
+
+def holding(document: Document, reference: Document) -> list[tuple[EntityId, float, float]]:
+    """Relations of `document` that don't hold within tolerance, and hold worse than in the
+    reference's document: there should be none. (A solve that shrinks the geometry a
+    thousandfold, squeezing a rectangle to a nanometre, say, converges at the scale it started
+    from, so the old solver can end a little outside the tolerance at the new scale; the
+    optimized solver must do no worse.)"""
+    theirs = sketch.residuals(reference)
+    return [
+        (key, residual, allowed)
+        for key, (residual, allowed) in sketch.residuals(document).items()
+        if not residual <= allowed and not residual <= theirs.get(key, (0.0, 0.0))[0] + allowed
+    ]
+
+
+def moved_elsewhere(before: Document, after: Document, command: Command) -> list[EntityId]:
+    """Entities a command changed outside every cluster it reached: there should be none. A
+    command reaches the clusters of what it names, and moving or deleting anchored geometry
+    reaches everything dimensioned from it, so then nothing is checked."""
+    named = set(re.findall(r"\be\d+\b", json.dumps(codec.encode(command))))
+    if named & sketch.anchored(before):
+        return []
+    index = sketch.referrers(before)  # deleting also deletes what refers to it
+    named |= {referrer for n in list(named) for referrer in index.get(EntityId(n), ())}
+    where = sketch.grouped(before)
+    reached = {id(where[EntityId(n)]) for n in named if n in where}
+    return [
+        key
+        for key, entity in before.entities.items()
+        if key not in named
+        and (key not in where or id(where[key]) not in reached)
+        and after.entities.get(key) is not entity
+    ]
 
 
 @PROPERTIES
@@ -370,17 +410,25 @@ def close(a: object, b: object) -> bool:
 def test_split_clusters_accept_reject_and_count_exactly_as_whole_ones(
     commands: list[Command],
 ) -> None:
-    """Each command, from the same document, split and whole. (Two whole replays of a session
-    can part ways: they differ by round-off, and where constraints meet tangentially whether a
-    new one is redundant turns on less than that, so the whole sketch itself would decide
-    differently for the other replay's document. What splitting must not change is the answer
-    for a given document.)"""
+    """Each command, from the same document, optimized and by the reference (the old solver):
+    the same outcome, message, and status; no significant difference in any value; every
+    relation holding afterwards; and nothing changed outside the clusters it reached. (Two
+    whole replays of a session can part ways: they differ by round-off, and where constraints
+    meet tangentially whether a new one is redundant turns on less than that, so the reference
+    itself would decide differently for the other replay's document. What the optimized solver
+    must not change is the answer for a given document.)"""
     _forget()
     bus = Bus(kernel=None)
     for index, command in enumerate(commands):
-        with whole():
-            expected = step(Bus(bus.document, kernel=None), command)
+        before = bus.document
+        with sketch.reference():
+            reference = Bus(before, kernel=None)
+            expected = step(reference, command)
         actual = step(bus, command)
         assert actual[0] == expected[0], (index, command)  # accepted, or rejected the same way
         assert actual[1] == expected[1], (index, command)  # state, degrees of freedom, health
-        assert close(actual[2], expected[2]), (index, command)  # the same geometry
+        found = equivalence.differences(expected[2], actual[2])
+        assert not [d for d in found if d.significant], (index, equivalence.report(found))
+        if actual[0][0] == "applied":  # type: ignore[index]
+            assert holding(bus.document, expected[2]) == [], (index, command)
+            assert moved_elsewhere(before, bus.document, command) == [], (index, command)
