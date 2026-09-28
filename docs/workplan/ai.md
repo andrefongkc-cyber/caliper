@@ -1,4 +1,4 @@
-Status: #39–#46 merged; Performance V2's AI side (Accept without solving again, checks with nothing pending kept, smaller tool results, Stop for the in-app assistant) on `shared/performance-v2`, PR #47, next: review, then a live timed rerun of test 002 on it
+Status: mirror and linear pattern tools, and the Timing panel's time left and auto-stop, on `shared/mirror-pattern-time-left` (stacked on `shared/performance-v2`, local, not pushed), next: a live rerun of test 002 on it from Claude Desktop, then Andre's review
 
 # AI workplan
 
@@ -7,6 +7,21 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## Mirror, linear pattern, and time left (branch `shared/mirror-pattern-time-left`, 2026-09-28)
+
+Andre, after the live rerun of test 002: Claude could mirror more instead of drawing each piece, a linear pattern would help, the Timing panel should show an estimate at the start and count down without costing Claude effort, and the time doesn't stop by itself. He also couldn't find docs/cad-practices.md: it reached `main` (#46) after `shared/performance-v2` branched, so that branch was rebased onto `origin/main` (local, not pushed), and this one is stacked on it.
+
+- [x] **`mirror_entities`** (`caliper/ai/patterns.py`): points, lines, circles, arcs, and rectangles about a line, one call. Each copy is tied to its original by symmetric constraints: a line's ends, a circle whole, a rectangle's opposite corners (horizontal or vertical axis only), an arc's ends start to end plus a construction point at its mirrored centre, held level with the copy's centre across the chord's bisector. Symmetric arcs would state the radius twice and be rejected as redundant, and a level-with constraint alone is singular for a semicircle. Geometry on the axis is skipped
+- [x] **`linear_pattern`**: points, lines, circles, and rectangles in a row or grid, one call. Each copy is joined to the previous by a construction line equal and parallel to the first, which gets one driving spacing dimension (and horizontal or vertical when the direction is); each copy equals the original (radius, length and direction, sides). Arcs are refused: nothing ties a copy's angles. At most 100 copies a call (it runs on the UI thread)
+- [x] Both are ordinary commands on the workspace's bus: all kept or all undone if any is rejected, one step for the model's `undo` (`Workspace._calls`), replayable byte for byte. No contract change, as AI-9 and AI-10 proposed for their tools
+- [x] **`CONVENTIONS`** point to them, and carry the core of docs/cad-practices.md, which Claude Desktop can't read: dimension from the nearest datum with the label beside the feature, each relationship once, reference dimensions for fixed sizes, and DOF per feature. Unverified until a live run
+- [x] **Time left** (`report_progress`, MCP only, `caliper/ai/mcp_server.py`): Claude says how many calls it plans, once; Caliper converts that to time at the run's pace (2 s a call until 10 calls) and counts down on the Timing line (`▸ 1m 12s · ~3m 40s left · 35 calls`). Not recorded. `report_progress` with 0 is "done": the time stops at once
+- [x] **Auto-stop:** without that, the time stops after 60 s with no call (`QUIET`), or 3 minutes while Claude is short of its estimate
+- [x] Trials in a workspace: the 002 hole grid is 5 calls (0.22 s for the pattern), the slots' mirror 1 call (fully constrained), the whole star 62 calls, layout included, from a rough start (the mirror in 0.19 s), all at 0 DOF; 281 calls for the plate before
+- [x] Tests: `tests/ai/test_patterns.py` (the slot, the half star, every kind about slanted lines, a D-shaped arc, skips and refusals, the grid, respacing and resizing from one dimension, one undo step, replay, all or nothing), `tests/app/test_timing.py` (estimate, pace, countdown, done, quiet stops), `tests/app/test_mcp.py` (the panel's line, done before Accept, bad estimates, a pattern as one proposal and one undo step), `tests/ai/test_mcp_server.py`. 1327 passed, 16 skipped
+- [ ] Live rerun of test 002 from Claude Desktop on this branch: does Claude call `report_progress`, use the tools, and follow the practices?
+- [ ] Circular pattern: the same approach (copies of a seed, tied by equal constraints and construction geometry about a centre) would make the star about 15 calls and the ball bearing's balls one. It needs no contract change after all
 
 ## Performance V2, the AI side (branch `shared/performance-v2`, 2026-09-27)
 
@@ -52,7 +67,7 @@ A 16-tooth gear drawn over MCP (`gearv1.caliper`, not in git) came back as 65 ar
 - [x] Every create tool's `construction` field says what it is for (`_FIELD_DESCRIPTIONS` in `caliper/ai/tools.py`; the contract dataclasses are untouched)
 - [x] Tests in `tests/ai/test_tools.py`; removing the field description fails them. 1140 passed, 16 skipped
 - [ ] Live rerun in Claude Desktop: the same gear request should start with construction circles. Unverified until then: a prompt change is only proven by the model's behaviour
-- [ ] Open question for Andre: a circular pattern command. Without one, "repeat from the layout" still means placing each tooth by hand. It would be a contracts change (joint review)
+- [ ] Open question for Andre: a circular pattern command. Without one, "repeat from the layout" still means placing each tooth by hand. It would be a contracts change (joint review). 2026-09-28: `linear_pattern` showed a tool made of existing commands needs none (see Mirror, linear pattern, and time left)
 
 ## MCP stress-test fixes (branch `shared/mcp-stress-fixes`, 2026-09-25)
 

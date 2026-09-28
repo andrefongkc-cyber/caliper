@@ -92,6 +92,13 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
 - While Caliper's own assistant is working on a request, changes from Claude Desktop are
   refused with a "try again" message; looking still works.
 - Each call shows in the Assistant tab, marked with the client's name (e.g. `claude-ai →`).
+- **Mirror and linear pattern** (`mirror_entities`, `linear_pattern`) repeat geometry in one
+  call: the copies and the constraints that tie them to the original. A mirrored copy is held
+  by symmetric constraints about the line. A pattern's copies are joined by construction lines
+  equal and parallel to the first, which carries the spacing as one dimension. So editing the
+  original, the line, or that one dimension moves every copy. They're made of the same
+  commands Claude could send one by one, so they join the proposal like any change; Claude's
+  `undo` takes back a whole mirror or pattern. Arcs mirror but don't pattern.
 - A proposal of more than 6 changes shows a summary ("187 changes · 57 checks, all passing",
   failures in red) with the list of changes behind **Show changes**, so the card keeps its size
   and Accept stays in reach; errors and failing checks are always shown.
@@ -107,6 +114,11 @@ the ids `removed`. `inspect_entities` gives any of them in full. The command isn
 back: the stored entities say the same, resolved, in fewer tokens. A change that changes
 nothing answers `"changed": "nothing: the document already was that way"`.
 
+A mirror or pattern answers with its `label`, each original's `copies`, the `construction`
+geometry, `constraints`, and `dimensions` it made (by id), anything it `skipped` and why, a
+`note` if something is left free, and `changed` with the copies and construction geometry in
+full. If Caliper rejects any step, none of it is kept, and the error names the step.
+
 ## Manual test
 
 Use this after setup, and after changes to `caliper/ai` or the bridge. It needs no API key and
@@ -116,7 +128,7 @@ makes no API request of Caliper's own; Claude Desktop uses your Claude account.
    yours only: `ls -l ~/.caliper/` shows `srwx------`.
 2. Make sure the `caliper` entry is in Claude Desktop's config (Set up, step 3).
 3. Restart Claude Desktop.
-4. In a new chat, open the tools menu: **caliper** is listed with 21 tools.
+4. In a new chat, open the tools menu: **caliper** is listed with 24 tools.
 5. Ask: *"Show me the entities near the origin in Caliper."* Claude calls
    `inspect_document` (allow it when asked). The Assistant tab in Caliper shows
    `claude-ai → inspect_document`, and nothing changes on the canvas.
@@ -148,6 +160,15 @@ Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** p
 Properties, shows the latest run on one line, e.g. `▸ 4m 07s · 57 calls · running`. Click the
 line for every field. While the run is live its time ticks every second. The numbers stay up
 after the run ends.
+
+**Time left.** At the start of a task of more than about ten calls, Claude says how many calls
+it plans (the `report_progress` tool, one quick call), and the line shows the time left:
+`▸ 1m 12s · ~3m 40s left · 35 calls`. Caliper works it out from the calls to go, at the run's
+own pace once it has ten calls (2 s a call before that, test 002's pace), so Claude spends no
+effort on the arithmetic. It counts down between calls and is worked out again at each one;
+`almost done` means the countdown ran out with calls still to go. It's an estimate, shown only
+on screen, never recorded. Claude calls `report_progress` again with 0 when it's done, which
+stops the time at once.
 
 **Saving the drawing into its test folder** (`test-runs-manual/NNN-name/`) writes that
 folder's `003-timing.md` for you, from this panel. It never overwrites one that's already
@@ -206,11 +227,12 @@ Desktop, or Claude's closing message after its last call, so:
   none. Pressing Start run and then File → New keeps the run you started.
 - **A run ends when Claude's last call has its answer.** Claude's closing message isn't
   counted. Accepting part-way doesn't end the run.
-- **On screen, the time keeps ticking while the run is live**: until you accept or reject
-  the proposal, press Start run, open another document, or 3 minutes pass with no call (a
-  call after an accept part-way starts it again). Then Total run settles on the recorded
-  value above, from the start to the end of Claude's last call; your review time isn't
-  counted.
+- **On screen, the time keeps ticking while the run is live**, and stops by itself: when
+  Claude says it's done (`report_progress` with 0), or after 60 seconds with no call (3
+  minutes while Claude is still short of the calls it planned: it's thinking, not done). It
+  also stops when you accept or reject the proposal, press Start run, or open another
+  document. A call after that starts it again. Then Total run settles on the recorded value
+  above, from the start to the end of Claude's last call; your review time isn't counted.
 - If you send a new task within 3 minutes without Start run or File → New, it joins the
   previous run. For tests, press Start run every time.
 
