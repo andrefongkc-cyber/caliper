@@ -33,7 +33,7 @@ from caliper.app.agent.timing import RunTimer, markdown
 from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle
-from caliper.contracts.document import EntityId, Point2, Rectangle
+from caliper.contracts.document import Circle, EntityId, Point2, Rectangle
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
@@ -492,6 +492,25 @@ def test_accepting_a_collapsed_proposal_applies_all_of_it(served, qtbot) -> None
     assert session.history[-1].author is Author.AGENT
     assert len(session.history[-1].commands) == len(calls)
     assert not card.isVisible()
+
+
+def test_a_pattern_from_claude_desktop_is_one_proposal_and_one_undo_step(served, qtbot) -> None:
+    window, session = served, served.session
+    call(window, qtbot, "create_circle", {"center": {"x": 10, "y": 10}, "radius": 3})
+    response = call(
+        window,
+        qtbot,
+        "linear_pattern",
+        {"ids": ["e1"], "count": 5, "spacing": 30, "count2": 4, "spacing2": 30},
+    )
+    assert not response.is_error
+    assert window.assistant_log.lines()[-1] == "claude-ai → linear_pattern: Linear Pattern"
+    window.proposal_card.accept_button.click()
+    circles = [e for e in session.document.entities.values() if isinstance(e, Circle)]
+    assert len(circles) == 20
+    window.undo_action.trigger()
+    assert dict(session.document.entities) == {}
+    assert call(window, qtbot, "undo").is_error  # accepted: nothing of Claude's is pending
 
 
 # --- Timing -----------------------------------------------------------------------------

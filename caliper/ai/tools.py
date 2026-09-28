@@ -3,8 +3,10 @@
 There is one tool per `Command` kind, generated from the contract, so the tools follow the
 contract as it grows. A call's arguments are the command's fields in the JSON form command
 scripts use, decoded by the same codec replay uses and validated by the bus, which rejects
-bad input with its usual structured errors. A few query tools let the model look before and
-after it acts: the document, single entities, distances, checks, and solve status.
+bad input with its usual structured errors. Two tools repeat geometry, mirror and linear
+pattern (`caliper.ai.patterns`): each is several of those same commands in one call, kept or
+undone together. A few query tools let the model look before and after it acts: the document,
+single entities, distances, checks, and solve status.
 
 Everything runs in a `Workspace`: a scratch bus on a copy of the document. The user's
 document is untouched until they accept what the workspace did, which is its `commands`: the
@@ -18,6 +20,7 @@ from enum import StrEnum
 from types import NoneType, UnionType
 from typing import Union, get_args, get_origin, get_type_hints
 
+from caliper.ai import patterns
 from caliper.ai.context import describe
 from caliper.ai.model import ToolCall, ToolOutcome, ToolSpec
 from caliper.contracts.commands import Applied, Command, Delta, Rejected
@@ -143,6 +146,14 @@ CONVENTIONS = (
     "of relying on coordinates you worked out, so changing one layout dimension moves "
     "everything that depends on it. Finish one feature, such as a tooth or a hole, and check it "
     "before repeating it from the same layout."
+    "\n\n"
+    "Repeat rather than redraw: mirror the second half of a symmetric feature with "
+    "mirror_entities, and repeat rows and grids with linear_pattern, one call each. The copies "
+    "stay tied to the original, so constrain and dimension the original first. Keep the "
+    "constraints lean: dimension each feature from the edge, centre line, or neighbour it "
+    "relates to, with the label just outside it; state each relationship once, since Caliper "
+    "rejects one the others already imply (show a size that's already fixed as a dimension with "
+    "no value); and check the degrees of freedom with solve_status after each feature."
 )
 """What any model driving these tools needs to know, whether in the app or over MCP."""
 
@@ -232,8 +243,11 @@ QUERY_TOOLS = (
     ),
 )
 
+REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN)
+
 TOOLS: tuple[ToolSpec, ...] = (
     *(_command_spec(kind, cls) for kind, cls in COMMAND_KINDS.items()),
+    *REPEAT_TOOLS,
     *QUERY_TOOLS,
 )
 
@@ -259,8 +273,15 @@ class Workspace:
     def __post_init__(self) -> None:
         self._bus = Bus(self.base)
         self._applied: list[Applied] = []
+        self._calls: list[tuple[int, str]] = []
+        """Each call that changed something: how many of `_applied` it made, and its label.
+        Undo takes back a whole call, so a mirror or pattern goes in one step."""
         self._checks: list[Expectation] = []
         self._handlers: Mapping[str, Callable[[Mapping[str, object]], JSON]] = {
+            patterns.MIRROR.name: lambda arguments: self._repeat(patterns.mirror, arguments),
+            patterns.PATTERN.name: lambda arguments: self._repeat(
+                patterns.linear_pattern, arguments
+            ),
             "inspect_document": self._inspect_document,
             "inspect_entities": self._inspect_entities,
             "measure_distance": self._measure_distance,
@@ -322,6 +343,7 @@ class Workspace:
         if not (result.delta.before or result.delta.after):
             return {"applied": True, "changed": "nothing: the document already was that way"}
         self._applied.append(result)
+        self._calls.append((1, result.label))
         # No echo of the command: what it created and changed, in stored form, says all the
         # resolved command would (ids, inferred kinds, canonical order), in half the tokens.
         return {
@@ -331,13 +353,62 @@ class Workspace:
             "changed": _changes(result.delta),
         }
 
+    def _repeat(
+        self,
+        make: Callable[[Document, Mapping[str, object], patterns.Run], patterns.Repeated],
+        arguments: Mapping[str, object],
+    ) -> JSON:
+        """A mirror or pattern: its commands run one by one, and are kept only if all are."""
+        steps: list[Applied] = []
+
+        def run(command: Command) -> Applied:
+            result = self._bus.execute(command)
+            if isinstance(result, Rejected):
+                raise patterns.PatternError(
+                    {
+                        "rejected": [_error(e) for e in result.errors],
+                        "at": f"{command.kind} {encode(command)}",
+                        "undone": "everything this call did before it",
+                    }
+                )
+            assert isinstance(result, Applied)
+            steps.append(result)
+            return result
+
+        try:
+            made = make(self.document, arguments, run)
+        except patterns.PatternError as problem:
+            for _ in steps:
+                self._bus.undo()
+            raise _ToolError(problem.content) from problem
+        self._applied.extend(steps)
+        self._calls.append((len(steps), made.label))
+        delta = _merged([step.delta for step in steps])
+        shown = set(made.copies) | {id for ids in made.copies.values() for id in _listed(ids)}
+        return {
+            "applied": True,
+            "label": made.label,
+            "copies": made.copies,
+            "construction": made.construction,
+            "constraints": made.constraints,
+            "dimensions": made.dimensions,
+            **({"skipped": made.skipped} if made.skipped else {}),
+            **({"note": made.note} if made.note else {}),
+            # The copies in full; the constraints and layout by id, above.
+            "changed": _changes(delta, added=lambda id: id in shown or id in made.construction),
+        }
+
     def _undo(self, arguments: Mapping[str, object]) -> JSON:
-        if not self._applied:
+        if not self._calls:
             raise _ToolError({"error": "nothing to undo: no unapplied changes"})
-        change = self._bus.undo()
-        assert change is not None
-        undone = self._applied.pop()
-        return {"undone": undone.label, "changed": _changes(change.delta)}
+        steps, label = self._calls.pop()
+        changes = []
+        for _ in range(steps):
+            change = self._bus.undo()
+            assert change is not None
+            changes.append(change.delta)
+            self._applied.pop()
+        return {"undone": label, "changed": _changes(_merged(changes))}
 
     # --- Queries ------------------------------------------------------------------------
 
@@ -448,19 +519,43 @@ MODIFIED_SHOWN = 8
 """Entities a result shows in full when a solve moved them; the rest are listed by id."""
 
 
-def _changes(delta: Delta) -> JSON:
-    """What a change did. Everything added is shown in full. A solve can move many entities a
-    little (every point of a star, say): the first `MODIFIED_SHOWN` are shown, the others named
-    in `also_modified`, and `inspect_entities` gives them in full."""
+def _changes(delta: Delta, added: Callable[[EntityId], bool] = lambda id: True) -> JSON:
+    """What a change did. Everything `added` picks out of what it added is shown in full. A
+    solve can move many entities a little (every point of a star, say): the first
+    `MODIFIED_SHOWN` are shown, the others named in `also_modified`, and `inspect_entities`
+    gives them in full."""
     modified = sorted(delta.modified)
     changes: dict[str, JSON] = {
-        "added": {id: encode(delta.after[id]) for id in sorted(delta.added)},
+        "added": {id: encode(delta.after[id]) for id in sorted(delta.added) if added(id)},
         "modified": {id: encode(delta.after[id]) for id in modified[:MODIFIED_SHOWN]},
         "removed": [str(id) for id in sorted(delta.removed)],
     }
     if len(modified) > MODIFIED_SHOWN:
         changes["also_modified"] = [str(id) for id in modified[MODIFIED_SHOWN:]]
     return changes
+
+
+def _merged(deltas: list[Delta]) -> Delta:
+    """One delta for several in a row: each entity as it was before the first to touch it and
+    after the last."""
+    before: dict[EntityId, object] = {}
+    after: dict[EntityId, object] = {}
+    missing = object()
+    for delta in deltas:
+        for id in delta.before.keys() | delta.after.keys():
+            before.setdefault(id, delta.before.get(id, missing))
+            after[id] = delta.after.get(id, missing)
+    touched = [id for id in before if before[id] is not after[id]]
+    return Delta(
+        before={id: before[id] for id in touched if before[id] is not missing},  # type: ignore[misc]
+        after={id: after[id] for id in touched if after[id] is not missing},  # type: ignore[misc]
+        next_id_before=deltas[0].next_id_before if deltas else 0,
+        next_id_after=deltas[-1].next_id_after if deltas else 0,
+    )
+
+
+def _listed(value: JSON) -> list[str]:
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else [str(value)]
 
 
 def _ids(value: object, field: str) -> tuple[EntityId, ...]:
