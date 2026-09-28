@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 |---|---|---|---|
 | AI side | AI-2, AI-3 | AI-9, AI-10 | AI-4 |
 | AI side, untested or limited | AI-5, AI-6, AI-7, AI-8 | | |
-| Client side | C-1, C-2, C-3, C-4 | C-6 | C-7, C-8, C-9, C-11 |
+| Client side | C-1, C-2, C-3, C-4 | C-6 | C-8, C-9, C-11, C-12 |
 
 ---
 
@@ -139,14 +139,6 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Fix, if it matters:** solve only the part of a cluster a command can move. Moving the
   draft off the UI thread would need care, because it has to stay in step with the document.
 
-### C-7. Solver round-off is saved in files
-- **What happens:** after a solve, coordinates that should be exactly 0 can be stored as
-  e.g. `8.6e-78`. That was seen on construction lines after a resize. It's harmless but
-  untidy, and it makes files noisier to diff.
-- **Where:** the engine solver writing values (`caliper/engine/constraints/sketch.py`,
-  `_written`).
-- **Fix:** snap values within a tiny tolerance of a round number, deterministically.
-
 ### C-8. The empty-sketch hint draws over a first proposal
 - **What happens:** the "empty sketch" hint shows whenever the document is empty, including
   under a proposal's ghost geometry.
@@ -159,6 +151,16 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Where:** `caliper/app/agent/ui.py`, `_command_text` and `_value`.
 - **Fix:** format refs as `e1.end`, or reuse the History panel's labels.
 
+### C-12. A constraint that holds only by squeezing geometry to almost nothing is accepted
+- **What happens:** a vertical constraint between a 69 × 1 rectangle's bottom-left corner and
+  its centre can only hold with no width at all. The solver squeezes the rectangle to 1e-9 mm
+  wide and accepts it, with the constraint off by 5e-10 mm. The old solver did the same.
+- **Where:** `caliper/engine/constraints/sketch.py`. Tolerances are relative to the sketch's
+  size: Newton measures convergence at the size the solve started from (69 mm here), and the
+  collapse check at the size it ended at (1 mm).
+- **Fix needs a decision:** measure both at one size (the larger), which rejects this as a
+  collapse. That changes which commands are accepted, in cases like this one only.
+
 ### C-11. App tests abort in a shell with no display
 - **What happens:** `uv run pytest` aborts with a Qt fatal error in shells without a window
   server (SSH, sandboxes) unless `QT_QPA_PLATFORM=offscreen` is set. The test setup documents
@@ -170,7 +172,11 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 
 ## Recently fixed
 
-On `shared/performance-v2` (Performance V2, not merged yet):
+On `shared/performance-v2` (Performance V2 and the numerical pass after it, not merged yet):
+
+- C-7, mostly: solver round-off was saved in files (a 0 stored as 8.6e-78 after a resize).
+  A value a solve didn't need to change now keeps its stored value, so a 0 stays 0 and a
+  typed 1.5 stays 1.5; round-off can still appear in a value a solve really moved.
 
 - AI-1: checks Claude ran with no change pending (after an Accept, or when it only looked)
   never reached the Checks panel. Now they go straight there, from Claude Desktop and from

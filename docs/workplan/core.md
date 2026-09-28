@@ -1,9 +1,63 @@
-Status: Performance V2 done on `shared/performance-v2` (local commits, not pushed): all 27 items implemented or assessed, next: Andre's review, including the last-digit note below, then a PR
+Status: Performance V2 and Solver V2.1 (numerical stability) done on `shared/performance-v2` (local commits, not pushed), next: Andre's review, including the last-digit note and C-12, then a PR
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Solver V2.1: numerical stability (branch `shared/performance-v2`, 2026-09-28)
+
+User request (2026-09-28): keep Performance V2's speed while making the solver's numbers robust: find where the last-digit differences came from, define when two answers are the same, keep values a solve didn't need to change, stop drift, make the local solve's fallback a clear correctness boundary, test the optimized solver against a trusted reference on many sketches, and measure. No rounding, no weakened constraints, no whole-sketch solving by default. How the solver works now: [architecture.md, the solver's numerical model](../architecture.md#the-solvers-numerical-model).
+
+### What the audit found
+
+- **Where the stress plate's differences came from.** They first appear at call 225, a constraint on the star. `main` solved the whole plate as one cluster, so that solve also re-polished the D cutout's arc, which Claude had typed as 22.619865° and which already held within tolerance; it became 22.61986494804043. The split solver never touches that cluster. The rest are in the star (24 lines tied by equal and symmetric constraints, nearly overlapping, so fixed only to about 1e-7), where the tolerance, which scales with the largest number in the system solved (the plate's 240 mm or the star's own size), stops the two solvers a step apart.
+- **What solves change.** Of 472 values the plate's solves changed, 8 were real moves (the fillets trimming lines by 12 mm) and 464 were under 1e-5: mostly needed corrections of Claude's six-decimal coordinates, but also round-off (a 0 stored as 4.86e-63 after edits undone by hand) and re-polishing of geometry that already held.
+- **Solving the same document again** already changed nothing; round trips of an edit did (the 4.86e-63).
+
+### Items
+
+- [x] **One tolerance policy** (`engine/constraints/tolerance.py`): `SOLVED` 1e-10, `UNCHANGED` 1e-9, `INDEPENDENT` 1e-9, `BROKEN` 1e-7, `PRECISION` 1e-5 (all of the scale), and the margins, each with why. The values are the solver's own, unchanged (the reference is still byte-identical to `main`); only the new ones are new: what counts as unchanged (the collapse threshold the solver already used), and the margin a split cluster's decision needs.
+- [x] **The reference** (`sketch.reference()`): the solver as it was (whole clusters, every value written as solved, nothing cached, this thread only). It writes `main`'s files byte for byte for all three recorded sessions (pinned by hashes in `test_numerics.py`), so it's the oracle.
+- [x] **Keeping what a solve didn't need to change** (`sketch._kept`): values changed by no more than `UNCHANGED` go back to their stored values while every relation still holds within `SOLVED` at the scale of both the stored and the kept values (with start angles as stored); the largest changes are given up first. Every decision (accept, reject, collapse, repeat) is taken on the solved values, as the reference takes it; keeping changes only what's written.
+- [x] **The fallback boundary**: a split cluster leaves to the whole sketch a failed or nudged solve, a repeated relation, a new relation within 10× of the repeat threshold (`_UNDECIDED`, read from the factorization), and geometry within 10× of collapsing at the whole document's scale (`_document_scale`, incremental).
+- [x] **A stalled stage stops** (`_newton(patient=False)`, the optimized solver only): kept values leave residuals just within tolerance, and a stage that can't be solved used to lower them by a part in a billion a step until the iteration cap (one ball-bearing call: 263 evaluations instead of 38). A step lowering the squared residuals by less than the tolerance squared can't solve anything, so the stage stops.
+- [x] **Reuse within a solve**: each system compiles its equations once (`System.stored_equations`), for every stage's attempt and the keeping check. The chain of 150 lines got 9% faster.
+- [x] **One status cache** (`sketch._SOLVED`), replacing the solver's `_LAST` and the queries' `_STATUS`; the reference bypasses it.
+- [x] **The diagnostic** (`engine/constraints/equivalence.py`): every stored value that differs between two documents, with the reference and candidate values, absolute and relative difference, tolerance, and verdict (same geometry, within precision, significant), periodic for angles; `sketch.residuals` says how far each relation is from holding. `bench/numerics.py` runs every command of every recorded session both ways from the same document, and fails on anything significant.
+- [x] **Tests** (`tests/engine/constraints/test_numerics.py`, 24; `test_split_clusters.py` rebuilt on the oracle): the policy; the reference's hashes and isolation; the keeping rules one by one; typed values surviving (the balls' 1.5, the D cutout's 22.619865); no drift (solving again, 20 round trips of a fillet, adding and removing a constraint, accepting and undoing); the fallback boundary forced wide and a split solve forced to fail, with the same outcomes; failures during Accept and rejected commands leaving the document as it was; the three cases the property tests found (a shrinking solve, a collapse turned into an acceptance, a start angle past 360) and the crawl the benchmark found, each checked to fail without its fix. Properties, per command from the same document: the same outcome, message, and status as the reference, no significant difference, every relation holding at least as well, nothing changed outside the clusters reached; over anchored sketches with nearly repeating dimensions and deletes, and over the general random sketches. 200 examples each in the suite; 20,000 each (40,000) run by hand, passing.
+
+### Numbers
+
+Numerical (`bench/numerics.py`, the three recorded sessions, 329 commands each compared with the reference from the same document): outcomes, messages, status, and checks identical; 856 values differed after a command, none significantly, all within `UNCHANGED` (median 3.5e-9, 90th percentile 4.6e-8, largest 1.04e-7 on the 240 mm plate); every relation holds in every final drawing. The golden bench cases are byte-identical.
+
+Performance (`bench/perf.py`, this Mac; `bench/results/2026-09-28-*`), against Performance V2:
+
+| | V2 | V2.1 |
+|---|---|---|
+| Stress plate, all calls in the window | 0.84 s | 0.76 s |
+| · median / slowest call | 1.5 / 38 ms | 1.2 / 31 ms |
+| · headless, best of 5 | 521 ms | 533–541 ms |
+| · solver evaluations | 1,730 | 1,793 |
+| · Accept / Reject | 24 / under 1 ms | 23 / under 1 ms |
+| · Caliper's whole share (calls and Accept) | 0.86 s | 0.79 s |
+| · memory retained / peak (alone) | 0.48 / 1.79 MiB | 0.49 / 1.83 MiB |
+| · tool results | 92.5 KiB | 89.2 KiB |
+| Ball bearing, headless, best of 5 | 105 ms | 110 ms |
+| 150-line chain | 2.43 s | 2.21 s |
+
+The cost is the keeping check, one evaluation per solve that has something to keep: about 3% headless on the plate (0.05 ms a call), 6% on the bearing, inside run-to-run noise in the window. Still 20 to 50 times faster than `main`.
+
+### Deferred, and why
+
+- **Reusing a factorization between edits**: the Jacobian changes at every Newton step, and the redundancy check needs one at the solved point; building and compiling the system are 2–6% of a solve.
+- **One scale per solve** (C-12 in docs/known-issues.md): Newton converges at the scale a solve starts from and checks collapse at the one it ends at, so a solve that squeezes geometry to nothing can be accepted a little outside tolerance. The reference does the same; fixing it changes which commands are accepted, so it needs a decision.
+- **Angles in the scale**: degrees count toward it, so a small sketch with arcs has a scale of up to 360 and a looser tolerance. Changing it changes every solve.
+
+### Notes for review
+
+- Files differ from `main` in the last digits where values were kept (the bearing's radii 1.5 instead of 1.5000000000000004), never by more than `UNCHANGED`, with every relation holding.
+- The stall rule and keeping apply to the optimized solver only, so the reference stays `main`'s; 40,000 generated sketches found no command they decide differently.
 
 ## Performance V2 (branch `shared/performance-v2`, 2026-09-24 to 2026-09-27)
 
