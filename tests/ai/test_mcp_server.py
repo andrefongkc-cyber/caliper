@@ -17,7 +17,7 @@ from mcp.types import CallToolResult, TextContent
 from caliper.ai.bridge import NOT_RUNNING, SOCKET_ENV, BridgeError, Request, Response, ask
 from caliper.ai.draft import Ended
 from caliper.ai.mcp_server import INSTRUCTIONS, MCP_TOOLS, PROGRESS, READ_ONLY, build
-from caliper.ai.tools import CONVENTIONS, QUERY_TOOLS, TOOLS
+from caliper.ai.tools import CONVENTIONS, QUERY_TOOLS, REPEAT_TOOLS, TOOLS
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 from caliper.engine.io.codec import COMMAND_KINDS
@@ -69,8 +69,11 @@ def test_it_offers_the_tools_the_in_app_assistant_uses_and_report_progress() -> 
 
 def test_it_exposes_caliper_and_nothing_else() -> None:
     names = {spec.name for spec in MCP_TOOLS}
-    assert names == set(COMMAND_KINDS) | {spec.name for spec in QUERY_TOOLS} | {PROGRESS.name}
-    assert len(names) == 22
+    repeats = {spec.name for spec in REPEAT_TOOLS}
+    assert names == set(COMMAND_KINDS) | repeats | {spec.name for spec in QUERY_TOOLS} | {
+        PROGRESS.name
+    }
+    assert len(names) == 24
     for word in ("shell", "exec", "file", "python", "eval", "http", "fetch", "system", "terminal"):
         assert not [name for name in names if word in name], word
     assert names >= READ_ONLY
