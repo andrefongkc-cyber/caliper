@@ -7,10 +7,17 @@ the end of its latest call. The next run starts on Start run, when another docum
 opened, or at a call after `IDLE` seconds with none. Every call is timed inside Caliper, from
 when it arrives until its answer is ready. Definitions of each field: docs/mcp.md, Timing.
 
-While a run is live its elapsed time ticks on screen; it stops when the proposal is accepted
-or rejected (or dropped), when another run starts or a document opens, or after `IDLE`
-seconds with no call, and Total run settles on the recorded value. Saving a drawing into a
-test folder writes that folder's 003-timing.md (`timing_file`, test-runs-manual/README.md).
+While a run is live its elapsed time ticks on screen. It stops when Claude says it's done
+(`progress` with no calls left), when the proposal is accepted or rejected (or dropped), when
+another run starts or a document opens, or after a quiet spell: `QUIET` seconds with no call,
+or `IDLE` while Claude's estimate says it has calls to go. Total run then settles on the
+recorded value. Saving a drawing into a test folder writes that folder's 003-timing.md
+(`timing_file`, test-runs-manual/README.md).
+
+Time left: Claude can say how many calls a task will take (`progress`, the MCP tool
+report_progress), and Caliper turns that into time at the run's own pace, or `PACE` until the
+run has `PACE_CALLS` calls to measure it by. It counts down between calls and is worked out
+again at each one.
 
 Qt-free: the MCP host reports calls, proposals, and accepts; the clock is injected for tests.
 """
@@ -24,6 +31,14 @@ from pathlib import Path
 
 IDLE = 180.0
 """Seconds with no MCP call after which the next call starts a new run."""
+QUIET = 60.0
+"""Seconds with no MCP call after which the time stops, unless Claude's estimate says it has
+calls to go: then it's thinking, not done, and the time runs until `IDLE`."""
+PACE = 2.0
+"""Seconds per call, for time left before a run has its own pace: test 002 from Claude
+Desktop took 9m 17s for 281 calls."""
+PACE_CALLS = 10
+"""Calls a run needs before its own pace replaces `PACE`."""
 NA = "N/A"
 FIELDS = (
     "Total run",
@@ -53,6 +68,11 @@ class Timing:
     elapsed: float | None = None
     """While the run is live: seconds since it started, to tick on screen. None once it's
     settled; `total` is the recorded value either way."""
+    expected: int | None = None
+    """How many calls Claude said the run would take in all, if it said."""
+    left: float | None = None
+    """While the run is live and short of the calls Claude said it expects: the estimated
+    seconds until it's done, counting down between calls. Not recorded anywhere."""
 
     @property
     def live(self) -> bool:
@@ -73,6 +93,8 @@ class _Run:
     building: tuple[float, float] | None = None
     """The pending proposal's time in this run: its first change's start, its last's end."""
     accept: float | None = None
+    expected: int | None = None
+    """The calls Claude expects the run to take, counting the one that said so."""
 
 
 class RunTimer:
@@ -136,6 +158,16 @@ class RunTimer:
         if run is not None:
             run.accept = seconds if run.accept is None else run.accept + seconds
 
+    def progress(self, calls_left: int) -> None:
+        """Claude, during a call, expects `calls_left` more after it; 0 means it's done, and
+        the time stops (a later call starts it again, as after an accept part-way)."""
+        run = self._run
+        if run is None:
+            return
+        run.expected = run.calls + 1 + calls_left  # this call is counted when it finishes
+        if calls_left == 0:
+            self._live = False
+
     def proposal_ended(self) -> None:
         """The pending proposal is gone: accepted, rejected, or dropped. The time stops."""
         self._live = False
@@ -154,7 +186,12 @@ class RunTimer:
         now = self._clock()
         began = run.marked if run.marked is not None else run.first_call
         since = run.last_done if run.last_done is not None else began
-        live = self._live and since is not None and now - since < IDLE
+        to_go = 0 if run.expected is None else max(run.expected - run.calls, 0)
+        quiet = IDLE if run.calls == 0 or to_go else QUIET
+        live = self._live and since is not None and now - since < quiet
+        left = None
+        if live and to_go and since is not None:
+            left = max(since + to_go * self._pace(run) - now, 0.0)
         creation = run.built
         if run.building is not None:
             creation = (creation or 0.0) + run.building[1] - run.building[0]
@@ -171,7 +208,16 @@ class RunTimer:
             proposal_creation=creation,
             accept=run.accept,
             elapsed=now - began if live and began is not None else None,
+            expected=run.expected,
+            left=left,
         )
+
+    @staticmethod
+    def _pace(run: _Run) -> float:
+        """Seconds per call: the run's own, from Claude's first call, once it has enough."""
+        if run.calls < PACE_CALLS or run.first_call is None or run.last_done is None:
+            return PACE
+        return (run.last_done - run.first_call) / run.calls
 
 
 def timing_file(drawing: Path) -> Path | None:

@@ -6,10 +6,11 @@ thread, one at a time, in the `Draft` against the session's document. When the d
 it goes on the proposal card like the in-app assistant's changes, and the user accepts it (one
 undo step, credited to the agent) or rejects it there; the client can't. Closing, accepting,
 editing, or opening another document ends the draft, and the client's next call says so.
-Each call, and the user's Accept, is timed for the Assistant tab's Timing section
-(`caliper.app.agent.timing`).
+Each call, and the user's Accept, is timed for the Timing panel (`caliper.app.agent.timing`),
+and report_progress, Claude's estimate of the calls left, is answered here for its time left.
 """
 
+from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from caliper.ai.bridge import (
     supported,
 )
 from caliper.ai.draft import Draft, Ended
+from caliper.ai.mcp_server import PROGRESS
+from caliper.ai.model import ToolCall, ToolOutcome
 from caliper.app.agent.proposal import Plan, Proposal
 from caliper.app.agent.timing import RunTimer
 from caliper.app.agent.ui import AgentController
@@ -118,6 +121,11 @@ class McpHost(QObject):
             request = decode_request(line)
         except ValueError as e:
             return encode_response(Response({"error": str(e)}, is_error=True)), False
+        if request.tool == PROGRESS.name:
+            self._client = request.client
+            outcome = self._progress(request.arguments)
+            self.stepped.emit(request.client, outcome)
+            return encode_response(Response(outcome.content, outcome.is_error)), False
         if request.tool in COMMAND_KINDS and self.controller.busy:
             return encode_response(Response({"error": BUSY}, is_error=True)), False
         self._client = request.client
@@ -137,6 +145,17 @@ class McpHost(QObject):
         outcome = answer.outcome
         response = Response(outcome.content, outcome.is_error, answer.note)
         return encode_response(response), answer.changed
+
+    def _progress(self, arguments: Mapping[str, object]) -> ToolOutcome:
+        """report_progress: Claude's estimate, for the time left. It never touches the draft,
+        so a note about the draft waits for the next call that does."""
+        call = ToolCall(id="mcp", name=PROGRESS.name, arguments=arguments)
+        left = arguments.get("calls_left")
+        if isinstance(left, bool) or not isinstance(left, int) or left < 0:
+            error = {"error": "calls_left must be a whole number, 0 or more"}
+            return ToolOutcome(call, error, is_error=True)
+        self.timer.progress(left)
+        return ToolOutcome(call, {"ok": True, "done": left == 0})
 
     def _connected(self) -> None:
         while (socket := self._server.nextPendingConnection()) is not None:
