@@ -23,7 +23,7 @@ from PySide6.QtGui import QGuiApplication
 from caliper.ai.agent import Assistant
 from caliper.ai.bridge import BridgeError, Request, Response, ask
 from caliper.ai.draft import Draft, Ended
-from caliper.ai.mcp_server import build
+from caliper.ai.mcp_server import MCP_TOOLS, build
 from caliper.ai.model import Reply, Stop, ToolCall
 from caliper.app.agent import proposal as proposal_module
 from caliper.app.agent import ui as ui_module
@@ -283,7 +283,7 @@ def test_an_mcp_client_reaches_the_window_through_the_server(served, qtbot) -> N
             return len(tools), result.is_error
 
     count, is_error = in_background(qtbot, lambda: anyio.run(session))
-    assert count == 21
+    assert count == len(MCP_TOOLS)
     assert not is_error
     assert window.proposal_card.title.text() == "Create Rectangle"
     assert dict(window.session.document.entities) == {}
@@ -661,6 +661,46 @@ def test_the_panel_ticks_while_the_run_is_live_and_settles_on_accept(
     window.proposal_card.accept_button.click()
     assert not panel.ticking
     assert shown(window)["Total run"] == "0m 02s"  # from the start to Claude's last call
+
+
+def test_claude_s_estimate_shows_the_time_left_and_done_stops_the_time(
+    timed, qtbot, monkeypatch
+) -> None:
+    window, clock, took = timed
+    took.update(create_rectangle=2.0)
+    window.timing.start_button.click()
+    clock.now += 5
+    answer = call(window, qtbot, "report_progress", {"calls_left": 30})
+    assert answer.content == {"ok": True, "done": False}
+    assert window.proposal_card.isHidden()  # it changed nothing
+    assert window.timing.heading == "▸ 0m 05s · ~1m 00s left · 1 call"
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    clock.now += 10  # thinking: the time left counts down between calls
+    window.timing._refresh()
+    assert window.timing.heading == "▸ 0m 17s · ~0m 48s left · 2 calls"
+    call(window, qtbot, "report_progress", {"calls_left": 0})
+    panel = window.timing
+    assert not panel.ticking
+    assert panel.heading == "▸ 0m 17s · 3 calls"  # stopped at once, before any Accept
+    assert not window.proposal_card.isHidden()  # the proposal still waits for you
+
+
+@pytest.mark.parametrize("arguments", [{}, {"calls_left": -1}, {"calls_left": 2.5}])
+def test_a_bad_estimate_is_refused_and_changes_nothing(timed, qtbot, arguments) -> None:
+    window, _, _ = timed
+    answer = call(window, qtbot, "report_progress", arguments)
+    assert answer.is_error
+    assert "calls_left" in answer.content["error"]
+    assert window.mcp.timer.timing is not None
+    assert window.mcp.timer.timing.expected is None
+
+
+def test_a_note_about_the_draft_waits_for_a_call_that_uses_it(timed, qtbot) -> None:
+    window, _, _ = timed
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.proposal_card.reject_button.click()
+    assert call(window, qtbot, "report_progress", {"calls_left": 3}).note is None
+    assert call(window, qtbot, "inspect_document").note == Ended.CLOSED.value
 
 
 def test_saving_into_a_test_folder_writes_its_timing_file(timed, qtbot, tmp_path) -> None:

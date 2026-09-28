@@ -16,7 +16,7 @@ from mcp.types import CallToolResult, TextContent
 
 from caliper.ai.bridge import NOT_RUNNING, SOCKET_ENV, BridgeError, Request, Response, ask
 from caliper.ai.draft import Ended
-from caliper.ai.mcp_server import INSTRUCTIONS, READ_ONLY, build
+from caliper.ai.mcp_server import INSTRUCTIONS, MCP_TOOLS, PROGRESS, READ_ONLY, build
 from caliper.ai.tools import CONVENTIONS, QUERY_TOOLS, TOOLS
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
@@ -47,11 +47,11 @@ def data(result: CallToolResult) -> object:
 # --- What it offers -----------------------------------------------------------------------
 
 
-def test_it_offers_exactly_the_tools_the_in_app_assistant_uses() -> None:
+def test_it_offers_the_tools_the_in_app_assistant_uses_and_report_progress() -> None:
     async def body(client: Client) -> None:
         listed = {tool.name: tool for tool in (await client.list_tools()).tools}
-        assert list(listed) == [spec.name for spec in TOOLS]
-        for spec in TOOLS:
+        assert list(listed) == [spec.name for spec in TOOLS] + ["report_progress"]
+        for spec in MCP_TOOLS:
             assert listed[spec.name].description == spec.description
             assert listed[spec.name].input_schema == spec.input_schema
             annotations = listed[spec.name].annotations
@@ -62,14 +62,15 @@ def test_it_offers_exactly_the_tools_the_in_app_assistant_uses() -> None:
         assert client.server_info.name == "caliper"
         assert client.instructions == INSTRUCTIONS
         assert CONVENTIONS in INSTRUCTIONS
+        assert "report_progress" in INSTRUCTIONS  # else Claude never says, and nothing shows
 
     run(body, lambda request: Response(None))
 
 
 def test_it_exposes_caliper_and_nothing_else() -> None:
-    names = {spec.name for spec in TOOLS}
-    assert names == set(COMMAND_KINDS) | {spec.name for spec in QUERY_TOOLS}
-    assert len(names) == 21
+    names = {spec.name for spec in MCP_TOOLS}
+    assert names == set(COMMAND_KINDS) | {spec.name for spec in QUERY_TOOLS} | {PROGRESS.name}
+    assert len(names) == 22
     for word in ("shell", "exec", "file", "python", "eval", "http", "fetch", "system", "terminal"):
         assert not [name for name in names if word in name], word
     assert names >= READ_ONLY
@@ -207,7 +208,7 @@ def test_without_caliper_running_it_still_lists_tools_and_says_what_to_do(
     socket_file: Path,
 ) -> None:
     async def body(client: Client) -> None:
-        assert len((await client.list_tools()).tools) == 21
+        assert len((await client.list_tools()).tools) == len(MCP_TOOLS)
         result = await client.call_tool("inspect_document", {})
         assert result.is_error
         assert texts(result) == [NOT_RUNNING]
@@ -264,7 +265,7 @@ def test_the_server_starts_as_its_own_process_like_claude_desktop_starts_it(
         async with Client(server) as client:
             assert client.server_info is not None
             assert client.server_info.name == "caliper"
-            assert len((await client.list_tools()).tools) == 21
+            assert len((await client.list_tools()).tools) == len(MCP_TOOLS)
             result = await client.call_tool("create_rectangle", RECTANGLE)
             assert not result.is_error
             assert data(result)["label"] == "Create Rectangle"  # type: ignore[index]
