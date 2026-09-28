@@ -5,6 +5,7 @@ a face for `area_properties`.
 """
 
 import math
+import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
@@ -54,6 +55,7 @@ from caliper.engine.commands.validation import (
 )
 from caliper.engine.constraints import dimensions, sketch
 from caliper.engine.constraints.suggest import suggest
+from caliper.engine.document.recent import Recent
 from caliper.engine.geometry import default_kernel
 from caliper.engine.spatial import grid
 
@@ -68,12 +70,19 @@ _SIDES = {
     Feature.LEFT: (Feature.BOTTOM_LEFT, Feature.TOP_LEFT),
 }
 
-_STATUS: OrderedDict[int, tuple[Document, SolveStatus]] = OrderedDict()
-"""Solve status of recent documents by identity. Documents are immutable, so an entry never
-goes stale; holding the document keeps its id from being reused."""
-
 type KernelSource = Kernel | Callable[[], Kernel | None] | None
 """A kernel, no kernel, or a function that returns one when first needed."""
+
+_STATUS: Recent[SolveStatus] = Recent(16)
+"""Solve status of recent documents."""
+
+_CHECKS: OrderedDict[
+    tuple[Expectation, int], tuple[KernelSource, tuple[Entity | None, ...], CheckResult]
+] = OrderedDict()
+"""The last result of each check, with the kernel it had and the entities it read (see
+`check`). Shared between threads like `_STATUS`, so used only under `_CHECKS_LOCK`."""
+_CHECKS_LOCK = threading.Lock()
+CHECK_CACHE = 4096
 
 
 class DocumentQueries:
@@ -223,15 +232,10 @@ class DocumentQueries:
         return min(ranked)[3] if ranked else None
 
     def solve_status(self) -> SolveStatus:
-        key = id(self._document)
-        cached = _STATUS.get(key)
-        if cached is not None and cached[0] is self._document:
-            _STATUS.move_to_end(key)
-            return cached[1]
-        result = sketch.status(self._document)
-        _STATUS[key] = (self._document, result)
-        while len(_STATUS) > 16:
-            _STATUS.popitem(last=False)
+        result = _STATUS.get(self._document)
+        if result is None:
+            result = sketch.status(self._document)
+            _STATUS.put(self._document, result)
         return result
 
     def applicable_constraints(self, refs: Sequence[Ref]) -> tuple[ConstraintOption, ...]:
@@ -279,21 +283,61 @@ class DocumentQueries:
         return suggest(self._document, tuple(ids), tolerance, angle_tolerance)
 
     def constraints_on(self, ids: Sequence[EntityId]) -> tuple[EntityId, ...]:
-        wanted = set(ids)
-        return tuple(
-            sorted(
-                id
-                for id, entity in self._document.entities.items()
-                if {r.entity for r in sketch.references(entity)} & wanted
-            )
-        )
+        index = sketch.referrers(self._document)
+        found: set[EntityId] = set()
+        for id in set(ids):
+            found |= index.get(id, frozenset())
+        return tuple(sorted(found))
 
     def check(self, expectation: Expectation) -> CheckResult:
+        """Re-measured only when something it reads changed: a check depends on the entities
+        it names (and, for a dimension, what that dimension measures), so while those are the
+        same objects, the last answer stands."""
+        inputs = self._check_inputs(expectation)
+        key = (expectation, id(self._kernel_source))
+        if inputs is not None:
+            try:
+                with _CHECKS_LOCK:
+                    cached = _CHECKS.get(key)
+            except TypeError:  # an expectation holding something unhashable: never cached
+                inputs = None
+            else:
+                if (
+                    cached is not None
+                    and cached[0] is self._kernel_source
+                    and _same(cached[1], inputs)
+                ):
+                    return cached[2]
         actual = self._evaluate(expectation)
         if isinstance(actual, Error):
-            return CheckResult(expectation=expectation, passed=False, actual=None, error=actual)
-        passed = abs(actual - expectation.expected) <= expectation.tolerance
-        return CheckResult(expectation=expectation, passed=passed, actual=actual)
+            result = CheckResult(expectation=expectation, passed=False, actual=None, error=actual)
+        else:
+            passed = abs(actual - expectation.expected) <= expectation.tolerance
+            result = CheckResult(expectation=expectation, passed=passed, actual=actual)
+        if inputs is not None:
+            with _CHECKS_LOCK:
+                _CHECKS[key] = (self._kernel_source, inputs, result)
+                while len(_CHECKS) > CHECK_CACHE:
+                    _CHECKS.popitem(last=False)
+        return result
+
+    def _check_inputs(self, expectation: Expectation) -> tuple[Entity | None, ...] | None:
+        """The entities a check reads, or None when it may read more than it names (a
+        bounding box of the whole sketch) or can't be looked at safely."""
+        try:
+            named = [*expectation.ids, *(ref.entity for ref in expectation.refs)]
+            if not named:
+                return None
+            entities = self._document.entities
+            found: list[Entity | None] = []
+            for id in named:
+                entity = entities.get(id)
+                found.append(entity)
+                if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
+                    found.extend(entities.get(ref.entity) for ref in sketch.references(entity))
+            return tuple(found)
+        except (TypeError, AttributeError):
+            return None
 
     # --- Helpers ------------------------------------------------------------------------
 
@@ -414,6 +458,10 @@ class DocumentQueries:
                 if isinstance(value, Error) and value.field == "id":
                     return Error(code=value.code, message=value.message, field="ids")
                 return value
+
+
+def _same(a: tuple[object, ...], b: tuple[object, ...]) -> bool:
+    return len(a) == len(b) and all(x is y for x, y in zip(a, b, strict=True))
 
 
 # --- Geometry ---------------------------------------------------------------------------

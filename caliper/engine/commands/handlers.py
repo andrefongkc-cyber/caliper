@@ -1,13 +1,21 @@
-"""What each command does to a Document. Pure functions: a Document in, a Document out."""
+"""What each command does to a Document. Pure functions: a Document in, a Document out.
+
+Being pure, a command's outcome on a document never changes. `already` lets a caller that
+has run commands once (an assistant's or MCP client's workspace) hand the outcomes to a bus
+that runs the same commands from the same document: accepting a proposal then commits what
+was already validated and solved, instead of doing all of it again.
+"""
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import assert_never
 
 from caliper.contracts.commands import (
+    Applied,
     Command,
     CreateAngleDimension,
     CreateArc,
@@ -64,10 +72,11 @@ from caliper.engine.constraints.sketch import (
     is_relation,
     mover,
     ref_params,
-    references,
+    referrers,
     settle,
     turning,
 )
+from caliper.engine.document.delta import apply
 
 CreateCommand = (
     CreatePoint
@@ -111,8 +120,72 @@ class Handled:
     """What the constraints must re-check after this command, if anything."""
 
 
+@dataclass(frozen=True, slots=True)
+class Executed:
+    """Commands a bus ran one after another, from `base` to `result`, and what each one did."""
+
+    base: Document
+    steps: tuple[Applied, ...]
+    """Each command's outcome as the bus reported it: the resolved command, its delta, its
+    label, and the ids it created. Applying every delta in turn to `base` gives `result`."""
+    result: Document
+
+
+class _Replay:
+    """How far a bus running `executed`'s commands again has got, and on which document."""
+
+    def __init__(self, executed: Executed) -> None:
+        self.executed = executed
+        self.done = 0
+        self.document = executed.base
+
+    def outcome(self, document: Document, command: Command) -> Handled | None:
+        steps = self.executed.steps
+        if self.done == len(steps) or document is not self.document:
+            return None
+        step = steps[self.done]
+        if step.command is not command:
+            return None
+        self.done += 1
+        # Each document in between is rebuilt from the recorded delta rather than kept, so a
+        # record costs its deltas, not a copy of the sketch per command.
+        after = apply(document, step.delta)
+        if self.done == len(steps) and after == self.executed.result:
+            after = self.executed.result  # the very document: all worked out for it still holds
+        self.document = after
+        return Handled(
+            document=after, command=command, label=step.label, created_ids=step.created_ids
+        )
+
+
+_REPLAYS: list[_Replay] = []
+"""The records `handle` commits from while `already` is open."""
+
+
+@contextmanager
+def already(executed: Executed) -> Iterator[None]:
+    """While open, a bus that runs `executed`'s commands again, in the same order, starting
+    from `executed.base` itself, commits each one's recorded outcome instead of validating and
+    solving the command a second time.
+
+    The first command must meet `base` and each later one the document the step before it
+    returned (the same objects, not equal ones), and each command must be the very object
+    recorded. Then the outcome is exactly what running it would give, a command's handler
+    being a pure function of the two. From the first mismatch on, everything runs as usual.
+    """
+    replay = _Replay(executed)
+    _REPLAYS.append(replay)
+    try:
+        yield
+    finally:
+        _REPLAYS.remove(replay)
+
+
 def handle(document: Document, command: Command) -> Handled | list[Error]:
     """Apply `command`, then solve whatever constraints it touched."""
+    for replay in _REPLAYS:
+        if (recorded := replay.outcome(document, command)) is not None:
+            return recorded
     outcome = _apply(document, command)
     if isinstance(outcome, list) or outcome.solve is None:
         return outcome
@@ -385,11 +458,9 @@ def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error
     if errors:
         return errors
     doomed = set(ids)
-    doomed |= {
-        entity_id
-        for entity_id, entity in document.entities.items()
-        if {r.entity for r in references(entity)} & doomed
-    }
+    index = referrers(document)
+    for entity_id in ids:
+        doomed |= index.get(entity_id, frozenset())
     return Handled(
         document=Document(
             entities=MappingProxyType(

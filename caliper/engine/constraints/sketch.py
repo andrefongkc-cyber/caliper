@@ -1,7 +1,11 @@
 """Solving a document: clusters, staged solves, conflicts, redundancy, and status.
 
 Constraints and driving dimensions ("relations") connect geometry into clusters that solve
-independently. A command asks `settle` to re-solve the clusters it touched. The solve runs in
+independently. Geometry that Fix constraints pin completely ("anchored": a fixed origin point,
+say) can't move in any solve, so it doesn't join what's related to it: a hole and a slot both
+dimensioned from a fixed origin are separate clusters, each holding the origin as a constant.
+Without that, a sketch dimensioned from its origin is one cluster, and every command solves
+all of it. A command asks `settle` to re-solve the clusters it touched. The solve runs in
 stages that each let a little more move, and the first stage that satisfies everything
 wins:
 
@@ -19,7 +23,6 @@ lets the rest solve are reported.
 """
 
 import math
-from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import permutations
@@ -57,6 +60,7 @@ from caliper.engine.constraints.relations import (
     measure_angle,
     tangent_at_joint,
 )
+from caliper.engine.document.recent import Recent
 
 type Param = tuple[EntityId, str]
 type Relation = Constraint | DistanceDimension | RadialDimension | AngleDimension
@@ -90,6 +94,61 @@ def references(entity: Entity) -> tuple[Ref, ...]:
     return ()
 
 
+_REFERRERS: Recent[Mapping[EntityId, frozenset[EntityId]]] = Recent(4)
+"""`referrers` for recent documents."""
+
+
+def referrers(document: Document) -> Mapping[EntityId, frozenset[EntityId]]:
+    """The constraints and dimensions that refer to each entity: what `references` says,
+    turned around. Worked out from the last document asked about, by identity: only the
+    entities a change added, removed, or replaced are looked at again."""
+    found = _REFERRERS.get(document)
+    if found is not None:
+        return found
+    latest = _REFERRERS.latest()
+    if latest is None:
+        found = _indexed(document)
+    else:
+        base, index = latest
+        changed = _changed(base, document)
+        if len(changed) <= len(document.entities) // 2:
+            found = _reindexed(index, base, document, changed)
+        else:
+            found = _indexed(document)
+    _REFERRERS.put(document, found)
+    return found
+
+
+def _indexed(document: Document) -> dict[EntityId, frozenset[EntityId]]:
+    found: dict[EntityId, set[EntityId]] = {}
+    for id, entity in document.entities.items():
+        for ref in references(entity):
+            found.setdefault(ref.entity, set()).add(id)
+    return {target: frozenset(ids) for target, ids in found.items()}
+
+
+def _reindexed(
+    index: Mapping[EntityId, frozenset[EntityId]],
+    before: Document,
+    after: Document,
+    changed: set[EntityId],
+) -> dict[EntityId, frozenset[EntityId]]:
+    updated = dict(index)
+    for id in changed:
+        old, new = before.entities.get(id), after.entities.get(id)
+        was = {r.entity for r in references(old)} if old is not None else set()
+        now = {r.entity for r in references(new)} if new is not None else set()
+        for target in was - now:
+            left = updated[target] - {id}
+            if left:
+                updated[target] = left
+            else:
+                del updated[target]
+        for target in now - was:
+            updated[target] = updated.get(target, frozenset()) | {id}
+    return updated
+
+
 def is_relation(entity: Entity) -> bool:
     """Constraints, and dimensions with a value: the things the solver must satisfy."""
     if isinstance(entity, Constraint):
@@ -103,17 +162,69 @@ def is_relation(entity: Entity) -> bool:
 class Cluster:
     geometry: tuple[EntityId, ...]
     relations: tuple[EntityId, ...]
+    fixed: tuple[EntityId, ...] = ()
+    """Anchored geometry the relations refer to without it being a member: constants here,
+    solved (and counted) in its own cluster, with its Fix constraints."""
+
+
+_DIRECT: Mapping[tuple[type[Geometry], Feature], str] = {
+    (Point, Feature.POINT): "position",
+    (Line, Feature.START): "start",
+    (Line, Feature.END): "end",
+    (Circle, Feature.CENTER): "center",
+    (Arc, Feature.CENTER): "center",
+    (Rectangle, Feature.BOTTOM_LEFT): "corner",
+}
+"""Point features that are two of their entity's own parameters, so fixing one pins those."""
+
+
+def anchored(document: Document) -> frozenset[EntityId]:
+    """Geometry whose every parameter a Fix constraint pins: it can't move in any solve."""
+    pinned: dict[EntityId, set[str]] = {}
+    sizes: dict[EntityId, int] = {}
+    for entity in document.entities.values():
+        if not (isinstance(entity, Constraint) and entity.type is ConstraintType.FIX):
+            continue
+        for ref in entity.refs:
+            target = document.entities.get(ref.entity)
+            if not isinstance(target, GEOMETRY):
+                continue
+            paths = PARAMS[type(target)]
+            sizes[ref.entity] = len(paths)
+            if ref.feature is Feature.CURVE:
+                pinned.setdefault(ref.entity, set()).update(paths)
+            elif (prefix := _DIRECT.get((type(target), ref.feature))) is not None:
+                pinned.setdefault(ref.entity, set()).update(
+                    path for path in paths if path.split(".")[0] == prefix
+                )
+    return frozenset(id for id, paths in pinned.items() if len(paths) == sizes[id])
 
 
 def clusters(document: Document) -> list[Cluster]:
-    """Geometry joined by relations, each group with its relations. Lone geometry is omitted."""
-    relations = (id for id in sorted(document.entities) if is_relation(document.entities[id]))
-    return _clusters_of(document, relations)
+    """Geometry joined by relations, each group with its relations. Lone geometry is omitted.
+
+    Anchored geometry joins only relations that refer to nothing else, such as its own Fix;
+    elsewhere it's one of the cluster's `fixed` constants."""
+    return _clusters_of(document, _relation_ids(document), anchored(document))
 
 
-def _clusters_of(document: Document, relations: Iterable[EntityId]) -> list[Cluster]:
+def _relation_ids(document: Document) -> list[EntityId]:
+    return [id for id in sorted(document.entities) if is_relation(document.entities[id])]
+
+
+def _whole(document: Document) -> dict[EntityId, Cluster]:
+    """Every clustered entity's cluster when anchored geometry joins like any other: the
+    clusters as they were before anchoring split them. For the rare paths (a command that
+    fails, or repeats a constraint) whose answer and message must stay exactly the same."""
+    return _by_member(_clusters_of(document, _relation_ids(document), frozenset()))
+
+
+def _clusters_of(
+    document: Document, relations: Iterable[EntityId], fixed: frozenset[EntityId]
+) -> list[Cluster]:
     """The clusters `relations` (sorted ids) join their geometry into, in `clusters` order:
-    by each one's first geometry id, geometry and relations each sorted."""
+    by each one's first geometry id, geometry and relations each sorted. A relation joins only
+    its targets outside `fixed`, unless every target is in it."""
     parent: dict[EntityId, EntityId] = {}
 
     def root(e: EntityId) -> EntityId:
@@ -123,23 +234,28 @@ def _clusters_of(document: Document, relations: Iterable[EntityId]) -> list[Clus
         return e
 
     owners: dict[EntityId, EntityId] = {}
+    constants: dict[EntityId, list[EntityId]] = {}
     for id in relations:
         targets = sorted({r.entity for r in references(document.entities[id])})
-        first = root(targets[0])  # registers it, even when the relation has one entity
-        for other in targets[1:]:
+        joined = [t for t in targets if t not in fixed] or targets
+        first = root(joined[0])  # registers it, even when the relation has one entity
+        for other in joined[1:]:
             parent[root(other)] = first
-        owners[id] = targets[0]
-    groups: dict[EntityId, tuple[list[EntityId], list[EntityId]]] = {}
+        owners[id] = joined[0]
+        if len(joined) < len(targets):
+            constants[id] = [t for t in targets if t in fixed]
+    groups: dict[EntityId, tuple[list[EntityId], list[EntityId], set[EntityId]]] = {}
     for e in sorted(parent):
-        groups.setdefault(root(e), ([], []))[0].append(e)
+        groups.setdefault(root(e), ([], [], set()))[0].append(e)
     for id, owner in owners.items():
-        groups[root(owner)][1].append(id)
-    return [Cluster(tuple(g), tuple(r)) for g, r in groups.values()]
+        group = groups[root(owner)]
+        group[1].append(id)
+        group[2].update(constants.get(id, ()))
+    return [Cluster(tuple(g), tuple(r), tuple(sorted(f))) for g, r, f in groups.values()]
 
 
-_GROUPS: OrderedDict[int, tuple[Document, Mapping[EntityId, Cluster]]] = OrderedDict()
-"""`grouped` for recent documents, by identity, as `DocumentQueries` keeps solve status.
-Holding a document keeps its id from being reused."""
+_GROUPS: Recent[tuple[Mapping[EntityId, Cluster], frozenset[EntityId]]] = Recent(4)
+"""`grouped` for recent documents, with their anchored geometry."""
 
 
 def grouped(document: Document) -> Mapping[EntityId, Cluster]:
@@ -149,29 +265,32 @@ def grouped(document: Document) -> Mapping[EntityId, Cluster]:
     Worked out from the last document asked about. Documents share the entity objects a change
     left alone, so they are compared by identity: when no relation changed, every cluster keeps
     its members; otherwise only the clusters a changed relation left or reaches are grouped
-    again.
+    again. A changed Fix changes what is anchored, so everything is grouped again then.
     """
-    key = id(document)
-    cached = _GROUPS.get(key)
-    if cached is not None and cached[0] is document:
-        _GROUPS.move_to_end(key)
-        return cached[1]
+    return _grouping(document)[0]
+
+
+def _grouping(document: Document) -> tuple[Mapping[EntityId, Cluster], frozenset[EntityId]]:
+    cached = _GROUPS.get(document)
+    if cached is not None:
+        return cached
     found: Mapping[EntityId, Cluster]
-    if not _GROUPS:
-        found = _by_member(clusters(document))
+    latest = _GROUPS.latest()
+    if latest is None:
+        fixed = anchored(document)
+        found = _by_member(_clusters_of(document, _relation_ids(document), fixed))
     else:
-        base, where = next(reversed(_GROUPS.values()))
+        base, (where, fixed) = latest
         changed = _changed(base, document)
         if not _any_relation(changed, base, document):
             found = where
-        elif len(changed) > len(document.entities) // 2:
-            found = _by_member(clusters(document))
+        elif _any_fix(changed, base, document) or len(changed) > len(document.entities) // 2:
+            fixed = anchored(document)
+            found = _by_member(_clusters_of(document, _relation_ids(document), fixed))
         else:
-            found = _regrouped(where, base, document, changed)
-    _GROUPS[key] = (document, found)
-    while len(_GROUPS) > 4:
-        _GROUPS.popitem(last=False)
-    return found
+            found = _regrouped(where, base, document, changed, fixed)
+    _GROUPS.put(document, (found, fixed))
+    return found, fixed
 
 
 def _by_member(found: Iterable[Cluster]) -> dict[EntityId, Cluster]:
@@ -179,7 +298,11 @@ def _by_member(found: Iterable[Cluster]) -> dict[EntityId, Cluster]:
 
 
 def _regrouped(
-    where: Mapping[EntityId, Cluster], before: Document, after: Document, changed: set[EntityId]
+    where: Mapping[EntityId, Cluster],
+    before: Document,
+    after: Document,
+    changed: set[EntityId],
+    fixed: frozenset[EntityId],
 ) -> dict[EntityId, Cluster]:
     """`where`, from `before`, for `after`: the clusters that held a changed entity, or that a
     changed relation refers into, are grouped again from their relations; the rest stay."""
@@ -199,7 +322,7 @@ def _regrouped(
     for cluster in stale:
         for member in (*cluster.geometry, *cluster.relations):
             del regrouped[member]
-    regrouped.update(_by_member(_clusters_of(after, kept)))
+    regrouped.update(_by_member(_clusters_of(after, kept, fixed)))
     return regrouped
 
 
@@ -217,6 +340,8 @@ class System:
     anchors: list[float]
     """Values before the command, where Fix holds things."""
     relations: list[EntityId] = field(default_factory=list)
+    constant: frozenset[int] = frozenset()
+    """Parameters of the cluster's anchored `fixed` geometry: read, never solved for."""
 
     @classmethod
     def build(
@@ -227,7 +352,8 @@ class System:
         params: list[Param] = []
         values: list[float] = []
         anchors: list[float] = []
-        for id in cluster.geometry:
+        constant: set[int] = set()
+        for id in (*cluster.geometry, *cluster.fixed):
             entity = document.entities[id]
             assert isinstance(entity, GEOMETRY)
             kinds[id] = type(entity)
@@ -236,11 +362,27 @@ class System:
                 old = entity
             slots[id] = []
             for path in PARAMS[type(entity)]:
+                if id in cluster.fixed:
+                    constant.add(len(params))
                 slots[id].append(len(params))
                 params.append((id, path))
                 values.append(read(entity, path))
                 anchors.append(read(old, path))
-        return cls(document, kinds, slots, params, values, anchors, list(cluster.relations))
+        return cls(
+            document,
+            kinds,
+            slots,
+            params,
+            values,
+            anchors,
+            list(cluster.relations),
+            frozenset(constant),
+        )
+
+    @property
+    def unknowns(self) -> list[int]:
+        """Every parameter a solve may change: all but the constants."""
+        return [i for i in range(len(self.params)) if i not in self.constant]
 
     def frame(self, values: Sequence[float], variables: Iterable[int] = ()) -> Frame:
         return Frame(self.kinds, self.slots, values, frozenset(variables))
@@ -465,28 +607,70 @@ class Request:
 
 
 def settle(before: Document, after: Document, request: Request) -> Document | list[Error]:
-    """Solve every cluster the command touched. The document to keep, or why not."""
+    """Solve every cluster the command touched. The document to keep, or why not.
+
+    The clusters are the split ones (see `clusters`) when that gives what solving the whole
+    sketch would: when the command changed no Fix and no anchored geometry. Anything they
+    can't settle, a conflict or a repeated constraint, is worked out on the whole sketch
+    instead, so rejections and their messages are exactly what they always were."""
+    where, fixed = _grouping(after)
+    if fixed and _split_safe(before, after, fixed):
+        split = _settle(before, after, request, where, final=False)
+        if split is not None:
+            return split
+    whole = _whole(after) if fixed else where
+    outcome = _settle(before, after, request, whole, final=True)
+    assert outcome is not None
+    return outcome
+
+
+def _settle(
+    before: Document,
+    after: Document,
+    request: Request,
+    where: Mapping[EntityId, Cluster],
+    *,
+    final: bool,
+) -> Document | list[Error] | None:
+    """Solve the touched clusters of `where`. When not `final`, None instead of an error, for
+    the whole sketch to decide."""
     solved: dict[EntityId, Entity] = {}
-    where = grouped(after)
     touched = {where[id] for id in request.touched if id in where}
     for cluster in sorted(touched, key=lambda c: c.geometry[0]):  # `clusters` order
         system = System.build(after, cluster, before)
-        outcome = _solve_cluster(system, request)
-        if isinstance(outcome, Error):
-            return [outcome]
+        # The nudge only rescues a degenerate start, and where it pushes depends on which
+        # unknowns the system holds: split clusters leave it to the whole sketch.
+        outcome = _attempt(system, request, nudge=final)
+        if outcome is None:
+            return [_conflict(system, request)] if final else None
         values, entities = outcome
         redundant = _redundancy(system, values, request.new)
         if redundant is not None:
-            return [redundant]
+            return [redundant] if final else None
         solved.update(entities)
     if not solved:
         return after
     return Document(entities=MappingProxyType({**after.entities, **solved}), next_id=after.next_id)
 
 
+def _split_safe(before: Document, after: Document, fixed: frozenset[EntityId]) -> bool:
+    """Whether the split clusters solve the command as the whole sketch would: it moved no
+    anchored geometry (a constant there) and changed no Fix (which changes what's anchored)."""
+    changed = _changed(before, after)
+    return not (changed & fixed) and not _any_fix(changed, before, after)
+
+
+def _any_fix(ids: Iterable[EntityId], before: Document, after: Document) -> bool:
+    return any(
+        isinstance(entity, Constraint) and entity.type is ConstraintType.FIX
+        for id in ids
+        for entity in (before.entities.get(id), after.entities.get(id))
+    )
+
+
 def _stages(system: System, request: Request) -> list[list[int]]:
-    held = system.indices(request.held)
-    everything = set(range(len(system.params))) - held
+    held = system.indices(request.held) | system.constant
+    everything = set(system.unknowns) - held
     stages: list[set[int]] = [set()]
     for movers in request.movers:
         stages.append((stages[-1] | system.indices(movers)) - held)
@@ -510,18 +694,21 @@ def _stages(system: System, request: Request) -> list[list[int]]:
     return unique
 
 
-def _solve_cluster(
-    system: System, request: Request
-) -> tuple[list[float], dict[EntityId, Entity]] | Error:
+def _attempt(
+    system: System, request: Request, *, nudge: bool = True
+) -> tuple[list[float], dict[EntityId, Entity]] | None:
+    """The solved values and the geometry they describe, or None if no stage works. Last,
+    unless `nudge` is False, everything is tried again from slightly off the stored values."""
     stages = _stages(system, request)
     holds = [request.turning, frozenset()] if request.turning else [frozenset()]
     attempts = [(free, False, hold) for free in stages for hold in holds]
-    attempts += [(stages[-1], True, hold) for hold in holds]
-    for free, nudge, hold in attempts:
-        values, ok = _newton(system, system.relations, free, nudge=nudge, hold_lengths=hold)
+    if nudge:
+        attempts += [(stages[-1], True, hold) for hold in holds]
+    for free, nudged, hold in attempts:
+        values, ok = _newton(system, system.relations, free, nudge=nudged, hold_lengths=hold)
         if ok and (entities := _written(system, values)) is not None:
             return values, entities
-    return _conflict(system, request)
+    return None
 
 
 def _written(system: System, values: Sequence[float]) -> dict[EntityId, Entity] | None:
@@ -577,7 +764,7 @@ def _conflict(system: System, request: Request) -> Error:
     blamed too when releasing it lets everything hold.
     """
     held = system.indices(request.held)
-    free = [i for i in range(len(system.params)) if i not in held]
+    free = [i for i in system.unknowns if i not in held]
     added = [id for id in system.relations if id in request.new]
     near = set(_neighbours(system, request))
     # Relations on the same geometry first: QuickXplain prefers blaming earlier candidates.
@@ -590,7 +777,7 @@ def _conflict(system: System, request: Request) -> Error:
         return _solves(system, relations, free)
 
     culprits = sorted(_quickxplain(added, candidates, holds)) if holds(added) else []
-    edit_blamed = bool(held) and _solves(system, system.relations, range(len(system.params)))
+    edit_blamed = bool(held) and _solves(system, system.relations, system.unknowns)
     ids = sorted({*culprits, *(request.edited if edit_blamed else ())})
     subject = _subject(system.document, request)
     if not ids:
@@ -672,7 +859,7 @@ def _redundancy(system: System, values: Sequence[float], new: frozenset[EntityId
     if not added:
         return None
     order = [id for id in system.relations if id not in new] + added
-    everything = list(range(len(values)))
+    everything = system.unknowns
     equations = system.equations(order, values)
     _, gradients, owners = _evaluate(equations, system.frame(values, everything))
     basis = RowBasis(len(values))
@@ -781,6 +968,7 @@ def implied(
     whole new document's clusters would give.
     """
     geometry: set[EntityId] = set()
+    fixed: set[EntityId] = set()
     relations = {id}
     for entity in {r.entity for r in constraint.refs}:
         joined = joins.get(entity)
@@ -788,11 +976,15 @@ def implied(
             geometry.add(entity)
         else:
             geometry.update(joined.geometry)
+            fixed.update(joined.fixed)
             relations.update(joined.relations)
     with_it = Document(
         entities=_Adding(document.entities, id, constraint), next_id=document.next_id
     )
-    system = System.build(with_it, Cluster(tuple(sorted(geometry)), tuple(sorted(relations))))
+    joined = Cluster(
+        tuple(sorted(geometry)), tuple(sorted(relations)), tuple(sorted(fixed - geometry))
+    )
+    system = System.build(with_it, joined)
     return _redundancy(system, system.values, frozenset({id})) is not None
 
 
@@ -819,7 +1011,8 @@ class _Adding(Mapping[EntityId, Entity]):
 
 @dataclass(frozen=True, slots=True)
 class _Health:
-    """What `status` learns from one cluster. It depends on nothing outside the cluster."""
+    """What `status` learns from one cluster. It depends on nothing outside the cluster and
+    the anchored geometry it holds as constants."""
 
     rank: int
     free: tuple[int, ...]
@@ -842,6 +1035,8 @@ class _Solved:
     """Parameters of all the geometry: the degrees of freedom before any relation."""
     entity_dof: Mapping[EntityId, int]
     """Sorted by id, and never changed once built: the next status copies it."""
+    fixed: frozenset[EntityId] = frozenset()
+    """Anchored geometry some cluster holds as a constant."""
 
 
 _LAST: list[_Solved] = []
@@ -886,17 +1081,22 @@ def _solved(document: Document, last: _Solved | None) -> _Solved:
     unique = {id(c): c for c in grouped(document).values()}.values()
     found = tuple(sorted(unique, key=lambda c: c.geometry[0]))  # `clusters` order
     before = (
-        {} if last is None else {c.geometry + c.relations: i for i, c in enumerate(last.clusters)}
+        {}
+        if last is None
+        else {c.geometry + c.relations + c.fixed: i for i, c in enumerate(last.clusters)}
     )
     health: list[_Health] = []
     where: dict[EntityId, int] = {}
     for index, cluster in enumerate(found):
         members = cluster.geometry + cluster.relations
-        reused = before.get(members)
+        reused = before.get(members + cluster.fixed)
         if (
             last is not None
             and reused is not None
-            and all(last.document.entities[id] is document.entities[id] for id in members)
+            and all(
+                last.document.entities[id] is document.entities[id]
+                for id in (*members, *cluster.fixed)
+            )
         ):
             health.append(last.health[reused])
         else:
@@ -909,12 +1109,20 @@ def _solved(document: Document, last: _Solved | None) -> _Solved:
     for cluster, h in zip(found, health, strict=True):
         entity_dof.update(zip(cluster.geometry, h.free, strict=True))
     return _Solved(
-        document, found, tuple(health), where, unknowns, dict(sorted(entity_dof.items()))
+        document,
+        found,
+        tuple(health),
+        where,
+        unknowns,
+        dict(sorted(entity_dof.items())),
+        frozenset(id for cluster in found for id in cluster.fixed),
     )
 
 
 def _updated(last: _Solved, document: Document, changed: set[EntityId]) -> _Solved:
     """`last`, after an edit that changed geometry only, so every cluster keeps its members."""
+    if changed & last.fixed:  # a constant of other clusters: find them all again
+        return _solved(document, last)
     touched = {last.where[id] for id in changed if id in last.where}
     health = list(last.health)
     for index in touched:
@@ -936,7 +1144,9 @@ def _updated(last: _Solved, document: Document, changed: set[EntityId]) -> _Solv
         entity_dof.update(zip(last.clusters[index].geometry, health[index].free, strict=True))
     if added:
         entity_dof = dict(sorted(entity_dof.items()))
-    return _Solved(document, last.clusters, tuple(health), last.where, unknowns, entity_dof)
+    return _Solved(
+        document, last.clusters, tuple(health), last.where, unknowns, entity_dof, last.fixed
+    )
 
 
 def _changed(before: Document, after: Document) -> set[EntityId]:
@@ -960,7 +1170,7 @@ def _any_relation(ids: Iterable[EntityId], before: Document, after: Document) ->
 def _health(document: Document, cluster: Cluster) -> _Health:
     system = System.build(document, cluster)
     values = system.values
-    everything = list(range(len(values)))
+    everything = system.unknowns
     equations = system.equations(system.relations, values)
     residuals, gradients, owners = _evaluate(equations, system.frame(values, everything))
     tolerance = 1e3 * _tolerance(values)

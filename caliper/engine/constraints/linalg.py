@@ -6,10 +6,14 @@ pass gives the solver its step (minimum-norm, over the independent rows), the ra
 degrees of freedom, and the constraints that imply a redundant one.
 
 Sizes are a sketch cluster's unknowns (tens to a few hundred), so plain lists suffice.
+Jacobian rows are sparse, though (a constraint touches a few unknowns), and so are the
+orthonormal rows built from them early on. Each kept row remembers where it is nonzero, and a
+product is taken only where both rows can be: skipping the rest changes no result, because
+those terms are exactly zero and the compensated sum of the others is the same sum.
 """
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from operator import mul
 
@@ -36,6 +40,10 @@ class RowBasis:
     """Indices of the independent rows, in the order they were added."""
     dependent: dict[int, list[float]] = field(default_factory=dict)
     """Each dependent row as a combination of the kept rows (aligned with `kept`)."""
+    supports: list[tuple[int, ...]] = field(default_factory=list)
+    """Where each row of `q` is nonzero, ascending."""
+    masks: list[int] = field(default_factory=list)
+    """`supports` as bit sets, to see at once that two rows share no column."""
 
     @property
     def rank(self) -> int:
@@ -47,15 +55,25 @@ class RowBasis:
         v = list(row)
         c = [0.0] * len(self.q)
         if size > ZERO_ROW:
+            mask = _mask(v)
             for _ in range(2):  # the second pass repairs cancellation in the first
                 for j, qj in enumerate(self.q):
-                    p = _dot(v, qj)
+                    if not self.masks[j] & mask:
+                        continue  # no column in common: the product is exactly zero
+                    support = self.supports[j]
+                    p = _dot(map(v.__getitem__, support), map(qj.__getitem__, support))
                     if p != 0.0:
                         c[j] += p
-                        v = [vi - p * qji for vi, qji in zip(v, qj, strict=True)]
+                        for i in support:
+                            v[i] -= p * qj[i]
+                        mask |= self.masks[j]
         rest = _norm(v)
         if size > ZERO_ROW and rest > RELATIVE_TOLERANCE * size:
-            self.q.append([x / rest for x in v])
+            unit = [x / rest for x in v]
+            support = tuple(i for i, x in enumerate(unit) if x != 0.0)
+            self.q.append(unit)
+            self.supports.append(support)
+            self.masks.append(sum(1 << i for i in support))
             self.lower.append([*c, rest])
             self.kept.append(index)
             return True
@@ -73,10 +91,10 @@ class RowBasis:
                 total -= row[j] * z[j]
             z[i] = total / row[i]
         delta = [0.0] * self.width
-        for zi, qi in zip(z, self.q, strict=True):
+        for zi, qi, support in zip(z, self.q, self.supports, strict=True):
             if zi != 0.0:
-                for j, qij in enumerate(qi):
-                    delta[j] += zi * qij
+                for j in support:
+                    delta[j] += zi * qi[j]
         return delta
 
     def free_dimensions(self, columns: Sequence[int]) -> int:
@@ -127,11 +145,20 @@ def symmetric_rank(matrix: list[list[float]], tolerance: float = 1e-8) -> int:
     return rank
 
 
-def _dot(a: Sequence[float], b: Sequence[float]) -> float:
+def _dot(a: Iterable[float], b: Iterable[float]) -> float:
     # `sum` of floats is compensated (Neumaier) since Python 3.12: accurate and the same on
-    # every platform.
+    # every platform. Zero terms don't change it, which is what lets `add` leave them out.
     total: float = sum(map(mul, a, b))
     return total
+
+
+def _mask(v: Sequence[float]) -> int:
+    """The columns where `v` is nonzero, as a bit set."""
+    bits = 0
+    for i, x in enumerate(v):
+        if x != 0.0:
+            bits |= 1 << i
+    return bits
 
 
 def _norm(v: Sequence[float]) -> float:
