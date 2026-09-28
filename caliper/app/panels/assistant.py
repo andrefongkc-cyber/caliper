@@ -4,8 +4,8 @@ History; the proposal card is where changes are reviewed and applied. How long a
 Desktop task took is in the Timing panel (`caliper.app.panels.timing`)."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QWidget
+from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from caliper.ai.agent import Turn
 from caliper.ai.model import ToolOutcome
@@ -51,27 +51,46 @@ def _problem(content: object) -> str:
     return str(content)
 
 
-class AssistantLog(QListWidget):
+SHOWN_LINES = 5000
+"""Lines the log shows before the oldest scroll away. `lines()` keeps every one."""
+
+
+class AssistantLog(QPlainTextEdit):
+    """A plain-text log: appending a line costs the same at line 10 as at line 10,000.
+
+    (A list widget of word-wrapped rows laid all of them out again on every append, which
+    made each MCP call slower than the last in a long session.)"""
+
     def __init__(self, controller: AgentController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("assistant-log")
-        self.setWordWrap(True)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.setReadOnly(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setMaximumBlockCount(SHOWN_LINES)
+        self._lines: list[str] = []
         self.controller = controller
         controller.turn_started.connect(self._asked)
         controller.step_done.connect(self._stepped)
         controller.turn_finished.connect(self._finished)
 
     def lines(self) -> list[str]:
-        return [self.item(i).text() for i in range(self.count())]
+        """Every line added, oldest first, including any scrolled out of the view."""
+        return list(self._lines)
 
     def _add(self, text: str, colour: QColor) -> None:
-        item = QListWidgetItem(text)
-        item.setForeground(colour)
-        self.addItem(item)
-        self.scrollToBottom()
+        self._lines.append(text)
+        bar = self.verticalScrollBar()
+        following = bar.value() >= bar.maximum() - 1  # at the end: keep up with new lines
+        cursor = QTextCursor(self.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self.document().isEmpty():
+            cursor.insertBlock()
+        style = QTextCharFormat()
+        style.setForeground(colour)
+        cursor.insertText(text, style)
+        if following:
+            bar.setValue(bar.maximum())
 
     def _asked(self, text: str) -> None:
         self._add(f"You: {text}", theme.TEXT)
