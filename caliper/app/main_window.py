@@ -39,7 +39,7 @@ from caliper.app.tools.constrain import constraint_options
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
 from caliper.contracts.commands import Applied, CreateConstraint, DeleteEntities, ModifyEntity
-from caliper.contracts.document import ConstraintType, Point2
+from caliper.contracts.document import ConstraintType, Document, Point2
 from caliper.contracts.errors import Error
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io.canonical import LoadError
@@ -89,6 +89,8 @@ class MainWindow(QMainWindow):
         self.agent.proposal_shown.connect(self._frame_proposal)
         self.mcp: McpHost | None = None
         """Claude Desktop's way in, once `serve_mcp` is called."""
+        self._framed_base: Document | None = None
+        """The document the proposal last framed was prepared against."""
         self.opener: OpenServer | None = None
         """Files other Caliper processes hand this window, once `serve_opens` is called."""
         central = QWidget()
@@ -566,11 +568,18 @@ class MainWindow(QMainWindow):
         box.exec()
 
     def _frame_proposal(self, proposal: Proposal) -> None:
-        """Keep both the change and the card in view: frame it in the space left of the card."""
+        """Keep both the change and the card in view: frame it in the space left of the card.
+
+        A proposal an agent keeps adding to is framed again only when it outgrows the view:
+        moving the view redraws the whole sketch, which each addition shouldn't cost."""
         box = Bus(proposal.result).queries.bounding_box()
-        if not isinstance(box, Error):
-            inset = self.proposal_card.width() + 2 * SPACE.l
-            self.canvas.frame_box(box, right_inset=inset)
+        if isinstance(box, Error):
+            return
+        inset = self.proposal_card.width() + 2 * SPACE.l
+        if proposal.base is self._framed_base and self.canvas.shows(box, right_inset=inset):
+            return
+        self._framed_base = proposal.base
+        self.canvas.frame_box(box, right_inset=inset)
 
     def _focus_prompt(self) -> None:
         self.prompt_bar.input.setFocus()

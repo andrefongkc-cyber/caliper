@@ -16,6 +16,7 @@ from PySide6.QtCore import QObject, Signal
 from caliper.contracts.commands import (
     Applied,
     Change,
+    ChangeReason,
     Command,
     CommandBus,
     CommandResult,
@@ -25,6 +26,7 @@ from caliper.contracts.commands import (
 from caliper.contracts.document import Document, EntityId, Ref
 from caliper.contracts.queries import CheckResult, Expectation, Queries
 from caliper.engine.commands.bus import Bus
+from caliper.engine.document.delta import diff, is_empty
 from caliper.engine.io import snapshot
 
 
@@ -79,6 +81,8 @@ class DocumentSession(QObject):
         self._history_position = 0
         self._transaction_depth = 0
         self._pending: list[Command] = []
+        self._held = False
+        """A change arrived inside the open transaction; views hear of it when it closes."""
         self.save_history = False
         self.opened_steps = 0
         """How many recorded steps the file just opened carried, for the status line."""
@@ -118,7 +122,11 @@ class DocumentSession(QObject):
 
     @contextmanager
     def transaction(self, label: str, *, author: Author = Author.YOU) -> Iterator[Transaction]:
-        """Group commands into one undo step, recorded once in the history."""
+        """Group commands into one undo step, recorded once in the history.
+
+        Views hear of the whole transaction once, as one change, when it closes, not of each
+        command in it: accepting a 250-change proposal redraws, re-lists, and re-measures the
+        sketch once instead of 250 times."""
         before = self._bus.document
         self._transaction_depth += 1
         committed = False
@@ -128,6 +136,11 @@ class DocumentSession(QObject):
             committed = True
         finally:
             self._transaction_depth -= 1
+            if self._transaction_depth == 0 and self._held:
+                self._held = False
+                delta = diff(before, self._bus.document)
+                if not is_empty(delta):
+                    self._announce(Change(reason=ChangeReason.COMMIT, delta=delta, label=label))
         if self._transaction_depth == 0:
             ran, self._pending = tuple(self._pending), []
             if committed and self._bus.document != before:
@@ -185,6 +198,12 @@ class DocumentSession(QObject):
         return [queries.check(e) for e in self._checks]
 
     def _on_change(self, change: Change) -> None:
+        if self._transaction_depth:
+            self._held = True  # announced once, when the transaction closes
+            return
+        self._announce(change)
+
+    def _announce(self, change: Change) -> None:
         live = self._bus.document.entities
         if any(id not in live for id in self._selection):
             self._selection = frozenset(id for id in self._selection if id in live)

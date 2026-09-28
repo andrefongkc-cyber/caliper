@@ -12,6 +12,7 @@ did comes back as the same kind of proposal. Without one, the scripted stand-in 
 import dataclasses
 import threading
 from collections.abc import Mapping
+from contextlib import nullcontext
 from time import perf_counter
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -38,6 +39,7 @@ from caliper.app.session import Author, DocumentSession
 from caliper.app.tokens import SPACE
 from caliper.contracts.document import Document, Point2
 from caliper.contracts.queries import CheckResult
+from caliper.engine.commands.handlers import already
 
 CARD_WIDTH = 360
 DETAIL_LINES = 6
@@ -70,10 +72,20 @@ class PromptBar(QFrame):
         self.input.setPlaceholderText(SCRIPTED_PLACEHOLDER)
         self.input.returnPressed.connect(self._submit)
         self.input.installEventFilter(self)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setToolTip(
+            "Stop the assistant after its current step. What it did so far is dropped; "
+            "your sketch is as it was."
+        )
+        self.stop_button.clicked.connect(self.stopped)
+        self.stop_button.hide()
         layout.addWidget(self.chip)
         layout.addWidget(self.input, 1)
+        layout.addWidget(self.stop_button)
 
     escaped = Signal()
+    stopped = Signal()
+    """Stop was pressed while the assistant worked."""
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if (
@@ -106,6 +118,8 @@ class PromptBar(QFrame):
 
     def set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
+        self.stop_button.setVisible(busy)
+        self.stop_button.setEnabled(True)
         if busy:
             self.input.setPlaceholderText("Working…")
         else:
@@ -144,6 +158,10 @@ class ProposalCard(QFrame):
         self.expanded = False
         """Whether a large proposal's list of changes is shown. Kept while the card is open."""
         self.count = 0
+        self._listing: tuple[object, ...] = ()
+        """The commands the list of changes should show."""
+        self._listed: tuple[object, ...] | None = None
+        """The commands `commands` shows now: the list is written only while it's visible."""
         self.commands = QLabel()
         self.commands.setObjectName("proposal-commands")
         self.commands.setWordWrap(True)
@@ -201,7 +219,7 @@ class ProposalCard(QFrame):
             self.expanded = False  # a new proposal starts collapsed; an update keeps it
         self.title.setText(plan.label)
         self.explanation.setText(plan.explanation)
-        self.commands.setText("\n".join(_command_text(c) for c in plan.commands))
+        self._listing = plan.commands
         self.count = len(plan.commands)
         self.summary.setText(summary(proposal))
         rows = check_rows(proposal.checks)
@@ -232,9 +250,16 @@ class ProposalCard(QFrame):
         self.details_button.setText(
             "Hide changes ▴" if self.expanded else f"Show {count} changes ▾"
         )
-        self.details.setVisible(not large or self.expanded)
-        inner = CARD_WIDTH - 2 * SPACE.l
-        self.details.setFixedHeight(min(self.commands.heightForWidth(inner), DETAILS_HEIGHT))
+        showing = not large or self.expanded
+        self.details.setVisible(showing)
+        if showing:
+            # Written and measured only when shown: a collapsed 250-change proposal would
+            # otherwise format and lay out all 250 lines on every change the agent makes.
+            if self._listed is not self._listing:
+                self.commands.setText("\n".join(_command_text(c) for c in self._listing))
+                self._listed = self._listing
+            inner = CARD_WIDTH - 2 * SPACE.l
+            self.details.setFixedHeight(min(self.commands.heightForWidth(inner), DETAILS_HEIGHT))
         layout = self.layout()
         assert layout is not None
         layout.activate()
@@ -281,13 +306,16 @@ class AgentController(QObject):
         self.assistant: Assistant | None = None
         self.busy = False
         self._generation = 0
-        """Counts documents opened, so an answer about a closed one is dropped."""
+        """Counts documents opened and turns stopped, so an answer to either is dropped."""
+        self._stop: threading.Event | None = None
+        """Set to stop the turn the assistant is working on (`stop`)."""
         bar.submitted.connect(self.ask)
         card.accepted.connect(self.accept)
         card.rejected.connect(self.reject)
         session.document_replaced.connect(self.reject)
         session.document_replaced.connect(self._forget)
         bar.escaped.connect(self.reject)
+        bar.stopped.connect(self.stop)
         self._answered.connect(self._show_turn)  # queued: it arrives from the worker thread
         self.set_assistant(assistant)
 
@@ -325,7 +353,13 @@ class AgentController(QObject):
             self.reject()
             self.session.message.emit("The sketch changed since that proposal. Ask again.")
             return
-        with self.session.transaction(proposal.plan.label, author=Author.AGENT):
+        # Every command still goes through the bus, into one undo step, but as it already ran
+        # from this very document in the workspace: its outcome is committed, not solved again.
+        executed = proposal.plan.executed
+        with (
+            already(executed) if executed is not None else nullcontext(),
+            self.session.transaction(proposal.plan.label, author=Author.AGENT),
+        ):
             for command in proposal.plan.commands:
                 self.session.execute(command, author=Author.AGENT)
         for expectation in proposal.plan.checks:
@@ -339,6 +373,16 @@ class AgentController(QObject):
     def reject(self) -> None:
         if self.proposal is not None:
             self._close()
+
+    def stop(self) -> None:
+        """Stop the assistant's turn after its current step and drop it. It worked on a copy,
+        so the sketch is untouched; the request it was on is forgotten."""
+        if not self.busy or self._stop is None or self._stop.is_set():
+            return
+        self._stop.set()
+        self._generation += 1  # its answer, when the current step ends, is dropped
+        self.bar.stop_button.setEnabled(False)
+        self.session.message.emit("Stopping the assistant after its current step…")
 
     # --- The assistant ------------------------------------------------------------------
 
@@ -356,11 +400,14 @@ class AgentController(QObject):
             self.session.selection,
             self._generation,
         )
+        stop = self._stop = threading.Event()
 
         def work() -> None:
             result: Turn | Exception
             try:
-                result = assistant.ask(text, document, selection, on_step=self.step_done.emit)
+                result = assistant.ask(
+                    text, document, selection, on_step=self.step_done.emit, stop=stop.is_set
+                )
             except Exception as e:  # a bug in Caliper: show it rather than lose it
                 result = e
             self._answered.emit(result, generation)
@@ -371,7 +418,10 @@ class AgentController(QObject):
         self.busy = False
         self.bar.set_busy(False)
         if generation != self._generation:
-            return  # another document was opened while the model worked
+            # Stopped, or another document was opened while the model worked.
+            if self._stop is not None and self._stop.is_set():
+                self.session.message.emit("Stopped the assistant. Your sketch is as it was.")
+            return
         self.turn_finished.emit(result)
         if isinstance(result, Exception):
             self.session.message.emit(f"The assistant failed: {result}")
@@ -382,10 +432,15 @@ class AgentController(QObject):
                 result.reply or "The assistant's changes.",
                 result.commands,
                 result.checks,
+                result.executed,
             )
             self.propose(plan, result.base, result=result.result)
-        elif result.error is not None:
-            self.session.message.emit(result.error)
+        else:
+            for expectation in result.checks:  # no change to carry them: straight to Checks
+                if expectation not in self.session.checks:
+                    self.session.add_check(expectation)
+            if result.error is not None:
+                self.session.message.emit(result.error)
 
     def _forget(self) -> None:
         self._generation += 1
