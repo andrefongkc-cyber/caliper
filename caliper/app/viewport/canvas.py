@@ -44,7 +44,6 @@ from caliper.app.viewport.annotations import (
     label_anchors,
     label_box,
     label_spot,
-    measures,
     paint_annotations,
 )
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
@@ -64,6 +63,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
+from caliper.engine.constraints.sketch import referrers
 
 PICK_RADIUS_PX = 6.0
 WHEEL_ZOOM_BASE = 1.0015
@@ -102,6 +102,9 @@ class Canvas(QWidget):
         self._glyphs_key: tuple[object, ...] | None = None
         self._glyphs: list[glyphs.Glyph] = []
         self._hangings: dict[EntityId, glyphs.Hanging] = {}
+        self._hangings_document: object = None
+        """The document `_hangings` describes. Built only while glyphs are shown: hidden,
+        they cost nothing, not even working out where they'd hang."""
         self.hidden_dimensions = 0
         self._placed = False
         self._pan_from: QPointF | None = None
@@ -229,6 +232,17 @@ class Canvas(QWidget):
         width = max(self.width() - right_inset, 100.0)
         self.view.fit(padded, width, self.height())
         self._view_jumped()
+
+    def shows(self, box: BoundingBox, right_inset: float = 0.0) -> bool:
+        """Whether all of `box` is in view, left of `right_inset` pixels on the right."""
+        top_left = self.view.to_model(0, 0)
+        bottom_right = self.view.to_model(max(self.width() - right_inset, 100.0), self.height())
+        return (
+            top_left.x <= box.x_min
+            and box.x_max <= bottom_right.x
+            and bottom_right.y <= box.y_min
+            and box.y_max <= top_left.y
+        )
 
     def reset_view(self) -> None:
         self.view.scale = min(self.width(), self.height()) / DEFAULT_VIEW_MM
@@ -387,11 +401,13 @@ class Canvas(QWidget):
         Cached per document and view, and laid out only when asked for: painting the cached
         layer, or hit-testing the pointer. A pan frame asks for neither.
         """
-        key = (*self._view_key(), self.show_constraints)
+        if not self.show_constraints:
+            return []
+        key = self._view_key()
         if key != self._glyphs_key:
-            self._sync_annotation_cache()
+            self._sync_hangings()
             ordered = [self._hangings[id] for id in sorted(self._hangings)]
-            self._glyphs = glyphs.place(ordered, self.view) if self.show_constraints else []
+            self._glyphs = glyphs.place(ordered, self.view)
             self._glyphs_key = key
         return self._glyphs
 
@@ -416,15 +432,25 @@ class Canvas(QWidget):
         return self._labels
 
     def _sync_annotation_cache(self) -> None:
-        """Rebuild label spots and glyph hangings in full if the document isn't the one they
-        describe (a new file, or a change that sent no notification)."""
+        """Rebuild label spots in full if the document isn't the one they describe (a new
+        file, or a change that sent no notification)."""
         document = self.session.document
         if self._spots_document is document:
             return
-        self._spots, self._hangings = {}, {}
+        self._spots = {}
         for id in sorted(document.entities):
             self._remeasure(id)
         self._spots_document = document
+
+    def _sync_hangings(self) -> None:
+        """The same for where glyphs hang, done only when glyphs are shown."""
+        document = self.session.document
+        if self._hangings_document is document:
+            return
+        self._hangings = {}
+        for id in sorted(document.entities):
+            self._rehang(id)
+        self._hangings_document = document
 
     def _remeasure(self, id: EntityId) -> None:
         spot = label_spot(self.session, id)
@@ -432,6 +458,8 @@ class Canvas(QWidget):
             self._spots.pop(id, None)
         else:
             self._spots[id] = spot
+
+    def _rehang(self, id: EntityId) -> None:
         hung = glyphs.hanging(self.session.queries, self.session.document, id)
         if hung is None:
             self._hangings.pop(id, None)
@@ -440,27 +468,35 @@ class Canvas(QWidget):
 
     def _update_spots(self, change: Change) -> None:
         """Re-measure only the labels and glyphs a change could have moved or re-worded."""
-        if self._spots_document is None:
+        spots, hangings = self._spots_document is not None, self._hangings_document is not None
+        if not (spots or hangings):
             return  # nothing built yet; the next hit-test or paint builds everything
+        if hangings and not self.show_constraints:
+            self._hangings_document = None  # hidden: rebuilt if they're shown again
+            hangings = False
         delta = change.delta
         document = self.session.document
         touched = delta.added | delta.removed | delta.modified
-        for id in touched:
-            self._spots.pop(id, None)
-            self._hangings.pop(id, None)
         affected = {id for id in touched if id in document.entities}
-        affected |= {
-            id
-            for id, entity in document.entities.items()
-            if id not in touched
-            and (measures(entity, touched) or glyphs.hangs_from(entity, touched))
-        }
-        for id in affected:
-            self._remeasure(id)
-        self._spots_document = document
+        index = referrers(document)  # the dimensions measuring, and glyphs hanging from, them
+        for id in touched:
+            affected |= index.get(id, frozenset())
+        if spots:
+            for id in touched:
+                self._spots.pop(id, None)
+            for id in affected:
+                self._remeasure(id)
+            self._spots_document = document
+        if hangings:
+            for id in touched:
+                self._hangings.pop(id, None)
+            for id in affected:
+                self._rehang(id)
+            self._hangings_document = document
 
     def _forget_spots(self) -> None:
         self._spots_document = None
+        self._hangings_document = None
 
     def _annotation_tip(self, id: EntityId | None) -> str:
         entity = self.session.document.entities.get(id) if id is not None else None

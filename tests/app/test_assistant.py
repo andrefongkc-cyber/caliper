@@ -153,6 +153,31 @@ def test_the_prompt_waits_while_the_model_works(window, qtbot) -> None:
     assert window.prompt_bar.input.isEnabled()
 
 
+def test_stop_drops_the_turn_after_its_current_step(window, qtbot) -> None:
+    release = threading.Event()
+
+    def slow() -> Reply:
+        release.wait(5)
+        return calls(RECTANGLE)
+
+    assistant = with_model(window, slow)  # never asked again: a second reply would fail
+    bar = window.prompt_bar
+    assert bar.stop_button.isHidden()
+    bar.input.setText("a rectangle")
+    bar.input.returnPressed.emit()
+    assert not bar.stop_button.isHidden()
+    bar.stop_button.click()
+    assert not bar.stop_button.isEnabled()  # pressed once is enough
+    release.set()
+    qtbot.waitUntil(lambda: not window.agent.busy)
+    assert window.agent.proposal is None  # the rectangle it made is dropped
+    assert dict(window.session.document.entities) == {}
+    assert assistant.conversation == []
+    assert "Stopped the assistant" in window.statusBar().currentMessage()
+    assert bar.stop_button.isHidden()
+    assert bar.input.isEnabled()
+
+
 def test_opening_another_document_forgets_the_conversation_and_drops_a_late_answer(
     window, qtbot
 ) -> None:

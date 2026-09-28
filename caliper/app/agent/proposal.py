@@ -14,6 +14,7 @@ from caliper.contracts.document import Document
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import CheckResult, Expectation
 from caliper.engine.commands.bus import Bus
+from caliper.engine.commands.handlers import Executed
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,9 @@ class Plan:
     commands: tuple[Command, ...]
     checks: tuple[Expectation, ...] = ()
     """What should be true afterwards. May name ids the commands create."""
+    executed: Executed | None = None
+    """How `commands` already ran, when a workspace ran them: accepting then commits those
+    outcomes instead of validating and solving every command again."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +74,8 @@ def prepare(
     an assistant's or MCP client's workspace, whose commands are resolved and all applied.
     It is used as it is. Replay is deterministic, so running the commands again would only
     rebuild the same document, and for a large proposal that replay was nearly all the
-    time each change took. Accepting still runs every command through the session's bus."""
+    time each change took. Accepting runs every command through the session's bus, which
+    commits `plan.executed` rather than solving each command again."""
     errors: list[Error] = []
     if result is None:
         scratch = Bus(base)

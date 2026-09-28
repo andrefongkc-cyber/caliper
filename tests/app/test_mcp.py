@@ -34,6 +34,7 @@ from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle
 from caliper.contracts.document import EntityId, Point2, Rectangle
+from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 
@@ -687,3 +688,81 @@ def test_saving_elsewhere_or_with_no_run_writes_no_timing(timed, qtbot, tmp_path
     call(window, qtbot, "create_rectangle", RECTANGLE)
     assert window._save_to(tmp_path / "part.caliper")
     assert list(tmp_path.glob("*.md")) == []
+
+
+# --- Performance V2: what each call and Accept no longer redo --------------------------------
+
+
+def test_accept_commits_what_the_draft_already_solved(served, qtbot, monkeypatch) -> None:
+    """Accept runs every command through the session's bus, in one undo step, but each has
+    already run on this very document in the draft: nothing is validated or solved again."""
+    window, session = served, served.session
+    calls = comb(3)
+    for name, arguments in calls:
+        call(window, qtbot, name, arguments)
+    executed = window.mcp.draft.executed
+    assert executed is not None
+    built = executed.result
+    solved: list[object] = []
+    real = handlers._apply
+    monkeypatch.setattr(handlers, "_apply", lambda d, c: solved.append(c) or real(d, c))
+    announced: list[object] = []
+    session.changed.connect(announced.append)
+    window.proposal_card.accept_button.click()
+    assert solved == []
+    assert session.document is built  # the draft's own document, not a rebuilt copy
+    assert len(announced) == 1  # the views heard of every change at once
+    assert session.history[-1].author is Author.AGENT
+    assert len(session.history[-1].commands) == len(calls)
+    window.undo_action.trigger()
+    assert dict(session.document.entities) == {}
+
+
+def test_a_large_collapsed_proposal_doesnt_list_its_changes_on_every_call(
+    served, qtbot, monkeypatch
+) -> None:
+    window, card = served, served.proposal_card
+    listed: list[object] = []
+    real = ui_module._command_text
+    monkeypatch.setattr(ui_module, "_command_text", lambda c: listed.append(c) or real(c))
+    calls = comb(2)
+    for name, arguments in calls:
+        call(window, qtbot, name, arguments)
+    assert card.large
+    assert not card.details.isVisible()
+    assert len(listed) == 6 * 7 // 2  # only while the proposal was small enough to show
+    listed.clear()
+    card.details_button.click()
+    assert len(listed) == len(calls)  # shown now: written once, in full
+    assert "CreateLine" in card.commands.text()
+
+
+def test_a_growing_proposal_moves_the_view_only_when_it_outgrows_it(served, qtbot) -> None:
+    window = served
+    canvas = window.canvas
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    framed = (canvas.view.scale, canvas.view.origin_x, canvas.view.origin_y)
+    call(window, qtbot, "create_circle", {"center": {"x": 50, "y": 25}, "radius": 5})  # inside
+    assert (canvas.view.scale, canvas.view.origin_x, canvas.view.origin_y) == framed
+    call(window, qtbot, "create_circle", {"center": {"x": 900, "y": 25}, "radius": 5})  # outside
+    assert canvas.view.scale < framed[0]
+
+
+def test_a_check_run_with_nothing_pending_reaches_the_checks_panel(served, qtbot) -> None:
+    window, session = served, served.session
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.proposal_card.accept_button.click()
+    assert session.checks == ()
+    assert not call(window, qtbot, "run_check", WIDTH_CHECK).is_error  # after Accept
+    assert [c.expected for c in session.checks] == [100.0]
+    call(window, qtbot, "run_check", WIDTH_CHECK)  # the same check again: kept once
+    assert len(session.checks) == 1
+    assert window.agent.proposal is None  # still nothing to review
+
+
+def test_tool_results_show_what_changed_without_echoing_the_command(served, qtbot) -> None:
+    window = served
+    response = call(window, qtbot, "create_rectangle", RECTANGLE)
+    assert "command" not in response.content
+    assert response.content["created"] == ["e1"]
+    assert response.content["changed"]["added"]["e1"]["width"] == 100.0
