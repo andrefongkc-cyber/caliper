@@ -12,7 +12,8 @@ work Claude actually causes rather than a guess at it:
 - `session/<name>/engine`: each call through `Draft` alone, as the window runs it but with no
   window. `total` is Caliper's share of proposal creation; the rest of a run is Claude. Of it,
   `solve_ms` went to solving constraints, `check_ms` to `run_check` calls, and `status_ms` to
-  `solve_status` calls.
+  `solve_status` calls. `evaluations` counts the solver's residual and derivative evaluations
+  (Newton's unit of work); `deferred`, split-cluster solves left to the whole sketch.
 - `session/<name>/accept-engine`: accepting the proposal on a fresh bus in one transaction, as
   the window does (`total`), and `replay`: every command validated and solved again, which is
   what Accept did before Performance V2.
@@ -35,8 +36,9 @@ where marked) on this machine; compare runs on the same machine only.
 
 The script uses only what `main` had before Performance V2 where it can (Accept falls back to
 replaying), so `PYTHONPATH=<a main checkout> python bench/perf.py --save before.json` measures
-the baseline to `--compare` against. `bench/results/` keeps saved runs: `main` just before
-Performance V2 and the branch after it, both on Andre's Mac (2026-09-27).
+the baseline to `--compare` against. `bench/results/` keeps saved runs, all on Andre's Mac:
+`main` just before Performance V2 and the branch after it (2026-09-27), and Performance V2
+again against the numerical pass after it, Solver V2.1 (2026-09-28).
 """
 
 import argparse
@@ -74,6 +76,7 @@ from caliper.contracts.document import (
 from caliper.contracts.queries import Expectation, Metric
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
+from caliper.engine.constraints import sketch
 from caliper.engine.io import snapshot
 
 SESSIONS = Path(__file__).resolve().parent / "sessions"
@@ -121,7 +124,24 @@ def engine_session(name: str) -> tuple[list[Result], Draft, Document]:
         finally:
             solving[0] += time.perf_counter() - started
 
+    counted = {"evaluations": 0, "deferred": 0}
+    real_evaluate = sketch._evaluate
+    real_split = getattr(sketch, "_settle", None)  # not on main before Performance V2
+
+    def counting_evaluate(*args: object) -> object:
+        counted["evaluations"] += 1
+        return real_evaluate(*args)  # type: ignore[arg-type]
+
+    def counting_split(*args: object, **kwargs: object) -> object:
+        outcome = real_split(*args, **kwargs)  # type: ignore[misc]
+        if outcome is None:
+            counted["deferred"] += 1
+        return outcome
+
     handlers.settle = timed_settle  # type: ignore[assignment]
+    sketch._evaluate = counting_evaluate  # type: ignore[assignment]
+    if real_split is not None:
+        sketch._settle = counting_split
     try:
         for tool, arguments in calls:
             started = time.perf_counter()
@@ -131,11 +151,16 @@ def engine_session(name: str) -> tuple[list[Result], Draft, Document]:
             by_tool[tool] = by_tool.get(tool, 0.0) + took
     finally:
         handlers.settle = real_settle  # type: ignore[assignment]
+        sketch._evaluate = real_evaluate
+        if real_split is not None:
+            sketch._settle = real_split
     assert draft.workspace is not None
     engine = Result(f"session/{name}/engine", spread(samples))
     engine.metrics["solve_ms"] = 1e3 * solving[0]
     engine.metrics["check_ms"] = 1e3 * by_tool.get("run_check", 0.0)
     engine.metrics["status_ms"] = 1e3 * by_tool.get("solve_status", 0.0)
+    engine.metrics["evaluations"] = float(counted["evaluations"])
+    engine.metrics["deferred"] = float(counted["deferred"])
     engine.metrics["commands"] = float(len(draft.commands))
     engine.metrics["checks"] = float(len(draft.checks))
 
