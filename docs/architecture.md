@@ -182,11 +182,7 @@ document's version of it, for the entities that changed:
   dimensions on each entity). Deleting, finding constraints, and re-laying out labels use it
   instead of scanning the sketch.
 - **Clusters.** Relations join geometry into clusters (`sketch.grouped`), and a command
-  solves only the clusters it touched. Geometry a Fix pins completely (a fixed origin) is a
-  constant in each cluster that refers to it rather than a member, so features dimensioned
-  from the same origin solve separately. What the split clusters can't settle (a conflict, a
-  repeated constraint, a degenerate start) is decided on the whole sketch, so accepting and
-  rejecting, and the messages, are what solving everything together gives.
+  solves only the clusters it touched; see [the solver's numerical model](#the-solvers-numerical-model).
 - **Solve status and checks.** Status is kept per cluster and redone only for the clusters a
   change touched. A check is measured again only when an entity it reads changed.
 - **The solver's linear algebra** skips products of rows that share no unknown, which are
@@ -199,6 +195,82 @@ These values live in small caches of recent documents (`engine/document/recent.p
 share between threads, since the in-app assistant's tool calls run on a worker thread. The
 numbers: `bench/perf.py`, which replays recorded Claude Desktop sessions (`bench/sessions/`)
 with and without the window.
+
+## The solver's numerical model
+
+A sketch's relations are equations over its geometry's numbers, solved by Newton's method in
+floating point, so an answer is only ever right to within a tolerance. This is how Caliper
+keeps that small, stable, and the same however the work is split up
+(`engine/constraints/sketch.py`, `tolerance.py`, `equivalence.py`).
+
+**What "holds" means.** One policy, `tolerance.py`, says what counts as solved, broken,
+unchanged, repeating, and the same solution, each relative to the sketch's scale (its largest
+number), and why. A relation holds when its residual is within `SOLVED` (1e-10 of the scale: a
+tenth of a nanometre on a 1 m part). Angles are degrees and share the scale with millimetres.
+
+**Solving only what a change reaches.** A command solves only the clusters it touched.
+Geometry a Fix pins completely can't move, so it's a constant in each cluster that refers to
+it: a hole and a slot dimensioned from the same fixed origin solve separately. That is safe
+because pinned geometry contributes nothing a solve could change: a split cluster's Newton
+steps, rank, and degrees of freedom are the whole cluster's, restricted to it. What a split
+cluster can't decide exactly as the whole sketch would goes to the whole sketch instead:
+
+- a command that moves pinned geometry or changes a Fix (that changes what's pinned);
+- no solution without the nudge (a degenerate start, where the nudge's direction depends on
+  which unknowns the system holds);
+- a new relation that repeats others, or comes within `DECIDED` (10×) of the threshold for
+  doing so (the split cluster's rows lack the pinned columns, so that threshold sits slightly
+  differently);
+- geometry within `DECIDED` of collapsing at the whole document's scale.
+
+So accepting, rejecting, messages, and status are exactly what the whole sketch gives. What
+stays global is the answer in those cases, and messages: which relations conflict
+(QuickXplain) or imply a repeated one are always worked out on the whole sketch.
+
+**Starting from what's there.** Every solve starts from the stored geometry (the last
+solution, with the command's own change applied) and tries stages that let a little more move
+at a time, so a solve moves as little as it can. That warm start is also why most commands
+need one or two Newton steps. A stage that can't be solved (the unknowns it may move can't
+satisfy the relations) stops as soon as its best step lowers the squared residuals by less
+than the tolerance squared: no number of such steps can solve it. The reference keeps trying
+to its iteration cap, as the old solver did.
+
+**Keeping what didn't need to change.** Newton moves every unknown it may by the least that
+satisfies the relations, then polishes to the last bit. Geometry that already satisfied them
+would pick up changes it never needed: round-off (a stored 0 becoming 5e-63), or a closer
+approach to a root it was already within tolerance of (a typed 22.619865 becoming
+22.61986494804043). After a solve, `_kept` puts back every value the solve changed by no more
+than `UNCHANGED` (1e-9 of the scale), as long as every relation still holds within `SOLVED`
+at the scale of both the stored values and the kept ones as they'll be stored (start angles
+in [0, 360)); a change some relation needs always stays. Every decision (accept, reject,
+collapse, repeat) is still taken on the values Newton solved, exactly as the reference takes
+it: keeping changes only what's written. So solving again changes nothing, edits undone by
+hand return exactly, and round-off doesn't build up over a long session.
+
+**Why two correct solvers still differ a little.** The tolerance scales with the largest
+number in the system solved: a split cluster's own geometry, or the whole sketch. The two can
+stop one Newton step apart, and where two relations meet tangentially (an aligned and a
+horizontal distance of 1 to the same point: a double root) a residual of `SOLVED` leaves the
+point free by about its square root, `PRECISION` (1e-5 of the scale). `equivalence` calls two
+results the same solution when every number agrees within `PRECISION`, and the same geometry
+within `UNCHANGED`; anything else is significant.
+
+**The reference.** `sketch.reference()` solves as Caliper did before Performance V2: every
+cluster whole, every value written as solved, nothing cached. It writes byte for byte the
+files the old solver wrote (pinned by hashes in `tests/engine/constraints/test_numerics.py`),
+which makes it the oracle: property tests, and `bench/numerics.py` on the recorded Claude
+Desktop sessions, run every command both ways from the same document and compare outcomes,
+messages, status, checks, that every relation holds, and every value.
+
+**What's reused between edits.** The clusters, what refers to what, each cluster's status,
+each check's result, and the record of what a proposal's commands did (so Accept solves
+nothing again), all by the identity of the entities they came from; within a solve, the
+compiled equations. Not reused: a factorization, since the Jacobian changes at every Newton
+step and a redundancy check needs one at the solved point.
+
+**Toward 3D.** The same rule will regenerate a part: a feature (a sketch, an extrude) is
+worked out from the features it reads, kept by their identity, and redone only when one of
+them changed; a sketch is one such feature, and this solver is how it regenerates.
 
 ## Files
 
