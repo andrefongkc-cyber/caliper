@@ -36,6 +36,7 @@ from caliper.contracts.document import (
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import Expectation, Metric
 from caliper.engine.commands.bus import Bus
+from caliper.engine.commands.handlers import Executed
 from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import COMMAND_KINDS, DecodeError, decode_command, encode
 
@@ -283,6 +284,12 @@ class Workspace:
         return tuple(applied.label for applied in self._applied)
 
     @property
+    def executed(self) -> Executed:
+        """How `commands` took `base` to `document`: accepting them commits these outcomes
+        instead of solving every command again (`already`)."""
+        return Executed(base=self.base, steps=tuple(self._applied), result=self._bus.document)
+
+    @property
     def checks(self) -> tuple[Expectation, ...]:
         """Each distinct check the model ran, in the order it first ran it."""
         return tuple(self._checks)
@@ -315,10 +322,11 @@ class Workspace:
         if not (result.delta.before or result.delta.after):
             return {"applied": True, "changed": "nothing: the document already was that way"}
         self._applied.append(result)
+        # No echo of the command: what it created and changed, in stored form, says all the
+        # resolved command would (ids, inferred kinds, canonical order), in half the tokens.
         return {
             "applied": True,
             "label": result.label,
-            "command": encode(result.command),
             "created": [str(id) for id in result.created_ids],
             "changed": _changes(result.delta),
         }
@@ -436,12 +444,23 @@ def _error(error: Error) -> JSON:
     }
 
 
+MODIFIED_SHOWN = 8
+"""Entities a result shows in full when a solve moved them; the rest are listed by id."""
+
+
 def _changes(delta: Delta) -> JSON:
-    return {
+    """What a change did. Everything added is shown in full. A solve can move many entities a
+    little (every point of a star, say): the first `MODIFIED_SHOWN` are shown, the others named
+    in `also_modified`, and `inspect_entities` gives them in full."""
+    modified = sorted(delta.modified)
+    changes: dict[str, JSON] = {
         "added": {id: encode(delta.after[id]) for id in sorted(delta.added)},
-        "modified": {id: encode(delta.after[id]) for id in sorted(delta.modified)},
+        "modified": {id: encode(delta.after[id]) for id in modified[:MODIFIED_SHOWN]},
         "removed": [str(id) for id in sorted(delta.removed)],
     }
+    if len(modified) > MODIFIED_SHOWN:
+        changes["also_modified"] = [str(id) for id in modified[MODIFIED_SHOWN:]]
+    return changes
 
 
 def _ids(value: object, field: str) -> tuple[EntityId, ...]:
