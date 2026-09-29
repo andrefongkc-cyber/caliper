@@ -1,6 +1,7 @@
 # Known issues
 
-What breaks in Caliper today, on `main` at `418c657` (2026-09-26). Each entry was checked
+What breaks in Caliper today, on `main` at `418c657` (2026-09-26), updated for the branches in
+review (2026-09-29). Each entry was checked
 against the code or found in a test run. It's sorted by side:
 
 - **AI side**: `caliper/ai`, the `caliper-mcp` server, the in-app assistant, and Claude Desktop
@@ -12,20 +13,22 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
-| AI side | AI-2, AI-3 | AI-9, AI-10 | AI-4 |
-| AI side, untested or limited | AI-5, AI-6, AI-7, AI-8 | | |
-| Client side | C-1, C-2, C-3, C-4 | C-6 | C-8, C-9, C-11, C-12 |
+| AI side | AI-2, AI-3, AI-11 | AI-9, AI-10 | |
+| AI side, untested or limited | AI-6, AI-7, AI-8 | | |
+| Client side | C-1, C-3, C-4 | C-6 | C-8, C-9, C-12 |
 
 ---
 
 ## AI side
 
-### AI-2. A check can't be taken back
-- **What happens:** every check Claude runs stays on the proposal. A check with the wrong
-  expected value shows as failing and can't be removed; `undo` only takes back changes.
+### AI-2. A check that shouldn't be there can't be taken back
+- **What happens:** every check Claude runs stays on the proposal, and `undo` only takes back
+  changes. A check of the right measurement with the wrong value can now be put right by
+  running it again (see Recently fixed); a check of something that shouldn't be checked at
+  all still stays.
 - **Where:** `caliper/ai/tools.py`, `Workspace._run_check` and `_undo`.
 - **Workaround:** reject the proposal and ask again.
-- **Fix:** let `undo` also take back the last check, or add a `remove_check` tool.
+- **Fix:** a `remove_check` tool, or `undo` taking back the last check too.
 
 ### AI-3. Claude Desktop loses Caliper when the checkout or `.venv` changes
 - **What happens:** Claude Desktop runs
@@ -40,22 +43,6 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   `uv sync --extra app --extra mcp --group app-test`.
 - **Fix:** give Claude Desktop its own install of `caliper-mcp` (e.g. `uv tool install`),
   separate from the development `.venv`.
-
-### AI-4. The "what happened" note runs into the tool result
-- **What happens:** when a result carries a note (e.g. "The user accepted your pending
-  changes"), some clients show it glued to the JSON:
-  `…part of the sketch.{"actual": 50.0, …`.
-- **Where:** `caliper/ai/mcp_server.py`, `call_tool`. The note is its own text block, but
-  Claude's app joins blocks with no separator.
-- **Fix:** end the note with a blank line.
-
-### AI-5. The tools don't say what each check metric means
-- **What happens:** `run_check` lists metric names only. The contract says `distance_x` and
-  `distance_y` are absolute distances, but the tool doesn't, so Claude has to guess. In the
-  stress test it ordered points defensively.
-- **Where:** `caliper/ai/tools.py`, the `run_check` spec. The meanings are in
-  `caliper/contracts/queries.py`, `Metric`.
-- **Fix:** put each metric's docstring into the tool description.
 
 ### AI-6. The in-app assistant has never talked to the real Claude API
 - **What happens:** unknown. The Claude adapter is tested only against a fake SDK client.
@@ -91,6 +78,16 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Fix:** a profile tool that draws connected segments and joins their ends, made of the
   same `CreateLine`, `CreateArc`, and coincident `CreateConstraint` commands.
 
+### AI-11. Arcs don't pattern, and rectangles don't turn
+- **What happens:** `linear_pattern` and `circular_pattern` refuse arcs: no constraint ties a
+  copy's angles to its original's (mirror has a way round it: a construction point at the
+  centre). `circular_pattern` refuses rectangles, which are always axis-aligned. A slot or a
+  gear tooth with arc ends can be mirrored but not patterned.
+- **Where:** `caliper/ai/patterns.py`.
+- **Workaround:** mirror the arcs, or draw them to the patterned points; draw a turned
+  rectangle as four lines.
+- **Fix:** tie an arc's copy through its ends and a construction point, as mirror does.
+
 ---
 
 ## Client side
@@ -101,17 +98,6 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Where:** `caliper/app/session.py` (`_checks`, cleared in `replace`).
 - **Status:** needs an ADR, [#16](https://github.com/andrefongkc-cyber/caliper/issues/16).
   Option A (expectations in the document, changed by commands) is recommended there.
-
-### C-2. Tangency through a point in between, or to a rectangle's side, is rejected
-- **What happens:** "tangent" is rejected as redundant when the arc's end is joined to the
-  line *through another point*, or when the straight side belongs to a rectangle. That's the
-  same first-order blind spot #35 fixed for direct joins. Both cases were reproduced on
-  `main`.
-- **Where:** `caliper/engine/constraints/sketch.py`, `_joints`. It only recognises an arc
-  end coincident directly with a `Line`, `Arc`, or `Circle`.
-- **Workaround:** join the arc's end straight to the line, and use lines rather than a
-  rectangle.
-- **Fix:** follow chains of coincident points, and treat rectangle sides as lines.
 
 ### C-3. H/V dimensions from scripts and AI place labels by a different rule than the app
 - **What happens:** for a horizontal or vertical dimension between diagonal points, the
@@ -133,11 +119,17 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **What happens:** MCP calls run on the UI thread, one at a time. Most take a millisecond or
   two at any proposal size (Performance V2), but a command still solves the whole cluster it
   touches: in the recorded plate, each constraint on the 12-point star (24 lines, one
-  cluster) took 20–35 ms, the slowest calls of the run.
-- **Where:** the solver's cost per cluster (`caliper/engine/constraints/sketch.py`), called
-  from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
-- **Fix, if it matters:** solve only the part of a cluster a command can move. Moving the
-  draft off the UI thread would need care, because it has to stay in step with the document.
+  cluster) took 20–35 ms, the slowest calls of the run. A repeat is many commands in one call,
+  so it adds up: a 12-point star from one `circular_pattern` call is 162 commands in about
+  2.3 s (`bench/perf.py`, `repeat/*`), while a 5 by 4 grid of holes is 133 in 0.22 s.
+- **Where:** the solver's cost per cluster (`caliper/engine/constraints/sketch.py`): each
+  command checks its new relations for redundancy against the whole cluster's rows, and the
+  cluster grows with every copy. Called from `caliper/app/agent/mcp_host.py`,
+  `McpHost.handle`.
+- **Fix, if it matters:** solve only the part of a cluster a command can move, or keep the
+  redundancy check's factorization from one command to the next (deferred in
+  docs/workplan/core.md, Solver V2.1). Moving the draft off the UI thread would need care,
+  because it has to stay in step with the document.
 
 ### C-8. The empty-sketch hint draws over a first proposal
 - **What happens:** the "empty sketch" hint shows whenever the document is empty, including
@@ -160,17 +152,28 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   collapse check at the size it ended at (1 mm).
 - **Fix needs a decision:** measure both at one size (the larger), which rejects this as a
   collapse. That changes which commands are accepted, in cases like this one only.
-
-### C-11. App tests abort in a shell with no display
-- **What happens:** `uv run pytest` aborts with a Qt fatal error in shells without a window
-  server (SSH, sandboxes) unless `QT_QPA_PLATFORM=offscreen` is set. The test setup documents
-  it but doesn't set it; CI does.
-- **Where:** `tests/app/conftest.py`.
-- **Fix:** set the default in `conftest.py`, or in the pytest config.
+- **Pinned** as it is by `tests/engine/constraints/test_editing.py`, so a change to it is
+  noticed.
 
 ---
 
 ## Recently fixed
+
+On `shared/2d-v1-audit` (the 2D V1 audit, stacked on #48, not pushed):
+
+- C-2: tangency to a rectangle's side at its corner, or through points joined between the arc
+  and the line, was refused as redundant. Joints now follow chains of coincident points,
+  take a line's or arc's midpoint as on it, and know a corner is on its two sides. The slot
+  workaround (the arc's centre vertical with the corner) still works; one tangency now does
+  the same, and a second is refused as really implied.
+- AI-4: the note before a result now ends with a blank line, so clients that join text blocks
+  don't glue it to the JSON.
+- AI-5: `run_check` says what each metric measures and reads.
+- AI-2, partly: running a check of the same measurement again replaces the earlier one.
+- C-11: app tests default to `QT_QPA_PLATFORM=offscreen`.
+- A constraint that repeats part of what others say (a fix on a line already horizontal) was
+  refused as "already implied"; it now says it's partly implied and what to do. A dimension
+  value no geometry can meet no longer names itself as the conflict.
 
 On `shared/performance-v2` (Performance V2 and the numerical pass after it, not merged yet):
 

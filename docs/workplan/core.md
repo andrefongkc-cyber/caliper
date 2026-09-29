@@ -1,9 +1,51 @@
-Status: Performance V2 and Solver V2.1 (numerical stability) done on `shared/performance-v2`, PR #47, next: review, including the last-digit note and C-12; planned, not started: the dependency and recomputation graph
+Status: 2D V1 audit and hardening on `shared/2d-v1-audit` (stacked on #48, local, not pushed): C-2 fixed, clearer rejections, editing and repeats tested, next: Andre's review; Performance V2 and Solver V2.1 in review as PR #47; planned, not started: the dependency and recomputation graph
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## 2D V1 audit and hardening (branch `shared/2d-v1-audit`, 2026-09-29; local, not pushed)
+
+Andre (2026-09-28): an overnight audit of the 2D foundation (constraints, editing and design intent, the solver, the AI layer, performance coverage, and the 2D dependency foundation), preferring tests, evidence, documentation, and small demonstrated fixes to new features. Mirror and the patterns already exist and weren't reimplemented. Stacked on #48 so the repeat tools are there.
+
+### Already implemented, and tested before this audit
+- [x] All 14 constraint types, each tested (`test_each_constraint.py`); which references fit (`relations.match`, with the reason when not); canonical order; constraints leaving with deleted geometry
+- [x] Redundancy (a rank test naming what implies the new relation) and conflicts (QuickXplain naming the smallest set), both leaving the document unchanged; over-constrained and broken files open and say so (`test_status_and_conflicts.py`)
+- [x] The solver under random sketches and command sequences: undo and redo exact, status and clusters equal to ones worked out from scratch, split clusters deciding as whole ones, the reference oracle, keeping unchanged values, degenerate starts, collapse, tangential precision, a failure during Accept (`test_constraint_properties.py`, `test_split_clusters.py`, `test_numerics.py`, `tests/engine/test_invariants.py`)
+- [x] Dimension edits, driven and driving, and redundant or conflicting dimensions with hints (`test_dimensions.py`)
+- [x] Performance V2's invariants: Accept without solving again, the sparse basis bit for bit, `referrers` against a scan, the check cache, `Recent`, threads, a solve leaving clusters that only share a fixed origin alone (`test_performance_invariants.py`, `test_split_clusters.py`); proposals without replay (`tests/app/test_mcp.py`)
+- [x] The repeat tools, the time left, and auto-stop (`tests/ai/test_patterns.py`, `tests/app/test_estimate.py`, `test_timing.py`)
+
+### Newly tested
+- [x] **Editing after construction** (`tests/engine/constraints/test_editing.py`, 20 tests, on a plate with a hole dimensioned from its edges): dimension changes move what's measured from them and a reference dimension follows; held geometry refuses a move or an edit and names what holds it; removing a dimension frees exactly its degree of freedom and moves nothing; a move is exact, and one against what still holds is refused; adding to a finished part is refused as redundant (with the hint) or conflicting (naming the dimensions); a constraint re-pointed or retyped, a dimension re-pointed; edits into a repeat, a conflict, a missing or unsuitable reference, or Pierce refused; a chain of edits undoes and redoes exactly; features keep their side through big edits; an angle driven to 1°, 90°, 120°, and 179° keeps its side. Only the two message tests below failed before this branch; the rest pinned behaviour that already held
+- [x] **Repeats after Accept** (`tests/ai/test_patterns.py`): an accepted grid undoes and redoes as one step and still respaces from its one dimension; mirror, linear, and circular pattern modify nothing that was there before; a mirrored arc follows its original's radius
+- [x] **Benchmarks**: `repeat/*` in `bench/perf.py` (grid 218 ms for 133 commands, half-star mirror 53 ms for 36, circular star 2.3 s for 162); a full run in `bench/results/2026-09-29-2d-audit.json`, within noise of Solver V2.1 (the stress plate's Caliper share 0.79 s)
+
+### Newly fixed, each with a test that fails without the fix
+- [x] **C-2**: tangency to a rectangle's side at its corner, or through points between the arc and the line, was refused as redundant. `sketch._joints` follows chains of coincident points, takes a line's or arc's midpoint as on it, and knows a corner is on its two sides (`test_tangent_at_a_joint.py`, 5 tests). The recorded stress-plate session still replays fully constrained (its first slot tangency accepted, one vertical workaround refused as implied instead, ids aligned)
+- [x] **Partly implied**: a constraint repeating part of what others say (a fix on a line already horizontal) was refused as "already implied", which misled a model into thinking the line was fixed; it now says partly implied and what to do
+- [x] **A value no geometry can meet** (a width of 1e-12) named itself as the conflict; it now says it can't be satisfied by the geometry
+- [x] **AI-4** (the note glued to the JSON), **AI-5** (metrics unexplained), **AI-2** partly (a check of the same measurement again replaces the earlier one), **C-11** (app tests default to offscreen)
+
+### Known limitations, documented
+- C-12 (squeezed to nothing and accepted; decision pending, now pinned by a test), C-6 (a large joined cluster is slow per command: the circular star), AI-9, AI-10, AI-11 (arcs don't pattern), C-1, C-3: [docs/known-issues.md](../known-issues.md)
+- Moves are exact translations: one against what holds geometry is refused, not bent to fit. Dragging with the constraints following is the planned `DragFeature` (V1.5 follow-ups below)
+- Only the rectangle and ball-bearing sessions are pinned by hash; the stress plate, whose replay the C-2 fix changes, is compared with the reference by `bench/numerics.py` only
+
+### 2D dependency and recomputation today (the audit's item 6)
+- **Tracked:** what each relation reads (`references`) and who reads each entity (`referrers`); clusters; anchored geometry as a boundary; identity for what changed; per-cluster status; checks by what they read; `Executed` for Accept
+- **Incremental:** grouping, `referrers`, status, checks, and solving (only the clusters a change reaches); Accept (nothing solved again); preparing a proposal (no replay)
+- **Still recomputed:** each command's redundancy check factorizes its whole cluster, so many commands on one growing cluster (a circular star: 162 in one call) cost more each time; the canvas redraws its layer per change (about 10 ms at 2,000 entities); the picking grid is built per document on first use; `anchored` rescans every Fix when one changes. None is wrong; only the first is felt
+- **Tested now:** clusters and status against scratch (property tests), `referrers` against a scan, a solve leaving other clusters alone, and repeats moving nothing already there
+- **For 3D:** directed feature order, cached kernel results, persistent naming, invalid propagation: the plan below
+
+### Future work
+- [ ] Keep the redundancy check's factorization between the commands of one call (C-6; the repeat tools' main cost)
+- [ ] A profile tool for traced outlines (AI-10), and arcs in patterns (AI-11)
+- [ ] Decide C-12; the ADR for checks in the document (C-1, #16)
+- [ ] `remove_check`, the rest of AI-2
+- [ ] Pin the stress-plate session's reference output in `test_numerics.py`, now that C-2 changes its replay
 
 ## Dependency and recomputation graph (planned, 2026-09-28; not started)
 
@@ -64,7 +106,7 @@ User request (2026-09-28): keep Performance V2's speed while making the solver's
 ### Items
 
 - [x] **One tolerance policy** (`engine/constraints/tolerance.py`): `SOLVED` 1e-10, `UNCHANGED` 1e-9, `INDEPENDENT` 1e-9, `BROKEN` 1e-7, `PRECISION` 1e-5 (all of the scale), and the margins, each with why. The values are the solver's own, unchanged (the reference is still byte-identical to `main`); only the new ones are new: what counts as unchanged (the collapse threshold the solver already used), and the margin a split cluster's decision needs.
-- [x] **The reference** (`sketch.reference()`): the solver as it was (whole clusters, every value written as solved, nothing cached, this thread only). It writes `main`'s files byte for byte for all three recorded sessions (pinned by hashes in `test_numerics.py`), so it's the oracle.
+- [x] **The reference** (`sketch.reference()`): the solver as it was (whole clusters, every value written as solved, nothing cached, this thread only). It writes `main`'s files byte for byte for the rectangle and ball-bearing sessions (pinned by hashes in `test_numerics.py`, which also compares their every command with the fast solver), so it's the oracle; the stress plate is compared command by command only by `bench/numerics.py`, run by hand (corrected 2026-09-29: this said all three were pinned).
 - [x] **Keeping what a solve didn't need to change** (`sketch._kept`): values changed by no more than `UNCHANGED` go back to their stored values while every relation still holds within `SOLVED` at the scale of both the stored and the kept values (with start angles as stored); the largest changes are given up first. Every decision (accept, reject, collapse, repeat) is taken on the solved values, as the reference takes it; keeping changes only what's written.
 - [x] **The fallback boundary**: a split cluster leaves to the whole sketch a failed or nudged solve, a repeated relation, a new relation within 10× of the repeat threshold (`_UNDECIDED`, read from the factorization), and geometry within 10× of collapsing at the whole document's scale (`_document_scale`, incremental).
 - [x] **A stalled stage stops** (`_newton(patient=False)`, the optimized solver only): kept values leave residuals just within tolerance, and a stage that can't be solved used to lower them by a part in a billion a step until the iteration cap (one ball-bearing call: 263 evaluations instead of 38). A step lowering the squared residuals by less than the tolerance squared can't solve anything, so the stage stops.
