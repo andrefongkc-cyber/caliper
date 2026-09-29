@@ -210,7 +210,8 @@ it, rather than doubling up.
 002: from the bottom-left hole to the right slot's centre, reading 120 (reference).
 
 ## Practice: Build slots from lines and arcs, not a rectangle
-*Tangency and profiles. Observed in 002; the workaround worked.*
+*Tangency and profiles. Observed in 002 and 003; the workaround worked, and the problem behind
+it (C-2) is fixed.*
 
 **Observation**
 In 002 each slot was a rectangle plus two semicircle arcs, because the prompt asked for that.
@@ -225,9 +226,11 @@ Draw a slot as two lines and two arcs:
 - Make the two arcs equal.
 - Dimension the centre-to-centre length and the width.
 
-If a rectangle is required, keep the arc ends on its corners, and make each arc's centre
-vertical with its corner (horizontal, for a vertical slot) instead of tangent. That's what
-worked in 002.
+If a rectangle is required, keep the arc ends on its corners, and make each arc tangent to
+one long side: with its ends on the corners, that one tangency makes it a semicircle tangent
+to both, and a second is refused as implied. Tangency to a rectangle's side at its corner is
+accepted since the C-2 fix (2026-09-29); before it, the workaround was the arc's centre
+vertical with its corner (horizontal, for a vertical slot), which still works.
 
 **Why**
 - A clean closed profile with no interior edges.
