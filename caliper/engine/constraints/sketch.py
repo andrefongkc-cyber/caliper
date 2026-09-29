@@ -451,28 +451,66 @@ class System:
         return {i for q in quantities for i in q.g}
 
 
-type Joints = Mapping[tuple[EntityId, EntityId], Ref]
+type Joints = Mapping[tuple[EntityId, EntityId, Feature], Ref]
+
+
+_CORNER_SIDES = {
+    Feature.BOTTOM_LEFT: (Feature.BOTTOM, Feature.LEFT),
+    Feature.BOTTOM_RIGHT: (Feature.BOTTOM, Feature.RIGHT),
+    Feature.TOP_RIGHT: (Feature.TOP, Feature.RIGHT),
+    Feature.TOP_LEFT: (Feature.TOP, Feature.LEFT),
+}
+"""The two sides of a rectangle that meet at each corner."""
 
 
 def _joints(document: Document, relations: Iterable[EntityId]) -> Joints:
-    """Where a coincident constraint puts an arc's end on another curve (a line or another
-    arc or circle, at its end or anywhere along it): that end, by (arc, other curve).
-    Tangency between the two is written at the joint (`tangent_at_joint`)."""
-    joints: dict[tuple[EntityId, EntityId], Ref] = {}
-    for id in relations:
-        entity = document.entities[id]
-        if not (isinstance(entity, Constraint) and entity.type is ConstraintType.COINCIDENT):
+    """Where an arc's end lies on another curve: that end, by (arc, other curve's entity, its
+    curve feature). The end may be joined to the curve directly (at the curve's end, a
+    rectangle's corner, or anywhere along it) or through other points joined to it and each
+    other. Tangency between the two is written at the joint (`tangent_at_joint`)."""
+    coincident = [
+        entity.refs
+        for id in relations
+        if isinstance(entity := document.entities[id], Constraint)
+        and entity.type is ConstraintType.COINCIDENT
+    ]
+    # Points joined point to point, transitively: each point's group.
+    group: dict[Ref, set[Ref]] = {}
+    for refs in coincident:
+        if all(r.feature not in _CURVES for r in refs):
+            merged = group.get(refs[0], {refs[0]}) | group.get(refs[1], {refs[1]})
+            for ref in merged:
+                group[ref] = merged
+    on_curve: dict[Ref, list[Ref]] = {}  # a point: the curves it's put on
+    for refs in coincident:
+        for curve, point in permutations(refs):
+            if curve.feature in _CURVES and point.feature not in _CURVES:
+                on_curve.setdefault(point, []).append(curve)
+    joints: dict[tuple[EntityId, EntityId, Feature], Ref] = {}
+    for end in {r for refs in coincident for r in refs}:
+        if not (
+            isinstance(document.entities[end.entity], Arc)
+            and end.feature in (Feature.START, Feature.END)
+        ):
             continue
-        for end, other in permutations(entity.refs):
-            if (
-                isinstance(document.entities[end.entity], Arc)
-                and end.feature in (Feature.START, Feature.END)
-                and isinstance(document.entities[other.entity], Line | Arc | Circle)
-                and other.feature in (Feature.START, Feature.END, Feature.CURVE)
-                and other.entity != end.entity
-            ):
-                joints.setdefault((end.entity, other.entity), end)
+        for point in group.get(end, {end}):
+            others: list[tuple[EntityId, Feature]] = [
+                (curve.entity, curve.feature) for curve in on_curve.get(point, [])
+            ]
+            target = document.entities[point.entity]
+            if isinstance(target, Line | Arc) and point.feature in _ON_CURVE:
+                others.append((point.entity, Feature.CURVE))
+            elif isinstance(target, Rectangle) and point.feature in _CORNER_SIDES:
+                others.extend((point.entity, side) for side in _CORNER_SIDES[point.feature])
+            for other, feature in others:
+                if other != end.entity:
+                    joints.setdefault((end.entity, other, feature), end)
     return joints
+
+
+_CURVES = frozenset({Feature.CURVE, Feature.BOTTOM, Feature.RIGHT, Feature.TOP, Feature.LEFT})
+_ON_CURVE = frozenset({Feature.START, Feature.END, Feature.MID})
+"""A line's or arc's point features that lie on the curve itself."""
 
 
 def _compile(
@@ -485,8 +523,9 @@ def _compile(
             assert isinstance(found, Match), found
             equations, ordered = found.rule.equations, found.refs
             if type_ is ConstraintType.TANGENT:
-                joint = joints.get((ordered[0].entity, ordered[1].entity)) or joints.get(
-                    (ordered[1].entity, ordered[0].entity)
+                a, b = ordered[0], ordered[1]
+                joint = joints.get((a.entity, b.entity, b.feature)) or joints.get(
+                    (b.entity, a.entity, a.feature)
                 )
                 if joint is not None:
                     equations = tangent_at_joint(joint)
