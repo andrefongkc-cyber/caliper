@@ -1,9 +1,55 @@
-Status: Performance V2 and Solver V2.1 (numerical stability) done on `shared/performance-v2`, PR #47, next: review, including the last-digit note and C-12
+Status: Performance V2 and Solver V2.1 (numerical stability) done on `shared/performance-v2` (local commits, not pushed), next: Andre's review, including the last-digit note and C-12, then a PR; planned, not started: the dependency and recomputation graph
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Dependency and recomputation graph (planned, 2026-09-28; not started)
+
+**The goal.** When something changes, Caliper should know exactly what depends on it, recompute only that, in the right order, and keep every result that is still valid. Today that's a sketch; in 3D it's a feature chain such as reference plane → sketch → extrude → face → sketch on face → pocket → fillet → part. This is the foundation both need. It's written down now, before V2, so the 2D work already done grows into it instead of being replaced.
+
+**What exists, from Performance V2 and before.** A 2D sketch already recomputes this way, under other names:
+
+| Graph idea | What does it today |
+|---|---|
+| Nodes, and what changed | Entities in an immutable snapshot (ADR 0002). Documents share every entity a change left alone, so identity says exactly what changed (`sketch._changed`) |
+| What each operation consumes | `sketch.references`: the features a constraint or dimension reads. A command's `Delta` says what it produced |
+| Who depends on what | `sketch.referrers`, the reverse index, kept from the last document for only the entities that changed |
+| The affected subgraph | Clusters (`sketch.grouped`): geometry joined through relations, grouped again only where a change reached (`_regrouped`) |
+| Dependency boundaries | Anchored geometry: a Fix that pins every parameter makes it a constant in each cluster that reads it, so clusters split there (Performance V2 item 2) |
+| Cached results that stay valid | Each cluster's status (`_Solved`), each check's result, `referrers` and the groups, all kept by the identity of what they read (`engine/document/recent.py`); within a solve, the compiled equations |
+| Invalidated results | Anything whose inputs aren't the same objects: worked out again from the last document's version, for what changed |
+| Recompute order | Not needed yet: a cluster is one simultaneous system. The one ordering, anchored geometry before the clusters that read it, is handled by solving the whole sketch when anchored geometry moves |
+| Validation | Every command solves what it touched and is rejected, changing nothing, if it can't (ADR 0009) |
+| The record of a recompute | `Executed`: a proposal's steps and results, so Accept commits them without solving again |
+
+**What 3D adds that 2D doesn't have.**
+- **Direction and order.** A constraint cluster is solved all at once; features depend one way and must be recomputed in order (a directed acyclic graph), with cycles refused.
+- **Results that aren't in the document.** A feature's output, a kernel shape, is derived and never stored (ADR 0005; kernel output differs in the last bits across platforms). It has to be cached by the identity of the feature and of its inputs' results.
+- **References to generated topology.** A sketch on a face, or a fillet on an edge, refers to something another feature made. The reference has to survive recomputing that feature, which may renumber its faces: the persistent naming problem, the hardest part and its own ADR.
+- **Failure that stops downstream.** A pocket that cuts nothing fails; what depends on it is marked invalid, not recomputed, and the last good result stays on screen.
+
+**The design, and the smallest foundation.** One incremental graph over document ids, with the 2D sketch as its first and, for now, only kind of node:
+- **`inputs(document, id)`**: what an entity or feature consumes. For 2D this is `references`, as today; a feature will name the sketch, plane, face, or edge it reads.
+- **`dependents(document)`**: the reverse index, `referrers` generalised, kept incrementally by identity as it is now.
+- **Recomputing after a change**, the eight steps: (1) the changed ids come from identity, as today; (2) walk their dependents through the index; (3) the minimal affected subgraph is the dependents' closure, cut at boundaries (anchored geometry now; in 3D, a feature whose result is unchanged by identity stops the walk); (4) invalidate only those nodes' cached results; (5) recompute in topological order, each strongly connected unit (a sketch's cluster) solved as one; (6) reuse every other node's cached result, as clusters and checks do now; (7) re-resolve references to generated topology (persistent naming, 3D only); (8) validate: a node that fails rejects the command in 2D, and in 3D marks its dependents invalid.
+- **Caching** stays what Performance V2 made it: a result is valid while the objects it was worked out from are the same objects. No version counters or dirty flags, which would duplicate what identity already gives.
+
+**Decisions and limitations.**
+- **No code now.** 2D already does all eight steps in its own terms, and a general graph with one kind of node would be speculative (CLAUDE.md). The first code is step 1 below, done when a second kind of node exists, or when a second caller needs the index.
+- **It extends Performance V2, not replaces it.** `references`, `referrers`, `grouped`, the `Recent` caches, and `Executed` are the graph's 2D layer; the graph is what they become, not a system beside them.
+- **Clusters stay undirected.** Inside a sketch, dependency is mutual (constraints are solved together); direction starts between features. The sketch is one node to the features that read it.
+- **Unresolved.** How persistent names are made (by topology, by the generating feature and profile, or both) needs its own ADR and a spike against OCCT. Until then, 3D references to faces are out of scope.
+
+**Items.**
+- [ ] 1. Name the 2D graph: `inputs` and `dependents` in one engine module (`references` and `referrers` move there, same behaviour, same incremental index), with tests against today's functions over random sessions. When: the first second caller, or V2's first feature
+- [ ] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. Needs more than one sketch per document (a contract change: V2)
+- [ ] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s
+- [ ] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology
+- [ ] 5. Invalid propagation: a failed feature marks its dependents invalid without recomputing them, keeps its last good result for display, and says why
+- [ ] 6. Benchmarks: a 3D chain in `bench/perf.py`; editing an early sketch's dimension must recompute only it and what's downstream, measured against recomputing everything
+- [ ] 7. `docs/architecture.md`: "Doing each thing once" becomes the graph's description once item 1 lands
 
 ## Solver V2.1: numerical stability (branch `shared/performance-v2`, 2026-09-28)
 
@@ -61,7 +107,7 @@ The cost is the keeping check, one evaluation per solve that has something to ke
 
 ## Performance V2 (branch `shared/performance-v2`, 2026-09-24 to 2026-09-27)
 
-Two requests. 2026-09-24: profile every engine area before optimizing, keep results bit-for-bit, and stop and report anything that would change them (paused after item 1 for the AI milestone). 2026-09-27: one cohesive pass over 27 items, from proposal building, solving, checks, Accept, and Reject to MCP, rendering, the Assistant log, timing, files, memory, threads, and a benchmark suite, measured on the recorded stress tests; don't push. The branch started as `stream/core/performance-v2` and became `shared/` because the work spans every area. In review as PR #47 (2026-09-28).
+Two requests. 2026-09-24: profile every engine area before optimizing, keep results bit-for-bit, and stop and report anything that would change them (paused after item 1 for the AI milestone). 2026-09-27: one cohesive pass over 27 items, from proposal building, solving, checks, Accept, and Reject to MCP, rendering, the Assistant log, timing, files, memory, threads, and a benchmark suite, measured on the recorded stress tests; don't push. The branch started as `stream/core/performance-v2` and became `shared/` because the work spans every area. Local commits only.
 
 ### Before and after
 

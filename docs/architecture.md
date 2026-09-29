@@ -270,7 +270,9 @@ step and a redundancy check needs one at the solved point.
 
 **Toward 3D.** The same rule will regenerate a part: a feature (a sketch, an extrude) is
 worked out from the features it reads, kept by their identity, and redone only when one of
-them changed; a sketch is one such feature, and this solver is how it regenerates.
+them changed; a sketch is one such feature, and this solver is how it regenerates. The plan
+for that dependency and recomputation graph, and how today's indices and caches become it:
+[core workplan](workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started).
 
 ## Files
 
