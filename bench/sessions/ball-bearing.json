@@ -1,7 +1,7 @@
 {
   "format": "caliper.mcp_session",
   "note": "Every Caliper MCP tool call the run made, in order, as Claude sent it. Replayed by bench/perf.py.",
-  "source": "test-runs-manual/001-ball-bearing",
+  "source": "test-runs-andre/001-ball-bearing",
   "version": 1,
   "calls": [
     {"tool": "inspect_document", "arguments": {"limit": 3}},

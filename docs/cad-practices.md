@@ -1,6 +1,6 @@
 # CAD Practices for AI
 
-Lessons from Caliper's manual AI/MCP test runs (`test-runs-manual/`) about how Claude builds
+Lessons from Caliper's manual AI/MCP test runs (`test-runs-andre/`) about how Claude builds
 and constrains sketches: places where its approach was valid but more cluttered, fragile, or
 harder to change than it needed to be. Consult it when planning a sketch's geometry and
 constraints, before the first tool call. It builds on the tool instructions (`CONVENTIONS` in
@@ -35,7 +35,8 @@ stated once. None of this is a reason to add constraints for their own sake.
 ---
 
 ## Practice: Construction lines for repeated spacing
-*Construction geometry. Observed in 002; the preferred structure hasn't been run yet.*
+*Construction geometry. Observed in 002; the preferred structure, with `linear_pattern`, ran in
+003 (rerun 2).*
 
 **Observation**
 In 002 the 5 × 4 hole grid got 19 separate 30 mm spacing dimensions, 2 position dimensions
@@ -47,8 +48,9 @@ used construction lines and equal constraints instead.
 **Preferred approach**
 - In one call: `linear_pattern` on the dimensioned first feature. It joins each copy to the
   previous one with a construction line, all equal and parallel to the first, which carries
-  one spacing dimension each way, and makes every copy equal to the original. Hypothesis:
-  not yet used in a run.
+  one spacing dimension each way, and makes every copy equal to the original. In 003 the
+  grid was 4 calls (the hole, its diameter, its height, the pattern) plus one to put the middle
+  column on the centreline, fully constrained.
 - By hand, the same intent: draw construction lines between neighbouring centres along one
   row and one column, with their ends coincident with the centres.
 - Make the row lines horizontal and the column lines vertical.
@@ -84,7 +86,7 @@ see the layout practice below.
   constraints, no dimensions.
 
 ## Practice: Use the design's symmetry
-*Construction geometry. Observed in 002; the preferred structure hasn't been run yet.*
+*Construction geometry. Observed in 002; the preferred structure ran in 003 (rerun 2).*
 
 **Observation**
 002's features were laid out symmetrically about the plate's vertical centre, x = 120: the slots
@@ -154,7 +156,8 @@ between given rings, for example: tangency is then the intent.
 001: a 625 bearing, 7 balls, Ø10.5 pitch circle.
 
 ## Practice: Dimension from the nearest meaningful datum, with the label beside the feature
-*Dimensions. Observed in 002; the preferred placement is partly a hypothesis.*
+*Dimensions. Observed in 002; the preferred placement ran in 003 (rerun 2), from the plate's
+edges and centreline.*
 
 **Observation**
 002's positions were dimensioned from the origin point, with label offsets chosen per call of
@@ -305,8 +308,8 @@ Tiny sketches, where one check at the end is enough.
 002: `solve_status` after the slots, the grid, the D-cutout, and each stage of the star.
 
 ## Practice: Let constraints place the geometry
-*Geometry creation. Observed in 001, 002, and the gear run; the preferred approach is a
-hypothesis.*
+*Geometry creation. Observed in 001, 002, and the gear run; the preferred approach ran in 003
+(rerun 2).*
 
 **Observation**
 Claude computed exact coordinates before drawing:
@@ -332,8 +335,8 @@ Geometry that the layout fully determines.
 
 **When not to use**
 When a rough start could solve to the wrong configuration, such as a star's points crossing or
-an arc flipping. Give a close start there. How rough a start Caliper's solver tolerates is
-untested.
+an arc flipping. Give a close start there. In 003 the star's half-points, drawn to 2 decimals,
+solved into place; how much rougher a start the solver tolerates is untested.
 
 **Example**
 002's star: its points were fully determined by the circles, the mirror, and the equal edges,
@@ -371,9 +374,9 @@ Quick looks where the value isn't a requirement. Use `measure_distance` for thos
 
 | Run | Date | Contributed |
 |---|---|---|
-| `test-runs-manual/001-ball-bearing` | 2026-09-26 | Explicit layout; DOF per feature; constraints place geometry; check while pending |
-| `test-runs-manual/002-stress-plate-build` | 2026-09-27 | Repeated spacing; symmetry; datum and labels; reference dimensions; slots; each relationship once; DOF per feature; constraints place geometry; check while pending |
-| `test-runs-manual/003-stress-plate-changes` | — | Not run yet |
+| `test-runs-andre/001-ball-bearing` | 2026-09-26 | Explicit layout; DOF per feature; constraints place geometry; check while pending |
+| `test-runs-andre/002-stress-plate-build` | 2026-09-27 | Repeated spacing; symmetry; datum and labels; reference dimensions; slots; each relationship once; DOF per feature; constraints place geometry; check while pending |
+| `test-runs-andre/003-stress-plate-rerun2` | 2026-09-28 | Repeated spacing and symmetry with `linear_pattern` and `mirror_entities`; datum dimensions; constraints place geometry (the star from a rough start); slots (C-2 again); reference dimensions |
 | 16-tooth gear (`docs/workplan/ai.md`, Layout first) | 2026-09-26 | The layout-first rule now in `CONVENTIONS`; constraints place geometry |
 | MCP stress tests (`docs/known-issues.md`, AI-1) | 2026-09-25 | Check while pending |
 
