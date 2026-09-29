@@ -360,8 +360,14 @@ class Canvas(QWidget):
         hint_height = self.empty_hint.sizeHint().height()
         self.empty_hint.setGeometry(0, (height - hint_height) // 2, width, hint_height)
 
+    def show_proposal(self) -> None:
+        """The proposal to preview changed: draw it, and hide the empty-sketch hint under it."""
+        self._sync_empty_hint()
+        self.update()
+
     def _sync_empty_hint(self) -> None:
-        self.empty_hint.setVisible(not self.session.document.entities)
+        # Hidden while a proposal is shown: its ghost geometry is what's on the canvas (C-8).
+        self.empty_hint.setVisible(not self.session.document.entities and self.proposal() is None)
         self._sync_empty_hint_geometry(self.width(), self.height())
 
     def _forget_acquired(self) -> None:
