@@ -5,21 +5,39 @@ from the line" has the same gradient there as that coincidence, so a rank test c
 tangency redundant although it removes a degree of freedom (the arc's end angle). The
 solver writes it at the joint instead: the radius to the shared point is perpendicular to
 the line, or lies on one line with the other arc's radius.
+
+The joint may also be a rectangle's corner (tangency to one of its sides), or reached through
+other points joined to the arc's end: known issue C-2, fixed on `shared/2d-v1-audit`.
 """
 
 import math
+
+import pytest
 
 from caliper.contracts.commands import (
     Applied,
     Command,
     CreateArc,
     CreateConstraint,
+    CreateDistanceDimension,
     CreateLine,
+    CreatePoint,
+    CreateRectangle,
     FilletCorner,
     ModifyEntity,
     Rejected,
 )
-from caliper.contracts.document import Arc, ConstraintType, EntityId, Feature, Line, Point2, Ref
+from caliper.contracts.document import (
+    Arc,
+    ConstraintType,
+    DistanceOrientation,
+    EntityId,
+    Feature,
+    Line,
+    Point2,
+    Rectangle,
+    Ref,
+)
 from caliper.contracts.errors import ErrorCode
 from caliper.engine.commands.bus import Bus
 
@@ -167,3 +185,82 @@ def test_tangency_where_two_arcs_meet_is_accepted_and_holds() -> None:
     again = bus.execute(CreateConstraint(type=C.TANGENT, refs=(curve("e2"), curve("e1"))))
     assert isinstance(again, Rejected)
     assert again.errors[0].code is ErrorCode.CONSTRAINT_REDUNDANT
+
+
+# --- C-2: a rectangle's corner, and points in between ---------------------------------------
+
+
+def slot_end() -> Bus:
+    """The stress plate's slot: a 40 by 10 rectangle (e1) and its left end, a semicircle (e2)
+    from the top-left corner round to the bottom-left one, its ends joined to them (e3, e4)."""
+    bus = Bus()
+    run(bus, CreateRectangle(corner=Point2(x=40, y=115), width=40, height=10))
+    run(bus, CreateArc(center=Point2(x=40, y=120), radius=5, start_angle=90, sweep_angle=180))
+    run(bus, CreateConstraint(type=C.COINCIDENT, refs=(ref("e2", "start"), ref("e1", "top_left"))))
+    run(
+        bus,
+        CreateConstraint(type=C.COINCIDENT, refs=(ref("e2", "end"), ref("e1", "bottom_left"))),
+    )
+    return bus
+
+
+def test_tangency_to_a_rectangle_side_at_its_corner_is_accepted() -> None:
+    # C-2: rejected as "already implied by e3 (coincident)" in both stress-plate runs.
+    bus = slot_end()
+    free = bus.queries.solve_status().dof
+    run(bus, CreateConstraint(type=C.TANGENT, refs=(ref("e1", "top"), curve("e2"))))
+    assert bus.queries.solve_status().dof == free - 1
+
+
+def test_the_other_side_s_tangency_is_then_really_implied() -> None:
+    # With both ends on the corners, one tangency puts the centre on the short side, and that
+    # makes the arc tangent to the other long side too.
+    bus = slot_end()
+    run(bus, CreateConstraint(type=C.TANGENT, refs=(ref("e1", "top"), curve("e2"))))
+    second = bus.execute(CreateConstraint(type=C.TANGENT, refs=(ref("e1", "bottom"), curve("e2"))))
+    assert isinstance(second, Rejected)
+    assert second.errors[0].code is ErrorCode.CONSTRAINT_REDUNDANT
+
+
+def test_the_slot_end_stays_tangent_when_the_slot_is_widened() -> None:
+    bus = slot_end()
+    run(bus, CreateConstraint(type=C.TANGENT, refs=(ref("e1", "top"), curve("e2"))))
+    run(
+        bus,
+        CreateDistanceDimension(
+            a=ref("e1", "bottom_left"),
+            b=ref("e1", "top_left"),
+            orientation=DistanceOrientation.VERTICAL,
+            offset=8,
+            value=16.0,
+        ),
+    )
+    rectangle, arc = bus.document.entities[E("e1")], bus.document.entities[E("e2")]
+    assert isinstance(rectangle, Rectangle)
+    assert isinstance(arc, Arc)
+    assert arc.radius == pytest.approx(8.0, abs=1e-7)
+    # The centre is square below the corner: the radius meets the side at right angles.
+    assert arc.center.x == pytest.approx(rectangle.corner.x, abs=1e-7)
+
+
+def test_tangency_through_a_point_between_is_accepted() -> None:
+    # C-2: the arc's end joined to a point, and the point to the line's end.
+    bus = Bus()
+    run(bus, CreateLine(start=Point2(x=0, y=0), end=Point2(x=20, y=0)))
+    run(bus, CreateArc(center=Point2(x=20, y=5), radius=5, start_angle=270, sweep_angle=90))
+    run(bus, CreatePoint(position=Point2(x=20, y=0)))
+    run(bus, CreateConstraint(type=C.COINCIDENT, refs=(ref("e1", "end"), ref("e3", "point"))))
+    run(bus, CreateConstraint(type=C.COINCIDENT, refs=(ref("e3", "point"), ref("e2", "start"))))
+    free = bus.queries.solve_status().dof
+    run(bus, CreateConstraint(type=C.TANGENT, refs=(curve("e1"), curve("e2"))))
+    assert bus.queries.solve_status().dof == free - 1
+
+
+def test_a_joint_at_a_line_s_midpoint_counts() -> None:
+    bus = Bus()
+    run(bus, CreateLine(start=Point2(x=0, y=0), end=Point2(x=40, y=0)))
+    run(bus, CreateArc(center=Point2(x=20, y=5), radius=5, start_angle=270, sweep_angle=90))
+    run(bus, CreateConstraint(type=C.COINCIDENT, refs=(ref("e1", "mid"), ref("e2", "start"))))
+    free = bus.queries.solve_status().dof
+    run(bus, CreateConstraint(type=C.TANGENT, refs=(curve("e1"), curve("e2"))))
+    assert bus.queries.solve_status().dof == free - 1
