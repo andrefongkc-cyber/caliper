@@ -975,12 +975,15 @@ def _conflict(system: System, request: Request) -> Error:
     edit_blamed = bool(held) and _solves(system, system.relations, system.unknowns)
     ids = sorted({*culprits, *(request.edited if edit_blamed else ())})
     subject = _subject(system.document, request)
+    alone = (
+        f"{subject} can't be satisfied by the geometry it refers to (a rectangle can't turn, "
+        "and nothing may shrink to nothing)"
+    )
     if not ids:
-        return Error(
-            code=ErrorCode.CONSTRAINT_CONFLICT,
-            message=f"{subject} can't be satisfied by the geometry it refers to (a "
-            "rectangle can't turn, and nothing may shrink to nothing)",
-        )
+        return Error(code=ErrorCode.CONSTRAINT_CONFLICT, message=alone)
+    if culprits and set(culprits) <= request.touched and not edit_blamed:
+        # The changed relation alone (a dimension's new value): nothing else to blame.
+        return Error(code=ErrorCode.CONSTRAINT_CONFLICT, message=alone, ids=tuple(ids))
     if edit_blamed and not culprits:
         message = f"{subject} can't move that way; the constraints hold it"
     else:
@@ -1099,8 +1102,18 @@ def _redundancy(
                 - new
             )
             subject = _subject(system.document, Request(touched=new, new=frozenset({owner})))
+            # A relation of several equations (a fix, a coincidence) can repeat only some of
+            # what the others say; it's rejected all the same, but it isn't implied.
+            partly = any(o == owner and j not in basis.dependent for j, o in enumerate(owners))
             if not implying:
-                message = f"{subject} always holds here; it adds nothing"
+                message = f"{subject} {'partly ' if partly else ''}always holds here"
+                message += "" if partly else "; it adds nothing"
+            elif partly:
+                message = (
+                    f"{subject} is partly implied by {_names(system.document, implying)}: the "
+                    "rest of it is new, but a constraint can't repeat any of what the others "
+                    "say. Delete what it overlaps, or add only what's missing"
+                )
             else:
                 message = f"{subject} is already implied by {_names(system.document, implying)}"
                 if not isinstance(system.document.entities[owner], Constraint):
