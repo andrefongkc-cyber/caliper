@@ -429,6 +429,28 @@ def test_a_small_proposal_lists_its_changes_as_before(served, qtbot) -> None:
     assert not card.details_button.isVisible()
 
 
+def test_the_list_of_changes_names_references_plainly(served, qtbot) -> None:
+    # C-9: it read like Ref(entity='e1', feature=<Feature.END: 'end'>).
+    card = served.proposal_card
+    call(served, qtbot, "create_rectangle", RECTANGLE)
+    call(served, qtbot, "create_circle", {"center": {"x": 30, "y": 20}, "radius": 4})
+    call(
+        served,
+        qtbot,
+        "create_constraint",
+        {
+            "type": "concentric",
+            "refs": [{"entity": "e2", "feature": "curve"}, {"entity": "e1", "feature": "center"}],
+        },
+    )
+    text = card.commands.text()
+    assert "e2.curve" in text
+    assert "e1.center" in text
+    assert "Ref(" not in text
+    assert "<Feature" not in text
+    assert "type=concentric" in text
+
+
 def test_a_large_proposal_collapses_to_a_summary_and_stops_growing(served, qtbot) -> None:
     window, card = served, served.proposal_card
     window.resize(1000, 700)

@@ -37,7 +37,7 @@ from caliper.app.panels.checks import describe
 from caliper.app.panels.describe import n
 from caliper.app.session import Author, DocumentSession
 from caliper.app.tokens import SPACE
-from caliper.contracts.document import Document, Point2
+from caliper.contracts.document import Document, Point2, Ref
 from caliper.contracts.queries import CheckResult
 from caliper.engine.commands.handlers import already
 
@@ -466,6 +466,8 @@ def _command_text(command: object) -> str:
 
 
 def _value(value: object) -> str:
+    if isinstance(value, Ref):  # e1.end, not the dataclass's repr (C-9)
+        return f"{value.entity}.{value.feature.value}"
     if isinstance(value, float):
         return n(value)
     if isinstance(value, Point2):
