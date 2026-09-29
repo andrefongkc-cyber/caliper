@@ -1,11 +1,12 @@
 """The assistant's loop: request, model, tools, results, and a reviewable turn."""
 
+import itertools
 import json
 from typing import Any
 
 import pytest
 
-from caliper.ai.agent import STOPPED, SYSTEM, Assistant, from_environment
+from caliper.ai.agent import KEEP_TURNS, STOPPED, SYSTEM, Assistant, from_environment
 from caliper.ai.model import (
     Message,
     ModelError,
@@ -226,3 +227,31 @@ def test_the_assistant_is_off_unless_the_environment_asks_for_claude(
     assistant = from_environment()
     assert assistant is not None
     assert assistant.model.name == "claude-opus-5"
+
+
+def test_a_long_session_keeps_only_the_last_few_turns(scripted: Any) -> None:
+    # AI-7: every turn used to be sent again with every request, costing more each time.
+    turns = 10
+    model = scripted(
+        [
+            step
+            for n in range(turns)
+            for step in (
+                scripted.calls(("inspect_document", {"limit": 1})),
+                scripted.answer(f"answer {n}"),
+            )
+        ]
+    )
+    assistant = Assistant(model)
+    document = Document.empty()
+    for n in range(turns):
+        assistant.ask(f"request {n}", document)
+    _, conversation, _ = model.requests[-1]
+    asked = [m.text for m in conversation if isinstance(m, UserTurn)]
+    assert len(asked) == KEEP_TURNS + 1  # the kept turns and this one
+    assert asked[-1].startswith(f"request {turns - 1}")
+    assert asked[0].startswith(f"request {turns - 1 - KEEP_TURNS}")
+    # Whole turns: each call the model made still has its result after it.
+    for message, following in itertools.pairwise(conversation):
+        if isinstance(message, Reply) and message.calls:
+            assert isinstance(following, ToolResults)
