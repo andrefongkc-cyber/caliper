@@ -201,6 +201,8 @@ class Repeated:
     label: str
     copies: dict[str, JSON] = field(default_factory=dict)
     """Each original's copy (mirror) or copies in order (pattern)."""
+    created: list[JSON] = field(default_factory=list)
+    """New geometry that copies nothing (`caliper.ai.construct`), in order."""
     construction: list[JSON] = field(default_factory=list)
     """Layout geometry made to hold the copies."""
     constraints: list[JSON] = field(default_factory=list)
