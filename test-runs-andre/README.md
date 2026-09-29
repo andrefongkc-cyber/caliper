@@ -8,7 +8,7 @@ the quick check that MCP works: [docs/mcp.md](../docs/mcp.md).
 ## Structure
 
 ```
-test-runs-manual/
+test-runs-andre/
 └── 001-test-name/
     ├── 001-prompt.md
     ├── 002-claude-output.md
