@@ -30,6 +30,8 @@ and values were kept: the oracle `equivalence` compares this solver with.
 """
 
 import math
+import sys
+import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -1109,17 +1111,24 @@ def _redundancy(
     a row's length, and what `tolerance.INDEPENDENT` compares it with, differ from the whole
     sketch's. A new relation clearly independent is so either way; one within
     `tolerance.DECIDED` of the threshold is `_UNDECIDED`, for the whole sketch to decide."""
-    added = [id for id in system.relations if id in new]
+    added = sorted((id for id in system.relations if id in new), key=_number)
     if not added:
         return None
-    order = [id for id in system.relations if id not in new] + added
+    # Rows and columns in the order entities were made, so a check that follows another on
+    # the same cluster (the next command of a pattern) starts with the rows and columns the
+    # last one had, and carries on from its factorization (`_extended`).
+    order = sorted((id for id in system.relations if id not in new), key=_number) + added
     everything = system.unknowns
+    canonical = sorted(everything, key=lambda i: (_number(system.params[i][0]), i))
+    columns = {i: c for c, i in enumerate(canonical)}
     equations = system.equations(order, values)
     _, gradients, owners = _evaluate(equations, system.frame(values, everything))
-    basis = RowBasis(len(values))
-    rows = _dense(gradients, {i: i for i in everything})
-    for i, row in enumerate(rows):
-        basis.add(i, row)
+    rows = _dense(gradients, columns)
+    basis = _extended(
+        tuple(system.params[i] for i in canonical),
+        rows,
+        existing=len(rows) - sum(owner in new for owner in owners),
+    )
     if local:
         # A kept row's last entry in `lower` is what was left of it after the rows before it.
         close = tolerance.DECIDED * tolerance.INDEPENDENT
@@ -1162,6 +1171,71 @@ def _redundancy(
                     message += "; add it as a driven dimension (no value) instead"
             return Error(code=ErrorCode.CONSTRAINT_REDUNDANT, message=message, ids=tuple(implying))
     return None
+
+
+def _number(id: EntityId) -> tuple[int, str]:
+    """An id's place in the order entities were made: `e12` after `e9`."""
+    digits = id[1:]
+    return (int(digits), "") if id[:1] == "e" and digits.isdigit() else (sys.maxsize, id)
+
+
+@dataclass(frozen=True, slots=True)
+class _Factored:
+    """A redundancy check's factorization after its first `len(rows)` rows."""
+
+    columns: tuple[Param, ...]
+    rows: tuple[tuple[tuple[int, float], ...], ...]
+    """Each row's nonzero entries, as (column, value)."""
+    basis: RowBasis
+
+
+_FACTORED = threading.local()
+"""Each thread's last redundancy check: its factorization after the rows that were there
+before, and after all of them."""
+
+
+def _extended(columns: tuple[Param, ...], rows: list[list[float]], existing: int) -> RowBasis:
+    """`rows` factorized, the first `existing` of them there before the command. Carries on
+    from the last check's factorization where this check starts with the same columns and
+    rows, to the bit: then what it did for them is exactly what doing them again would do,
+    since each row's part of a factorization depends only on the rows before it. New columns
+    are new geometry, last in the order and zero in those rows. The reference solver works
+    everything out afresh."""
+    width = len(columns)
+    entries = tuple(tuple((c, x) for c, x in enumerate(row) if x != 0.0) for row in rows)
+    fresh = _REFERENCE.get()
+    matching = [
+        kept
+        for kept in (() if fresh else getattr(_FACTORED, "last", ()))
+        if len(kept.rows) <= len(entries)
+        and columns[: len(kept.columns)] == kept.columns
+        and entries[: len(kept.rows)] == kept.rows
+    ]
+    best = max(matching, key=lambda kept: len(kept.rows), default=None)
+    start = 0 if best is None else len(best.rows)
+    basis = RowBasis(width) if best is None else _widened(best.basis, width)
+    saved = [kept for kept in matching if len(kept.rows) == existing]
+    for i in range(start, len(rows)):
+        if i == existing and not saved:
+            saved.append(_Factored(columns, entries[:i], _widened(basis, width)))
+        basis.add(i, rows[i])
+    if not fresh:
+        _FACTORED.last = [*saved, _Factored(columns, entries, _widened(basis, width))]
+    return basis
+
+
+def _widened(basis: RowBasis, width: int) -> RowBasis:
+    """A copy of `basis` over `width` columns, the new ones zero in every row."""
+    grow = [0.0] * (width - basis.width)
+    return RowBasis(
+        width,
+        q=[[*row, *grow] for row in basis.q],
+        lower=[row[:] for row in basis.lower],
+        kept=basis.kept[:],
+        dependent={i: row[:] for i, row in basis.dependent.items()},
+        supports=basis.supports[:],
+        masks=basis.masks[:],
+    )
 
 
 def _names(document: Document, ids: Sequence[EntityId]) -> str:

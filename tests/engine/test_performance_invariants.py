@@ -25,8 +25,10 @@ from caliper.contracts.commands import (
     Command,
     CreateCircle,
     CreateConstraint,
+    CreateLine,
     CreateRadialDimension,
     ModifyEntity,
+    Rejected,
 )
 from caliper.contracts.document import (
     ConstraintType,
@@ -215,6 +217,87 @@ def test_the_sparse_factorization_is_bit_for_bit_the_dense_one(
         assert [x == y for x, y in zip(a, b, strict=True)] == [True] * width
     residuals = [float(i % 7) - 3.0 for i in range(len(rows))]
     assert fast.step(residuals) == slow.step(residuals)
+
+
+@given(case=sparse_rows(), split=st.floats(min_value=0.0, max_value=1.0), grow=st.integers(0, 6))
+def test_a_factorization_carried_on_is_bit_for_bit_a_fresh_one(
+    case: tuple[int, list[list[float]]], split: float, grow: int
+) -> None:
+    """A redundancy check carries on from the last one's factorization (`sketch._extended`)
+    when it starts with the same rows, and with new columns (new geometry) zero in them.
+    Whatever it reuses, the result must be what factorizing every row afresh gives."""
+    width, rows = case
+    first = rows[: max(1, int(split * len(rows)))]
+    columns = tuple((EntityId(f"e{n}"), "x") for n in range(width + grow))
+    padded = [[*row, *[0.0] * grow] for row in rows]
+    sketch._FACTORED.last = []
+    sketch._extended(columns[:width], first, existing=len(first) // 2)
+    carried = sketch._extended(columns, padded, existing=len(first))
+    fresh = RowBasis(width + grow)
+    for i, row in enumerate(padded):
+        fresh.add(i, row)
+    assert carried.kept == fresh.kept
+    assert carried.lower == fresh.lower
+    assert carried.dependent == fresh.dependent
+    assert carried.q == fresh.q
+    assert carried.supports == fresh.supports
+    assert carried.masks == fresh.masks
+    # A changed earlier row is a different check: nothing is carried over.
+    changed = [[x + 1.0 for x in padded[0]], *padded[1:]]
+    again = sketch._extended(columns, changed, existing=len(first))
+    fresh = RowBasis(width + grow)
+    for i, row in enumerate(changed):
+        fresh.add(i, row)
+    assert (again.kept, again.lower, again.q) == (fresh.kept, fresh.lower, fresh.q)
+
+
+def test_a_chain_decides_and_solves_exactly_as_it_would_afresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """80 lines joined end to end, built command by command, with a repeat of the last
+    constraint tried after each one: every outcome, message, and document the same whether
+    each redundancy check carries on from the last or starts afresh (C-6)."""
+
+    def build() -> list[object]:
+        bus = Bus(kernel=None)
+        seen: list[object] = []
+        previous: EntityId | None = None
+        for n in range(80):
+            level = n % 2 == 0
+            start = Point2(x=float(n), y=float(n))
+            end = Point2(x=start.x + (10.0 if level else 0.0), y=start.y + (0.0 if level else 10.0))
+            (line,) = bus.execute(CreateLine(start=start, end=end)).created_ids  # type: ignore[union-attr]
+            direction = CreateConstraint(
+                type=ConstraintType.HORIZONTAL if level else ConstraintType.VERTICAL,
+                refs=(Ref(entity=line, feature=Feature.CURVE),),
+            )
+            commands: list[Command] = [direction, direction]  # the second is a repeat
+            if previous is not None:
+                commands.append(
+                    CreateConstraint(
+                        type=ConstraintType.COINCIDENT,
+                        refs=(
+                            Ref(entity=previous, feature=Feature.END),
+                            Ref(entity=line, feature=Feature.START),
+                        ),
+                    )
+                )
+            for command in commands:
+                result = bus.execute(command)
+                seen.append(result.errors if isinstance(result, Rejected) else result.delta)
+            previous = line
+        seen.append(bus.document)
+        return seen
+
+    carried = build()
+    real = sketch._extended
+
+    def afresh(columns, rows, existing):  # type: ignore[no-untyped-def]
+        sketch._FACTORED.last = []
+        return real(columns, rows, existing)
+
+    monkeypatch.setattr(sketch, "_extended", afresh)
+    assert build() == carried
 
 
 # --- The index of what refers to what -------------------------------------------------------
