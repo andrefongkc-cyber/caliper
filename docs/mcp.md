@@ -132,7 +132,7 @@ makes no API request of Caliper's own; Claude Desktop uses your Claude account.
    yours only: `ls -l ~/.caliper/` shows `srwx------`.
 2. Make sure the `caliper` entry is in Claude Desktop's config (Set up, step 3).
 3. Restart Claude Desktop.
-4. In a new chat, open the tools menu: **caliper** is listed with 27 tools.
+4. In a new chat, open the tools menu: **caliper** is listed with 28 tools.
 5. Ask: *"Show me the entities near the origin in Caliper."* Claude calls
    `inspect_document` (allow it when asked). The Assistant tab in Caliper shows
    `claude-ai → inspect_document`, and nothing changes on the canvas.

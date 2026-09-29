@@ -82,10 +82,12 @@ READ_ONLY = frozenset(
         "run_check",
         "solve_status",
         "applicable_constraints",
+        "remove_check",
         PROGRESS.name,
     }
 )
-"""Tools that never change the sketch (run_check only records the check for the proposal)."""
+"""Tools that never change the sketch (run_check and remove_check change only the checks that
+go with the proposal)."""
 
 MCP_TOOLS = (*TOOLS, PROGRESS)
 
