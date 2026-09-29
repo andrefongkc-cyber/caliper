@@ -1,4 +1,4 @@
-Status: mirror and linear pattern tools, and the Timing panel's time left and auto-stop, on `shared/mirror-pattern-time-left` (stacked on `shared/performance-v2`, local, not pushed), next: a live rerun of test 002 on it from Claude Desktop, then Andre's review
+Status: mirror, linear and circular pattern, and the Timing panel's time left (priced by kind, smoothed) and auto-stop, on `shared/mirror-pattern-time-left` (stacked on `shared/performance-v2`, local, not pushed), next: a live Claude Desktop run on it, then Andre's review
 
 # AI workplan
 
@@ -7,6 +7,21 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## Circular pattern, and a better time left (branch `shared/mirror-pattern-time-left`, 2026-09-28)
+
+Andre, after test 003 (the stress plate on mirror and linear pattern: 4m 40s and 162 calls, against 9m 17s and 281): make a circular pattern tool; the Timing line should show only the time and the time left (the calls are in the fields); and can the time left be more accurate.
+
+- [x] **`circular_pattern`** (`caliper/ai/patterns.py`): points, lines, and circles round a centre point, over a full circle or part of one, clockwise for a negative angle. Each orbit (a point and its copies) sits on a construction circle through the original, joined by equal construction chords: round a full circle the count sets the spacing, and a partial pattern has one angle dimension between two radii. A copy's point that lands where another already is gets a coincident constraint instead, so a star's outline closes and each orbit is placed once; points that almost meet are reported in a note. Refused: arcs (no constraint ties their angles), rectangles (always axis-aligned), originals that overlap their own copies, copies 180° or more apart in a partial pattern
+- [x] Trials: a 6-hole bolt circle in 0.03 s; the 002 star as one constrained point (two edges, inner ends exactly 15° either side) and one call, 2.4 s, 0 DOF, one closed outline of 24 lines, about 14 calls instead of 62 with mirror
+- [x] **The Timing line**: `▸ 1m 12s · ~3m 40s left`, just the time when the run stops; no call count
+- [x] **Time left, priced by kind** (`caliper/app/agent/estimate.py`): each call is measured from the end of the call before it (Claude's time, the MCP round trip, redrawing, the command and solve), by kind: repeats (mirror and patterns), checks, and the rest. Each kind still to go is priced at that kind's cost in this run, blended with priors from test 003 (1.7 s, 0.8 s, 5 s) while few are measured. `report_progress` takes an optional split into repeats and checks; without it the calls are priced at the run's average. Time Claude has spent since the last call counts toward the next one only
+- [x] **Smoothed**: it counts down each second; every 15 s, and when a repeat finishes, it moves halfway to the new figure; a new plan, or a figure more than half out, replaces it at once
+- [x] **Honest about what it knows**: until 10 calls are measured it says `about 4 min left` (to the minute); `no estimate` without a plan; `finishing…` when the plan's calls are done; the final time alone when the run stops, as soon as Claude reports 0
+- [x] Tests: `tests/app/test_estimate.py` (kinds, priors, blending, the figure, the countdown, refresh, due, stale and new plans, never below zero), `tests/app/test_timing.py` (what the run feeds it: kinds, the report call not counted, measured from the call before), `tests/app/test_mcp.py` (the line from rough to measured to stopped, every wording, bad splits refused), `tests/ai/test_patterns.py` (bolt circles full, partial, clockwise, and half a turn; the star closes and follows its layout; near misses; spokes share the centre; refusals). 1374 passed, 16 skipped
+- [ ] Live run from Claude Desktop: does it call `report_progress` with a split, and how close is the estimate?
+- [ ] Priors from more runs: the three figures come from one Claude Code run. Keeping the last run's figures (in memory, or in settings) would make the first estimate better; not done, since one run's figures aren't yet evidence
+- [ ] Circular pattern of arcs (gear teeth): an arc's copy needs its angles tied, the same problem mirror solved with a construction point
 
 ## Mirror, linear pattern, and time left (branch `shared/mirror-pattern-time-left`, 2026-09-28)
 
