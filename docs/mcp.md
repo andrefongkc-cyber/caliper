@@ -53,13 +53,19 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
      "mcpServers": {
        "caliper": {
          "command": "/ABSOLUTE/PATH/TO/uv",
-         "args": ["run", "--directory", "/ABSOLUTE/PATH/TO/caliper", "--extra", "mcp", "caliper-mcp"]
+         "args": ["run", "--directory", "/ABSOLUTE/PATH/TO/caliper", "--no-dev", "--extra", "mcp", "caliper-mcp"],
+         "env": {"UV_PROJECT_ENVIRONMENT": "/ABSOLUTE/PATH/TO/caliper/.venv-mcp"}
        }
      }
    }
    ```
 
-   No `env` block, and no key: the server needs none.
+   The `env` line gives the server its own environment, `.venv-mcp`, built from the same
+   checkout: it runs the same code as the app, so its tools always match the window's, but
+   syncing `.venv` for development (or the server starting) never changes the other. Before
+   this, one shared `.venv` meant a `uv sync` without the `mcp` extra could take the server's
+   tools away, and a server start could remove development tools (known issue AI-3). There's
+   no key: the server needs none.
 
 4. **Restart Claude Desktop.** Caliper's tools show up under the tools (connectors) menu in
    the chat box.
