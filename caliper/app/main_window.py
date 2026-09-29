@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         )
         self.canvas.proposal = lambda: self.agent.proposal
         self.canvas.reject_proposal = self.agent.reject
-        self.agent.proposal_changed.connect(self.canvas.update)
+        self.agent.proposal_changed.connect(self.canvas.show_proposal)
         self.agent.proposal_shown.connect(self._frame_proposal)
         self.mcp: McpHost | None = None
         """Claude Desktop's way in, once `serve_mcp` is called."""
