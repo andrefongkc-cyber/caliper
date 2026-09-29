@@ -499,6 +499,19 @@ def test_accepting_a_collapsed_proposal_applies_all_of_it(served, qtbot) -> None
     assert not card.isVisible()
 
 
+def test_a_first_proposal_on_an_empty_sketch_hides_the_empty_hint(served, qtbot) -> None:
+    # C-8: the "empty sketch" hint drew over Claude's first proposal.
+    window = served
+    hint = window.canvas.empty_hint
+    window.session.new()
+    assert hint.isVisible()
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    assert window.proposal_card.isVisible()
+    assert not hint.isVisible()
+    window.proposal_card.reject_button.click()
+    assert hint.isVisible()  # nothing was kept: empty again
+
+
 def test_a_pattern_from_claude_desktop_is_one_proposal_and_one_undo_step(served, qtbot) -> None:
     window, session = served, served.session
     call(window, qtbot, "create_circle", {"center": {"x": 10, "y": 10}, "radius": 3})
