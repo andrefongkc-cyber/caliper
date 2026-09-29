@@ -15,9 +15,9 @@ recorded value. Saving a drawing into a test folder writes that folder's 003-tim
 (`timing_file`, test-runs-andre/README.md).
 
 Time left: Claude can say how many calls a task will take (`progress`, the MCP tool
-report_progress), and Caliper turns that into time at the run's own pace, or `PACE` until the
-run has `PACE_CALLS` calls to measure it by. It counts down between calls and is worked out
-again at each one.
+report_progress), and Caliper prices them by kind from what this run's calls have cost, and
+shows a smoothed countdown (`caliper.app.agent.estimate`). Each call's cost is measured here,
+from the end of the call before it.
 
 Qt-free: the MCP host reports calls, proposals, and accepts; the clock is injected for tests.
 """
@@ -25,20 +25,19 @@ Qt-free: the MCP host reports calls, proposals, and accepts; the clock is inject
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+
+from caliper.app.agent.estimate import Estimate, kind
 
 IDLE = 180.0
 """Seconds with no MCP call after which the next call starts a new run."""
 QUIET = 60.0
 """Seconds with no MCP call after which the time stops, unless Claude's estimate says it has
 calls to go: then it's thinking, not done, and the time runs until `IDLE`."""
-PACE = 2.0
-"""Seconds per call, for time left before a run has its own pace: test 002 from Claude
-Desktop took 9m 17s for 281 calls."""
-PACE_CALLS = 10
-"""Calls a run needs before its own pace replaces `PACE`."""
+PROGRESS = "report_progress"
+"""Claude's plan, a call that isn't part of it."""
 NA = "N/A"
 FIELDS = (
     "Total run",
@@ -72,7 +71,10 @@ class Timing:
     """How many calls Claude said the run would take in all, if it said."""
     left: float | None = None
     """While the run is live and short of the calls Claude said it expects: the estimated
-    seconds until it's done, counting down between calls. Not recorded anywhere."""
+    seconds until it's done, a smoothed countdown (`caliper.app.agent.estimate`). Not
+    recorded anywhere."""
+    rough: bool = False
+    """`left` is still mostly the prior: too few calls measured to trust it to the second."""
 
     @property
     def live(self) -> bool:
@@ -95,6 +97,7 @@ class _Run:
     accept: float | None = None
     expected: int | None = None
     """The calls Claude expects the run to take, counting the one that said so."""
+    estimate: Estimate = field(default_factory=Estimate)
 
 
 class RunTimer:
@@ -137,12 +140,17 @@ class RunTimer:
         self._live = True  # again, if an accept part-way had stopped it
         return now
 
-    def finished(self, arrived: float, *, changed: bool) -> None:
-        """The call that arrived at `arrived` has its answer. `changed`: it changed the
-        pending proposal (or made one)."""
+    def finished(self, arrived: float, *, changed: bool, tool: str | None = None) -> None:
+        """The call to `tool` that arrived at `arrived` has its answer. `changed`: it changed
+        the pending proposal (or made one)."""
         run = self._run
         assert run is not None, "finished without arrived"
         now = self._clock()
+        of = kind(tool)
+        if run.last_done is not None:  # the first call's wait is First response, not a cost
+            run.estimate.measure(of, now - run.last_done)
+        if tool != PROGRESS:
+            run.estimate.called(of)
         run.calls += 1
         run.last_done = now
         took = now - arrived
@@ -158,13 +166,17 @@ class RunTimer:
         if run is not None:
             run.accept = seconds if run.accept is None else run.accept + seconds
 
-    def progress(self, calls_left: int) -> None:
-        """Claude, during a call, expects `calls_left` more after it; 0 means it's done, and
-        the time stops (a later call starts it again, as after an accept part-way)."""
+    def progress(
+        self, calls_left: int, *, repeats: int | None = None, checks: int | None = None
+    ) -> None:
+        """Claude, during a call, expects `calls_left` more after it, `repeats` and `checks`
+        of them if it said; 0 means it's done, and the time stops (a later call starts it
+        again, as after an accept part-way)."""
         run = self._run
         if run is None:
             return
         run.expected = run.calls + 1 + calls_left  # this call is counted when it finishes
+        run.estimate.planned(calls_left, repeats, checks)
         if calls_left == 0:
             self._live = False
 
@@ -179,7 +191,8 @@ class RunTimer:
 
     @property
     def timing(self) -> Timing | None:
-        """The current run, or None before the first. It stays after the run ends."""
+        """The current run, or None before the first. It stays after the run ends. Looking
+        refreshes the time left when a refresh is due (`Estimate.shown`)."""
         run = self._run
         if run is None:
             return None
@@ -191,7 +204,7 @@ class RunTimer:
         live = self._live and since is not None and now - since < quiet
         left = None
         if live and to_go and since is not None:
-            left = max(since + to_go * self._pace(run) - now, 0.0)
+            left = run.estimate.shown(now, now - since)
         creation = run.built
         if run.building is not None:
             creation = (creation or 0.0) + run.building[1] - run.building[0]
@@ -210,14 +223,8 @@ class RunTimer:
             elapsed=now - began if live and began is not None else None,
             expected=run.expected,
             left=left,
+            rough=left is not None and not run.estimate.informed,
         )
-
-    @staticmethod
-    def _pace(run: _Run) -> float:
-        """Seconds per call: the run's own, from Claude's first call, once it has enough."""
-        if run.calls < PACE_CALLS or run.first_call is None or run.last_done is None:
-            return PACE
-        return (run.last_done - run.first_call) / run.calls
 
 
 def timing_file(drawing: Path) -> Path | None:
