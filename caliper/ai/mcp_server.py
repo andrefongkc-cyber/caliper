@@ -136,7 +136,9 @@ def build(forward: Forward = ask) -> "Server[Any]":
             return types.CallToolResult(content=[text(str(e))], is_error=True)
         content: list[types.ContentBlock] = [text(json.dumps(response.content, sort_keys=True))]
         if response.note is not None:
-            content.insert(0, text(f"Note: {response.note}"))
+            # Its own block, ended by a blank line: some clients join blocks with nothing
+            # between them, which glued the note to the result's JSON (AI-4).
+            content.insert(0, text(f"Note: {response.note}\n\n"))
         return types.CallToolResult(content=content, is_error=response.is_error)
 
     return Server(
