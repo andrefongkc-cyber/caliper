@@ -73,7 +73,7 @@ def test_it_exposes_caliper_and_nothing_else() -> None:
     assert names == set(COMMAND_KINDS) | repeats | {spec.name for spec in QUERY_TOOLS} | {
         PROGRESS.name
     }
-    assert len(names) == 24
+    assert len(names) == 25
     for word in ("shell", "exec", "file", "python", "eval", "http", "fetch", "system", "terminal"):
         assert not [name for name in names if word in name], word
     assert names >= READ_ONLY

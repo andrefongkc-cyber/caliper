@@ -25,6 +25,18 @@ construction line equal and parallel to the pattern's first such line, which car
 spacing as a driving dimension and is horizontal or vertical when the direction is; and it is
 the same size (equal radius, equal and parallel line, equal sides). Arcs aren't patterned:
 no constraint ties a copy's angles to its original's.
+
+What places a circular pattern's copies, around a centre point: each point of the originals
+(a point, a line's ends, a circle's centre) and its copies make an orbit, the same point turned
+one step at a time. The orbit's copies sit on a construction circle through the original,
+concentric with the centre, and are joined by construction chords, all equal. Round a full
+circle that fixes the step, so the count alone sets the spacing; a partial pattern's step is
+one angle dimension between two radial construction lines. A copy's point that lands where
+another point already is (the ends of a star's edges, which meet at the next copy's corner) is
+joined to it with a coincident constraint instead, so outlines close, and each orbit is placed
+once. Circles are the same size as the original. Arcs and rectangles aren't turned: nothing
+ties an arc's angles, and a rectangle is always axis-aligned. The originals should be fully
+constrained first, so that their points are exactly a step apart where they should meet.
 """
 
 import math
@@ -35,6 +47,7 @@ from caliper.ai.model import ToolSpec
 from caliper.contracts.commands import (
     Applied,
     Command,
+    CreateAngleDimension,
     CreateArc,
     CreateCircle,
     CreateConstraint,
@@ -123,6 +136,54 @@ PATTERN = ToolSpec(
         "additionalProperties": False,
     },
 )
+
+
+CIRCULAR = ToolSpec(
+    name="circular_pattern",
+    description=(
+        "Repeat geometry around a centre point: points, lines, and circles. count includes the "
+        "original; the copies are evenly spaced over angle, 360 by default (a full circle), "
+        "counter-clockwise, or clockwise for a negative angle. Copies of each point sit on a "
+        "construction circle, joined by equal construction chords, so a full circle's spacing "
+        "comes from the count and a partial one has one angle dimension. Points that land on "
+        "the same spot, such as the joints of a star's edges, are joined, so outlines close. "
+        "Constrain the original fully first (a star: one point's two edges, their inner ends "
+        "exactly one step apart), then pattern it. One call, and one step to undo."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "ids": {**_IDS, "description": "The geometry to repeat."},
+            "center": {
+                "description": "The point to turn about: a point's id, or a point feature.",
+                "anyOf": [
+                    {"type": "string"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "entity": {"type": "string"},
+                            "feature": {"type": "string", "enum": [f.value for f in Feature]},
+                        },
+                        "required": ["entity", "feature"],
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+            "count": {"type": "integer", "minimum": 2},
+            "angle": {"type": "number", "description": "The whole pattern's angle. Default 360."},
+        },
+        "required": ["ids", "center", "count"],
+        "additionalProperties": False,
+    },
+)
+
+JOIN = 1e-6
+"""Relative to the geometry's size: a copy's point this close to another point is that point,
+and is joined to it. Solved geometry is exact to far better; this allows for round-off in the
+turn."""
+NEAR = 1e-3
+"""Relative to the geometry's size: points this close, but not within `JOIN`, almost meet, and
+the result says so: the original isn't exactly one step from itself."""
 
 
 class PatternError(Exception):
@@ -570,6 +631,316 @@ def _level(degrees: float) -> ConstraintType | None:
     if turn == 90.0:
         return ConstraintType.VERTICAL
     return None
+
+
+# --- Circular pattern -------------------------------------------------------------------
+
+
+_TURNED = {
+    Point: (Feature.POINT,),
+    Line: (Feature.START, Feature.END),
+    Circle: (Feature.CENTER,),
+}
+"""The points that place each kind of geometry a circular pattern turns."""
+
+
+def circular_pattern(document: Document, arguments: Mapping[str, object], run: Run) -> Repeated:
+    ids = _ids(arguments.get("ids"))
+    center, c = _center(document, arguments.get("center"))
+    count = _count(arguments, "count", None)
+    total = _angle(arguments, "angle", 360.0)
+    if count < 2:
+        raise PatternError({"error": "count must be 2 or more: it includes the original"})
+    if total == 0 or abs(total) > 360:
+        raise PatternError({"error": "angle must be more than 0 and at most 360 either way"})
+    full = abs(total) == 360
+    step = total / count if full else total / (count - 1)
+    if not full and abs(step) >= 180:
+        raise PatternError(
+            {
+                "error": f"the copies would be {abs(step):g}° apart; a partial pattern's must be "
+                "under 180°. Use more copies or a smaller angle"
+            }
+        )
+    made = Repeated(label="Circular Pattern")
+
+    def turn(p: Point2, times: int) -> Point2:
+        t = math.radians(step * times)
+        dx, dy = p.x - c.x, p.y - c.y
+        return Point2(
+            x=c.x + dx * math.cos(t) - dy * math.sin(t), y=c.y + dx * math.sin(t) + dy * math.cos(t)
+        )
+
+    seeds: list[tuple[EntityId, Point | Line | Circle]] = []
+    for id in ids:
+        entity = document.entities.get(id)
+        if entity is None:
+            raise PatternError({"error": f"no entity {id!r}"})
+        if isinstance(entity, Arc | Rectangle):
+            why = (
+                "an arc: no constraint ties a copy's angles to its original's. Mirror it, or "
+                "draw it to the patterned points"
+                if isinstance(entity, Arc)
+                else "a rectangle, which is always axis-aligned, so it can't be turned; draw "
+                "it as four lines"
+            )
+            raise PatternError({"error": f"{id} is {why}"})
+        if not isinstance(entity, Point | Line | Circle):
+            made.skipped[id] = f"a {entity.kind}: each copy is placed instead"
+        elif all(
+            _same(turn(_point(entity, f), 1), _point(entity, f)) for f in _TURNED[type(entity)]
+        ):
+            made.skipped[id] = "at the centre: it is its own copy"
+        else:
+            seeds.append((id, entity))
+    if not seeds:
+        raise PatternError({"error": "nothing to pattern", "skipped": dict(made.skipped)})
+    copies = (count - 1) * len(seeds)
+    if copies > MAX_COPIES:
+        raise PatternError(
+            {"error": f"that's {copies} copies; one call makes at most {MAX_COPIES}. Split it"}
+        )
+    size = max(
+        [1.0, abs(c.x), abs(c.y)]
+        + [abs(v) for _, e in seeds for f in _TURNED[type(e)] for v in _xy(_point(e, f))]
+    )
+
+    # Every point's owner: the first point placed at its spot, original or copy.
+    owners: list[tuple[Point2, Ref, bool]] = []  # (where, which, an original's)
+    near: set[str] = set()
+
+    def owner(at: Point2) -> tuple[Ref, bool] | None:
+        for where, ref, original in owners:
+            gap = math.hypot(where.x - at.x, where.y - at.y)
+            if gap <= JOIN * size:
+                return ref, original
+            if gap <= NEAR * size:
+                near.add(f"{ref.entity}.{ref.feature.value}")
+        return None
+
+    for id, seed in seeds:
+        for feature in _TURNED[type(seed)]:
+            if owner(_point(seed, feature)) is None:
+                owners.append((_point(seed, feature), _ref(id, feature), True))
+
+    build = _Builder(run, made)
+    joins: list[tuple[Ref, Ref]] = []
+    at_copy: dict[EntityId, list[EntityId]] = {id: [] for id, _ in seeds}
+    for times in range(1, count):
+        for id, seed in seeds:
+            copy = build.create(_turned(seed, times, turn))
+            at_copy[id].append(copy)
+            for feature in _TURNED[type(seed)]:
+                where = turn(_point(seed, feature), times)
+                mine = _ref(copy, feature)
+                found = owner(where)
+                if found is None:
+                    owners.append((where, mine, False))
+                else:
+                    joins.append((found[0], mine))
+    made.copies = {id: list(copies_) for id, copies_ in at_copy.items()}
+
+    # Each orbit placed once: its copies' owners on a circle, joined by equal chords.
+    chained: set[Ref] = set()
+    for _, seed in seeds:
+        for feature in _TURNED[type(seed)]:
+            start = _point(seed, feature)
+            if _same(turn(start, 1), start):
+                continue  # at the centre: every copy of it is joined to it
+            ring = [owner(turn(start, n)) for n in range(count)]
+            assert all(r is not None for r in ring)
+            vertices = [(r[0], r[1]) for r in ring if r is not None]
+            if all(original or ref in chained for ref, original in vertices):
+                continue
+            _orbit(build, center, c, start, vertices, full=full, step=step)
+            chained.update(ref for ref, _ in vertices)
+    for placed_ref, joined in joins:
+        build.constrain(ConstraintType.COINCIDENT, placed_ref, joined)
+    for id, seed in seeds:
+        if isinstance(seed, Circle):
+            for circle in at_copy[id]:
+                build.constrain(
+                    ConstraintType.EQUAL, _ref(id, Feature.CURVE), _ref(circle, Feature.CURVE)
+                )
+    if near:
+        made.note = (
+            "Some copies almost meet other points but aren't joined, near "
+            f"{', '.join(sorted(near))}: the original isn't exactly one step from where its "
+            "copies should meet. Constrain the original so it is, undo, and pattern it again."
+        )
+    return made
+
+
+def _orbit(
+    build: _Builder,
+    center: Ref,
+    c: Point2,
+    start: Point2,
+    vertices: list[tuple[Ref, bool]],
+    *,
+    full: bool,
+    step: float,
+) -> None:
+    """Place one orbit's copies: `vertices` are its points turned 0, 1, ... steps, each with
+    whether it's an original's (fixed by the user's constraints, never by these)."""
+    n = len(vertices)
+    fixed = [original for _, original in vertices]
+    free = n - sum(fixed)
+    if not free:
+        return
+    # The originals' points in the orbit must run on from the first, or the chords between
+    # them would state the step twice.
+    run_end = 0
+    while run_end + 1 < n and fixed[run_end + 1]:
+        run_end += 1
+    wrapped = [i for i in range(run_end + 1, n) if fixed[i]]
+    if wrapped and not (full and wrapped == list(range(wrapped[0], n))):
+        raise PatternError(
+            {
+                "error": "the originals overlap their own copies: some of their points are "
+                "several steps apart round the circle. Pattern one repeat of the feature"
+            }
+        )
+    first_free = run_end + 1
+    last_free = (wrapped[0] - 1) if wrapped else n - 1
+
+    def at(i: int) -> Point2:
+        t = math.radians(step * i)
+        dx, dy = start.x - c.x, start.y - c.y
+        return Point2(
+            x=c.x + dx * math.cos(t) - dy * math.sin(t), y=c.y + dx * math.sin(t) + dy * math.cos(t)
+        )
+
+    def chord(i: int, j: int) -> EntityId:
+        line = build.layout(CreateLine(start=at(i), end=at(j), construction=True))
+        build.constrain(ConstraintType.COINCIDENT, vertices[i][0], _ref(line, Feature.START))
+        build.constrain(ConstraintType.COINCIDENT, vertices[j][0], _ref(line, Feature.END))
+        return line
+
+    if full and n == 2:  # half a turn: the copy is opposite, the centre halfway
+        across = chord(0, 1)
+        build.constrain(ConstraintType.MIDPOINT, _ref(across, Feature.CURVE), center)
+        return
+    radius = math.hypot(start.x - c.x, start.y - c.y)
+    ring = build.layout(CreateCircle(center=c, radius=radius, construction=True))
+    build.constrain(ConstraintType.CONCENTRIC, _ref(ring, Feature.CURVE), center)
+    build.constrain(ConstraintType.COINCIDENT, _ref(ring, Feature.CURVE), vertices[0][0])
+    for i in range(first_free, last_free + 1):
+        build.constrain(ConstraintType.COINCIDENT, _ref(ring, Feature.CURVE), vertices[i][0])
+    # The chords that touch a copy: from the last original round to the next original (a full
+    # circle) or to the end (a partial one).
+    ends = [(i, i + 1) for i in range(run_end, last_free)]
+    if full:
+        ends.append((last_free, (last_free + 1) % n))
+    chords = [chord(i, j) for i, j in ends]
+    reference = chords[0]
+    if not full and run_end > 0:  # the originals set the step: match the copies to it
+        reference = chord(run_end - 1, run_end)
+        others = chords
+    else:
+        others = chords[1:]
+    for line in others:
+        build.constrain(
+            ConstraintType.EQUAL, _ref(reference, Feature.CURVE), _ref(line, Feature.CURVE)
+        )
+    if not full and run_end == 0:  # the step itself: one angle, between two radii
+        radii = []
+        for i in (0, 1):
+            radial = build.layout(CreateLine(start=c, end=at(i), construction=True))
+            build.constrain(ConstraintType.COINCIDENT, center, _ref(radial, Feature.START))
+            build.constrain(ConstraintType.COINCIDENT, vertices[i][0], _ref(radial, Feature.END))
+            radii.append(radial)
+        build.made.dimensions.append(
+            build.create(
+                CreateAngleDimension(
+                    a=_ref(radii[0], Feature.CURVE),
+                    b=_ref(radii[1], Feature.CURVE),
+                    offset=0.6 * radius,
+                    value=abs(step),
+                )
+            )
+        )
+
+
+def _turned(
+    seed: Point | Line | Circle, times: int, turn: Callable[[Point2, int], Point2]
+) -> Command:
+    def by(p: Point2) -> Point2:
+        return turn(p, times)
+
+    match seed:
+        case Point():
+            return CreatePoint(position=by(seed.position), construction=seed.construction)
+        case Line():
+            return CreateLine(
+                start=by(seed.start), end=by(seed.end), construction=seed.construction
+            )
+        case Circle():
+            return CreateCircle(
+                center=by(seed.center), radius=seed.radius, construction=seed.construction
+            )
+
+
+def _point(entity: object, feature: Feature) -> Point2:
+    """Where a point feature is, for the features patterns use."""
+    match entity, feature:
+        case Point(), Feature.POINT:
+            return entity.position
+        case Line(), Feature.START:
+            return entity.start
+        case Line(), Feature.END:
+            return entity.end
+        case Line(), Feature.MID:
+            return Point2(
+                x=(entity.start.x + entity.end.x) / 2, y=(entity.start.y + entity.end.y) / 2
+            )
+        case Circle() | Arc(), Feature.CENTER:
+            return entity.center
+        case Arc(), Feature.START | Feature.END | Feature.MID:
+            ends = _arc_ends(entity)
+            if feature is Feature.MID:
+                t = math.radians(entity.start_angle + entity.sweep_angle / 2)
+                return Point2(
+                    x=entity.center.x + entity.radius * math.cos(t),
+                    y=entity.center.y + entity.radius * math.sin(t),
+                )
+            return ends[0] if feature is Feature.START else ends[1]
+        case Rectangle(), _ if feature in _CORNERS:
+            dx, dy = _CORNERS[feature]
+            return Point2(
+                x=entity.corner.x + dx * entity.width, y=entity.corner.y + dy * entity.height
+            )
+    raise PatternError(
+        {"error": f"{feature.value} is not a point of a {getattr(entity, 'kind', '?')}"}
+    )
+
+
+_CORNERS = {
+    Feature.BOTTOM_LEFT: (0.0, 0.0),
+    Feature.BOTTOM_RIGHT: (1.0, 0.0),
+    Feature.TOP_RIGHT: (1.0, 1.0),
+    Feature.TOP_LEFT: (0.0, 1.0),
+    Feature.CENTER: (0.5, 0.5),
+}
+
+
+def _center(document: Document, value: object) -> tuple[Ref, Point2]:
+    if isinstance(value, str):
+        value = {"entity": value, "feature": Feature.POINT.value}
+    if not isinstance(value, Mapping) or set(value) != {"entity", "feature"}:
+        raise PatternError({"error": "center must be a point's id, or an entity and feature"})
+    entity_id, feature = value["entity"], value["feature"]
+    entity = document.entities.get(EntityId(str(entity_id)))
+    if entity is None:
+        raise PatternError({"error": f"no entity {entity_id!r}"})
+    if feature not in {f.value for f in Feature}:
+        raise PatternError({"error": f"center names no feature: {feature!r}"})
+    ref = _ref(EntityId(str(entity_id)), Feature(feature))
+    return ref, _point(entity, ref.feature)
+
+
+def _xy(p: Point2) -> tuple[float, float]:
+    return p.x, p.y
 
 
 # --- Arguments --------------------------------------------------------------------------

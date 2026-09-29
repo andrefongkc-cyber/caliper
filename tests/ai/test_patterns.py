@@ -145,14 +145,12 @@ def slot(w: Workspace) -> tuple[str, str, str, str]:
 # --- The tools --------------------------------------------------------------------------
 
 
-def test_both_tools_are_offered_to_every_model_and_the_conventions_point_to_them() -> None:
+def test_the_tools_are_offered_to_every_model_and_the_conventions_point_to_them() -> None:
     names = [t.name for t in TOOLS]
-    assert "mirror_entities" in names
-    assert "linear_pattern" in names
-    for spec in (patterns.MIRROR, patterns.PATTERN):
+    for spec in (patterns.MIRROR, patterns.PATTERN, patterns.CIRCULAR):
+        assert spec.name in names
+        assert spec.name in CONVENTIONS
         json.dumps(spec.input_schema)
-    assert "mirror_entities" in CONVENTIONS
-    assert "linear_pattern" in CONVENTIONS
 
 
 # --- Mirror -----------------------------------------------------------------------------
@@ -531,3 +529,306 @@ def test_a_step_caliper_rejects_takes_back_the_whole_call(monkeypatch: pytest.Mo
     assert w.commands == before
     last = w.labels[-1]
     assert call(w, "undo")["undone"] == last  # type: ignore[index]  # it left no step behind
+
+
+# --- Circular pattern -------------------------------------------------------------------
+
+
+def bolt_hole() -> tuple[Workspace, str, str]:
+    """A fixed centre (e1) and a Ø4 hole 20 mm to its right (e3): diameter e4, radius e5."""
+    w = Workspace(Document.empty())
+    centre = created(call(w, "create_point", position={"x": 0, "y": 0}))
+    call(w, "create_constraint", type="fix", refs=[ref(centre, "point")])
+    hole = created(call(w, "create_circle", center={"x": 20, "y": 0}, radius=2))
+    call(
+        w,
+        "create_dimension",
+        refs=[ref(hole, "curve")],
+        placement={"x": 25, "y": 5},
+        value=4,
+        type="diameter",
+    )
+    call(
+        w,
+        "create_distance_dimension",
+        a=ref(centre, "point"),
+        b=ref(hole, "center"),
+        orientation="horizontal",
+        offset=-5,
+        value=20,
+    )
+    call(
+        w, "create_constraint", type="horizontal", refs=[ref(centre, "point"), ref(hole, "center")]
+    )
+    assert dof(w) == 0
+    return w, centre, hole
+
+
+def holes(w: Workspace) -> list[tuple[float, float]]:
+    return sorted(
+        (round(e.center.x, 6) + 0.0, round(e.center.y, 6) + 0.0)
+        for e in w.document.entities.values()
+        if isinstance(e, Circle) and not e.construction
+    )
+
+
+def around(radius: float, *degrees: float) -> list[tuple[float, float]]:
+    return sorted(
+        (
+            round(radius * math.cos(math.radians(d)), 6) + 0.0,
+            round(radius * math.sin(math.radians(d)), 6) + 0.0,
+        )
+        for d in degrees
+    )
+
+
+def test_a_bolt_circle_is_one_call_spaced_by_its_count_alone() -> None:
+    w, centre, hole = bolt_hole()
+    made = call(w, "circular_pattern", ids=[hole], center=centre, count=6)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    assert holes(w) == around(20, 0, 60, 120, 180, 240, 300)
+    assert made["dimensions"] == []  # a full circle needs none
+    call(w, "modify_entity", id="e4", changes={"value": 6})  # the original's diameter
+    radii = [e.radius for e in w.document.entities.values() if isinstance(e, Circle)]
+    assert radii.count(pytest.approx(3.0)) == 6
+    call(w, "modify_entity", id="e5", changes={"value": 30})  # the bolt circle
+    assert holes(w) == around(30, 0, 60, 120, 180, 240, 300)
+    for _ in range(3):
+        undone = call(w, "undo")
+    assert undone["undone"] == "Circular Pattern"  # type: ignore[index]
+    assert len(holes(w)) == 1
+
+
+def test_a_partial_pattern_has_one_angle_that_respaces_it() -> None:
+    w, centre, hole = bolt_hole()
+    made = call(w, "circular_pattern", ids=[hole], center=centre, count=4, angle=90)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    assert holes(w) == around(20, 0, 30, 60, 90)
+    (angle,) = made["dimensions"]  # type: ignore[misc]
+    call(w, "modify_entity", id=angle, changes={"value": 20})
+    assert holes(w) == around(20, 0, 20, 40, 60)
+
+
+def test_a_negative_angle_turns_the_other_way() -> None:
+    w, centre, hole = bolt_hole()
+    call(w, "circular_pattern", ids=[hole], center=centre, count=3, angle=-90)
+    assert dof(w) == 0
+    assert holes(w) == around(20, 0, -45, -90)
+
+
+def test_two_round_a_full_circle_are_opposite() -> None:
+    w, centre, hole = bolt_hole()
+    call(w, "circular_pattern", ids=[hole], center=centre, count=2)
+    assert dof(w) == 0
+    assert holes(w) == around(20, 0, 180)
+
+
+def star_point() -> tuple[Workspace, str, str, str, str]:
+    """The 002 star's layout (centre e1 fixed, vertical centreline, R25 and R12 circles) and
+    one fully constrained point of it: two edges meeting at the top tip, their inner ends
+    15° either side. Returns the workspace, the centre, the two edges, and the R25 dimension."""
+    w = Workspace(Document.empty())
+    centre = created(call(w, "create_point", position={"x": 120, "y": 80}, construction=True))
+    call(w, "create_constraint", type="fix", refs=[ref(centre, "point")])
+    axis = created(
+        call(
+            w,
+            "create_line",
+            start={"x": 120, "y": 80},
+            end={"x": 120, "y": 120},
+            construction=True,
+        )
+    )
+    call(w, "create_constraint", type="coincident", refs=[ref(centre, "point"), ref(axis, "start")])
+    call(w, "create_constraint", type="vertical", refs=[ref(axis, "curve")])
+    call(
+        w,
+        "create_distance_dimension",
+        a=ref(axis, "start"),
+        b=ref(axis, "end"),
+        orientation="aligned",
+        offset=5,
+        value=40,
+    )
+    rings = {}
+    for radius in (25, 12):
+        ring = created(
+            call(w, "create_circle", center={"x": 120, "y": 80}, radius=radius, construction=True)
+        )
+        call(
+            w,
+            "create_constraint",
+            type="concentric",
+            refs=[ref(ring, "curve"), ref(centre, "point")],
+        )
+        rings[radius] = created(
+            call(
+                w,
+                "create_dimension",
+                refs=[ref(ring, "curve")],
+                placement={"x": 150, "y": 80 + radius},
+                value=radius,
+                type="radius",
+            )
+        )
+        rings[-radius] = ring  # type: ignore[assignment]
+
+    def at(radius: float, degrees: float) -> dict[str, float]:
+        t = math.radians(degrees)
+        return {"x": 120 + radius * math.cos(t), "y": 80 + radius * math.sin(t)}
+
+    right = created(call(w, "create_line", start=at(12, 75), end=at(25, 90)))
+    left = created(call(w, "create_line", start=at(25, 90), end=at(12, 105)))
+    for refs in (
+        [ref(right, "end"), ref(left, "start")],
+        [ref(axis, "curve"), ref(right, "end")],
+        [ref(str(rings[-25]), "curve"), ref(right, "end")],
+        [ref(str(rings[-12]), "curve"), ref(left, "end")],
+    ):
+        call(w, "create_constraint", type="coincident", refs=refs)
+    call(
+        w,
+        "create_constraint",
+        type="symmetric",
+        refs=[ref(left, "end"), ref(right, "start"), ref(axis, "curve")],
+    )
+    radial = created(
+        call(w, "create_line", start={"x": 120, "y": 80}, end=at(12, 105), construction=True)
+    )
+    call(
+        w, "create_constraint", type="coincident", refs=[ref(centre, "point"), ref(radial, "start")]
+    )
+    call(w, "create_constraint", type="coincident", refs=[ref(left, "end"), ref(radial, "end")])
+    call(
+        w,
+        "create_angle_dimension",
+        a=ref(axis, "curve"),
+        b=ref(radial, "curve"),
+        offset=10,
+        value=15,
+    )
+    assert dof(w) == 0
+    return w, centre, right, left, str(rings[25])
+
+
+def outline(w: Workspace) -> list[Line]:
+    return [e for e in w.document.entities.values() if isinstance(e, Line) and not e.construction]
+
+
+def test_a_star_is_one_point_and_one_call_and_closes() -> None:
+    w, centre, right, left, outer = star_point()
+    made = call(w, "circular_pattern", ids=[right, left], center=centre, count=12)
+    assert isinstance(made, dict)
+    assert "note" not in made
+    assert dof(w) == 0
+    lines = outline(w)
+    assert len(lines) == 24
+    ends: dict[tuple[float, float], int] = {}
+    for line in lines:
+        for p in (line.start, line.end):
+            key = (round(p.x, 6), round(p.y, 6))
+            ends[key] = ends.get(key, 0) + 1
+    assert set(ends.values()) == {2}  # one closed outline: every corner joins two edges
+    tips = [key for key in ends if math.isclose(math.dist(key, (120, 80)), 25, abs_tol=1e-6)]
+    assert len(tips) == 12
+    call(w, "modify_entity", id=outer, changes={"value": 30})  # the tips follow the layout
+    tips = {
+        (round(p.x, 6), round(p.y, 6))
+        for line in outline(w)
+        for p in (line.start, line.end)
+        if math.isclose(math.dist((p.x, p.y), (120, 80)), 30, abs_tol=1e-6)
+    }
+    assert len(tips) == 12
+
+
+def test_copies_that_almost_meet_are_reported_not_joined() -> None:
+    # The same point, but with its half-angle a little off 15°: the copies' inner corners
+    # land just beside the next copies'.
+    w, centre, right, left, _ = star_point()
+    angle = next(
+        id for id, e in w.document.entities.items() if getattr(e, "kind", "") == "angle_dimension"
+    )
+    call(w, "modify_entity", id=angle, changes={"value": 15.01})
+    made = call(w, "circular_pattern", ids=[right, left], center=centre, count=12)
+    assert isinstance(made, dict)
+    assert "almost meet" in str(made["note"])
+
+
+def test_lines_from_the_centre_share_it() -> None:
+    w, centre, _ = bolt_hole()[:3]
+    spoke = created(call(w, "create_line", start={"x": 0, "y": 0}, end={"x": 0, "y": 15}))
+    call(
+        w, "create_constraint", type="coincident", refs=[ref(centre, "point"), ref(spoke, "start")]
+    )
+    call(w, "create_constraint", type="vertical", refs=[ref(spoke, "curve")])
+    call(
+        w,
+        "create_distance_dimension",
+        a=ref(spoke, "start"),
+        b=ref(spoke, "end"),
+        orientation="aligned",
+        offset=3,
+        value=15,
+    )
+    assert dof(w) == 0
+    made = call(w, "circular_pattern", ids=[spoke], center=centre, count=4)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    for id in made["copies"][spoke]:  # type: ignore[index]
+        copy = entity(w, id)
+        assert isinstance(copy, Line)
+        assert close(copy.start, 0, 0)
+
+
+def test_geometry_at_the_centre_is_skipped() -> None:
+    w, centre, hole = bolt_hole()
+    ring = created(call(w, "create_circle", center={"x": 0, "y": 0}, radius=30))
+    made = call(w, "circular_pattern", ids=[hole, ring], center=centre, count=3)
+    assert isinstance(made, dict)
+    assert made["skipped"] == {ring: "at the centre: it is its own copy"}
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({"ids": ["e3"], "center": "e1", "count": 1}, "count must be 2 or more"),
+        ({"ids": ["e3"], "center": "e1", "count": 3, "angle": 0}, "angle must be"),
+        ({"ids": ["e3"], "center": "e1", "count": 3, "angle": 400}, "angle must be"),
+        ({"ids": ["e3"], "center": "e1", "count": 2, "angle": 270}, "must be under 180"),
+        ({"ids": ["e3"], "center": "e9", "count": 3}, "no entity 'e9'"),
+        ({"ids": ["e3"], "center": {"entity": "e3", "feature": "top"}, "count": 3}, "not a point"),
+        ({"ids": ["e3"], "center": "e1", "count": 102}, "at most 100"),
+        ({"ids": ["e7"], "center": "e1", "count": 3}, "is an arc"),
+        ({"ids": ["e8"], "center": "e1", "count": 3}, "always axis-aligned"),
+    ],
+    ids=[
+        "one",
+        "no angle",
+        "more than a turn",
+        "copies too far apart",
+        "no centre",
+        "centre not a point",
+        "too many",
+        "arc",
+        "rectangle",
+    ],
+)
+def test_a_circular_pattern_that_cant_be_made_is_refused(
+    arguments: dict[str, object], expected: str
+) -> None:
+    w, _, _ = bolt_hole()
+    call(w, "create_arc", center={"x": 0, "y": 0}, radius=9, start_angle=10, sweep_angle=30)
+    call(w, "create_rectangle", corner={"x": 5, "y": 5}, width=2, height=1)
+    assert expected in refused(w, "circular_pattern", **arguments)
+
+
+def test_originals_that_overlap_their_own_copies_are_refused() -> None:
+    # A chord from a point to the point two steps round: its ends share an orbit, apart.
+    w = Workspace(Document.empty())
+    centre = created(call(w, "create_point", position={"x": 0, "y": 0}))
+    chord = created(call(w, "create_line", start={"x": 10, "y": 0}, end={"x": 0, "y": 10}))
+    assert "overlap their own copies" in refused(
+        w, "circular_pattern", ids=[chord], center=centre, count=8
+    )
