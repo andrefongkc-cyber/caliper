@@ -475,7 +475,6 @@ def test_a_slanted_pattern_says_its_direction_is_free() -> None:
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
-        ({"ids": ["e2"], "count": 3, "spacing": 5}, "can't be patterned"),
         ({"ids": ["e1"], "count": 1, "spacing": 5}, "make no copies"),
         ({"ids": ["e1"], "count": 3, "spacing": 0}, "spacing must be a distance"),
         ({"ids": ["e1"], "count": 2.5, "spacing": 5}, "count must be a whole number"),
@@ -489,7 +488,6 @@ def test_a_slanted_pattern_says_its_direction_is_free() -> None:
         ({"ids": ["e9"], "count": 3, "spacing": 5}, "no entity 'e9'"),
     ],
     ids=[
-        "arc",
         "no copies",
         "zero spacing",
         "fractional count",
@@ -800,7 +798,6 @@ def test_geometry_at_the_centre_is_skipped() -> None:
         ({"ids": ["e3"], "center": "e9", "count": 3}, "no entity 'e9'"),
         ({"ids": ["e3"], "center": {"entity": "e3", "feature": "top"}, "count": 3}, "not a point"),
         ({"ids": ["e3"], "center": "e1", "count": 102}, "at most 100"),
-        ({"ids": ["e7"], "center": "e1", "count": 3}, "is an arc"),
         ({"ids": ["e8"], "center": "e1", "count": 3}, "always axis-aligned"),
     ],
     ids=[
@@ -811,7 +808,6 @@ def test_geometry_at_the_centre_is_skipped() -> None:
         "no centre",
         "centre not a point",
         "too many",
-        "arc",
         "rectangle",
     ],
 )
@@ -904,3 +900,98 @@ def test_a_mirrored_arc_follows_its_original() -> None:
     assert isinstance(mirrored, Arc)
     assert mirrored.radius == pytest.approx(14)
     assert close(mirrored.center, 240 - original.center.x, original.center.y)
+
+
+# --- Arcs in patterns (AI-11) -------------------------------------------------------------
+
+
+def fixed_arc(
+    w: Workspace, center: tuple[float, float], radius: float, start: float, sweep: float
+) -> str:
+    arc = created(
+        call(
+            w,
+            "create_arc",
+            center={"x": center[0], "y": center[1]},
+            radius=radius,
+            start_angle=start,
+            sweep_angle=sweep,
+        )
+    )
+    call(w, "create_constraint", type="fix", refs=[ref(arc, "curve")])
+    return arc
+
+
+def arcs(w: Workspace) -> list[Arc]:
+    return [e for e in w.document.entities.values() if isinstance(e, Arc)]
+
+
+def test_a_semicircle_patterned_in_a_row_is_held_and_follows_its_original() -> None:
+    # A semicircle's chord is its diameter, the case a copied chord couldn't hold: the ends
+    # and a construction point at the centre do.
+    w = Workspace(Document.empty())
+    arc = created(
+        call(w, "create_arc", center={"x": 0, "y": 0}, radius=5, start_angle=90, sweep_angle=180)
+    )
+    call(w, "create_constraint", type="fix", refs=[ref(arc, "center")])
+    call(
+        w,
+        "create_dimension",
+        refs=[ref(arc, "curve")],
+        placement={"x": -9, "y": 0},
+        value=5,
+        type="radius",
+    )
+    for end, level in (("start", "vertical"), ("end", "vertical")):
+        call(w, "create_constraint", type=level, refs=[ref(arc, "center"), ref(arc, end)])
+    assert dof(w) == 0
+    made = call(w, "linear_pattern", ids=[arc], count=3, spacing=20)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    centres = sorted(
+        (round(a.center.x, 9), round(a.center.y, 9), round(a.radius, 9)) for a in arcs(w)
+    )
+    assert centres == [(0.0, 0.0, 5.0), (20.0, 0.0, 5.0), (40.0, 0.0, 5.0)]
+    call(w, "modify_entity", id="e3", changes={"value": 7})  # the original's radius
+    assert sorted(round(a.radius, 9) for a in arcs(w)) == [7.0, 7.0, 7.0]
+
+
+def test_a_whole_slot_patterns_as_one_feature() -> None:
+    w = laid_out()
+    r, left, right, _ = slot(w)
+    made = call(w, "linear_pattern", ids=[r, left, right], count=2, spacing=15, angle=-90)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    copy = entity(w, made["copies"][left][0])  # type: ignore[index]
+    assert isinstance(copy, Arc)
+    assert close(copy.center, 40, 105)  # the left end, 15 below
+    assert copy.sweep_angle == pytest.approx(180)
+
+
+def test_a_gear_tip_arc_round_the_centre_is_held() -> None:
+    # Concentric with the pattern's centre: every copy's centre is joined to the original's.
+    w = Workspace(Document.empty())
+    centre = created(call(w, "create_point", position={"x": 0, "y": 0}))
+    call(w, "create_constraint", type="fix", refs=[ref(centre, "point")])
+    tip = fixed_arc(w, (0, 0), 30, 80, 20)
+    made = call(w, "circular_pattern", ids=[tip], center=centre, count=6)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    starts = sorted(round(a.start_angle, 9) % 360 for a in arcs(w))
+    assert starts == [20.0, 80.0, 140.0, 200.0, 260.0, 320.0]
+    assert all(close(a.center, 0, 0) for a in arcs(w))
+
+
+def test_an_arc_off_the_centre_turns_with_its_orbit() -> None:
+    w = Workspace(Document.empty())
+    centre = created(call(w, "create_point", position={"x": 0, "y": 0}))
+    call(w, "create_constraint", type="fix", refs=[ref(centre, "point")])
+    scallop = fixed_arc(w, (20, 0), 5, 0, 180)
+    made = call(w, "circular_pattern", ids=[scallop], center=centre, count=4)
+    assert isinstance(made, dict)
+    assert dof(w) == 0
+    turned = entity(w, made["copies"][scallop][0])  # type: ignore[index]
+    assert isinstance(turned, Arc)
+    assert close(turned.center, 0, 20)
+    assert turned.start_angle == pytest.approx(90)
+    assert turned.sweep_angle == pytest.approx(180)
