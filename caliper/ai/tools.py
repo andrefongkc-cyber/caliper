@@ -3,10 +3,10 @@
 There is one tool per `Command` kind, generated from the contract, so the tools follow the
 contract as it grows. A call's arguments are the command's fields in the JSON form command
 scripts use, decoded by the same codec replay uses and validated by the bus, which rejects
-bad input with its usual structured errors. Two tools repeat geometry, mirror and linear
-pattern (`caliper.ai.patterns`): each is several of those same commands in one call, kept or
-undone together. A few query tools let the model look before and after it acts: the document,
-single entities, distances, checks, and solve status.
+bad input with its usual structured errors. Three tools repeat geometry, mirror and linear and
+circular pattern (`caliper.ai.patterns`): each is several of those same commands in one call,
+kept or undone together. A few query tools let the model look before and after it acts: the
+document, single entities, distances, checks, and solve status.
 
 Everything runs in a `Workspace`: a scratch bus on a copy of the document. The user's
 document is untouched until they accept what the workspace did, which is its `commands`: the
@@ -148,8 +148,9 @@ CONVENTIONS = (
     "before repeating it from the same layout."
     "\n\n"
     "Repeat rather than redraw: mirror the second half of a symmetric feature with "
-    "mirror_entities, and repeat rows and grids with linear_pattern, one call each. The copies "
-    "stay tied to the original, so constrain and dimension the original first. Keep the "
+    "mirror_entities, repeat rows and grids with linear_pattern, and repeat round a centre "
+    "(holes, teeth, a star's points) with circular_pattern, one call each. The copies stay "
+    "tied to the original, so constrain and dimension the original first. Keep the "
     "constraints lean: dimension each feature from the edge, centre line, or neighbour it "
     "relates to, with the label just outside it; state each relationship once, since Caliper "
     "rejects one the others already imply (show a size that's already fixed as a dimension with "
@@ -243,7 +244,7 @@ QUERY_TOOLS = (
     ),
 )
 
-REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN)
+REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN, patterns.CIRCULAR)
 
 TOOLS: tuple[ToolSpec, ...] = (
     *(_command_spec(kind, cls) for kind, cls in COMMAND_KINDS.items()),
@@ -281,6 +282,9 @@ class Workspace:
             patterns.MIRROR.name: lambda arguments: self._repeat(patterns.mirror, arguments),
             patterns.PATTERN.name: lambda arguments: self._repeat(
                 patterns.linear_pattern, arguments
+            ),
+            patterns.CIRCULAR.name: lambda arguments: self._repeat(
+                patterns.circular_pattern, arguments
             ),
             "inspect_document": self._inspect_document,
             "inspect_entities": self._inspect_entities,
