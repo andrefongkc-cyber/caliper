@@ -284,6 +284,27 @@ def test_a_check_of_the_same_measurement_again_replaces_the_earlier_one() -> Non
     )
 
 
+def test_a_check_that_shouldn_t_be_there_can_be_taken_back() -> None:
+    # The rest of AI-2: a check of the wrong thing stayed on the proposal.
+    workspace = Workspace(plate())
+    workspace.call(
+        call("run_check", metric="bbox_width", expected=120, tolerance=0.001, ids=["e1"])
+    )
+    workspace.call(
+        call("run_check", metric="bbox_height", expected=60, tolerance=0.001, ids=["e1"])
+    )
+    removed = workspace.call(call("remove_check", metric="bbox_height", ids=["e1"]))
+    assert removed.content == {"removed": {"expected": 60.0, "tolerance": 0.001}}
+    assert workspace.checks == (
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120.0, tolerance=0.001, ids=(E1,)),
+    )
+    again = workspace.call(call("remove_check", metric="bbox_height", ids=["e1"]))
+    assert again.is_error
+    assert "no check of that measurement" in again.content["error"]  # type: ignore[index]
+    bad = workspace.call(call("remove_check", metric="volume"))
+    assert bad.is_error
+
+
 def test_every_check_metric_is_explained_to_the_model() -> None:
     # AI-5: the names alone left the model guessing that distance_x is never negative.
     assert set(METRICS) == set(Metric)

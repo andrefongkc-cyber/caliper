@@ -240,6 +240,23 @@ QUERY_TOOLS = (
         },
     ),
     ToolSpec(
+        name="remove_check",
+        description=(
+            "Take a check you ran off your pending changes: the one of this metric, refs, and "
+            "ids, whatever value it expected. To correct a check's value, run it again instead."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "metric": {"type": "string", "enum": [m.value for m in Metric]},
+                "refs": _REFS,
+                "ids": _IDS,
+            },
+            "required": ["metric"],
+            "additionalProperties": False,
+        },
+    ),
+    ToolSpec(
         name="solve_status",
         description="Degrees of freedom and constraint health: under, fully, over, conflicting.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
@@ -316,6 +333,7 @@ class Workspace:
             "inspect_entities": self._inspect_entities,
             "measure_distance": self._measure_distance,
             "run_check": self._run_check,
+            "remove_check": self._remove_check,
             "solve_status": self._solve_status,
             "applicable_constraints": self._applicable_constraints,
             "undo": self._undo,
@@ -526,6 +544,26 @@ class Workspace:
                 else {"replaced": {"expected": replaced.expected, "tolerance": replaced.tolerance}}
             ),
         }
+
+    def _remove_check(self, arguments: Mapping[str, object]) -> JSON:
+        """Take back a check (AI-2): matched by what it measures, not the value it expected."""
+        refs = arguments.get("refs", [])
+        if not isinstance(refs, list):
+            raise _ToolError({"error": "refs must be a list of references"})
+        name = arguments.get("metric")
+        if name not in {m.value for m in Metric}:
+            raise _ToolError({"error": f"no metric {name!r}"})
+        metric = Metric(str(name))
+        measurement = (
+            metric,
+            tuple(_ref(r, f"refs[{i}]") for i, r in enumerate(refs)),
+            _ids(arguments.get("ids", []), "ids"),
+        )
+        for n, check in enumerate(self._checks):
+            if (check.metric, check.refs, check.ids) == measurement:
+                del self._checks[n]
+                return {"removed": {"expected": check.expected, "tolerance": check.tolerance}}
+        raise _ToolError({"error": "you ran no check of that measurement"})
 
     def _solve_status(self, arguments: Mapping[str, object]) -> JSON:
         status = self._bus.queries.solve_status()
