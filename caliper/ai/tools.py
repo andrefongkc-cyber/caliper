@@ -161,6 +161,20 @@ CONVENTIONS = (
 _REFS = {"type": "array", "items": _schema(Ref)}
 _IDS = {"type": "array", "items": {"type": "string"}}
 
+METRICS = {
+    Metric.DISTANCE: "refs [a, b]: the straight distance between two point features",
+    Metric.DISTANCE_X: "refs [a, b]: the horizontal distance between them, never negative",
+    Metric.DISTANCE_Y: "refs [a, b]: the vertical distance between them, never negative",
+    Metric.POSITION_X: "refs [point]: its x from the origin, signed",
+    Metric.POSITION_Y: "refs [point]: its y from the origin, signed",
+    Metric.BBOX_WIDTH: "ids: the width of their bounding box (no ids: the whole sketch)",
+    Metric.BBOX_HEIGHT: "ids: the height of their bounding box (no ids: the whole sketch)",
+    Metric.AREA: "ids: the area inside one closed profile",
+    Metric.DIMENSION_VALUE: "ids [dimension]: what the dimension measures",
+}
+"""What each check metric measures and reads, for the model (AI-5): the contract's names alone
+left it guessing, and it ordered points defensively."""
+
 QUERY_TOOLS = (
     ToolSpec(
         name="inspect_document",
@@ -204,7 +218,10 @@ QUERY_TOOLS = (
         description=(
             "Check a measurement against what the request asked for. Passes when "
             "|actual - expected| <= tolerance. Checks you run are shown to the user with your "
-            "changes, so run one for each measurement the request states."
+            "changes, so run one for each measurement the request states. Running a check of "
+            "the same measurement again replaces the earlier one. Metrics: "
+            + "; ".join(f"{metric.value}: {meaning}" for metric, meaning in METRICS.items())
+            + "."
         ),
         input_schema={
             "type": "object",
@@ -466,6 +483,7 @@ class Workspace:
             ids=_ids(arguments.get("ids", []), "ids"),
         )
         result = self._bus.queries.check(expectation)
+        replaced: Expectation | None = None
         if result.error is None:
             normalized = Expectation(
                 metric=Metric(expectation.metric),
@@ -474,12 +492,28 @@ class Workspace:
                 refs=expectation.refs,
                 ids=expectation.ids,
             )
-            if normalized not in self._checks:
+            # The same measurement again replaces the earlier check: a check run with the
+            # wrong value can be put right instead of staying on the proposal, failing (AI-2).
+            for n, earlier in enumerate(self._checks):
+                if (earlier.metric, earlier.refs, earlier.ids) == (
+                    normalized.metric,
+                    normalized.refs,
+                    normalized.ids,
+                ):
+                    if earlier != normalized:
+                        replaced, self._checks[n] = earlier, normalized
+                    break
+            else:
                 self._checks.append(normalized)
         return {
             "passed": result.passed,
             "actual": result.actual,
             "error": None if result.error is None else _error(result.error),
+            **(
+                {}
+                if replaced is None
+                else {"replaced": {"expected": replaced.expected, "tolerance": replaced.tolerance}}
+            ),
         }
 
     def _solve_status(self, arguments: Mapping[str, object]) -> JSON:
