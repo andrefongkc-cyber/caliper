@@ -50,11 +50,24 @@ PROGRESS = ToolSpec(
         "Say how many more Caliper tool calls you expect this task to take, so Caliper can show "
         "the user the time left. Call it once before you start a task of more than about ten "
         "calls, again only if your plan changes a lot, and with 0 when you are done, just "
-        "before your final message. It changes nothing in the sketch."
+        "before your final message. Give repeats and checks too if you know them: mirrors and "
+        "patterns take longer than other calls, checks less. It changes nothing in the sketch."
     ),
     input_schema={
         "type": "object",
-        "properties": {"calls_left": {"type": "integer", "minimum": 0}},
+        "properties": {
+            "calls_left": {"type": "integer", "minimum": 0, "description": "All of them."},
+            "repeats": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "How many of them are mirror or pattern calls.",
+            },
+            "checks": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "How many of them are run_check calls.",
+            },
+        },
         "required": ["calls_left"],
         "additionalProperties": False,
     },

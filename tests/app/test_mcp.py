@@ -5,12 +5,15 @@ Everything is real except the far end: requests come from `caliper.ai.bridge.ask
 the UI thread. No model and no API key are involved: over MCP, the client is the model.
 """
 
+import dataclasses
+import re
 import shutil
 import socket
 import stat
 import tempfile
 import threading
 from collections.abc import Callable, Iterator
+from datetime import date
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -27,10 +30,12 @@ from caliper.ai.mcp_server import MCP_TOOLS, build
 from caliper.ai.model import Reply, Stop, ToolCall
 from caliper.app.agent import proposal as proposal_module
 from caliper.app.agent import ui as ui_module
+from caliper.app.agent.estimate import INFORMED
 from caliper.app.agent.mcp_host import BUSY
 from caliper.app.agent.proposal import Plan, prepare
-from caliper.app.agent.timing import RunTimer, markdown
+from caliper.app.agent.timing import RunTimer, Timing, markdown
 from caliper.app.agent.ui import DETAILS_HEIGHT
+from caliper.app.panels.timing import time_left
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle
 from caliper.contracts.document import Circle, EntityId, Point2, Rectangle
@@ -656,7 +661,7 @@ def test_the_section_is_one_line_until_opened_and_copies_timing_md(timed, qtbot)
     assert not window.timing_dock.isHidden()
     assert not section.expanded
     assert section.details.isHidden()
-    assert section.heading == "▸ 1m 05s · 1 call · running"  # the proposal is still pending
+    assert section.heading == "▸ 1m 05s · no estimate"  # running; Claude gave no plan
     assert section.toggle.text() == section.heading  # it fits
     section.toggle.click()
     assert not section.details.isHidden()
@@ -682,34 +687,75 @@ def test_the_panel_ticks_while_the_run_is_live_and_settles_on_accept(
     assert shown(window)["Total run"] == "0m 02s"  # from the start to Claude's last call
 
 
-def test_claude_s_estimate_shows_the_time_left_and_done_stops_the_time(
-    timed, qtbot, monkeypatch
-) -> None:
+def test_claude_s_estimate_shows_the_time_left_and_done_stops_the_time(timed, qtbot) -> None:
     window, clock, took = timed
     took.update(create_rectangle=2.0)
-    window.timing.start_button.click()
+    panel = window.timing
+    panel.start_button.click()
     clock.now += 5
-    answer = call(window, qtbot, "report_progress", {"calls_left": 30})
+    answer = call(window, qtbot, "report_progress", {"calls_left": 30, "checks": 4})
     assert answer.content == {"ok": True, "done": False}
     assert window.proposal_card.isHidden()  # it changed nothing
-    assert window.timing.heading == "▸ 0m 05s · ~1m 00s left · 1 call"
+    # The first estimate is the prior's: rough, so to the minute. No call count on the line.
+    assert panel.heading == "▸ 0m 05s · about 1 min left"
     call(window, qtbot, "create_rectangle", RECTANGLE)
-    clock.now += 10  # thinking: the time left counts down between calls
-    window.timing._refresh()
-    assert window.timing.heading == "▸ 0m 17s · ~0m 48s left · 2 calls"
+    for _ in range(INFORMED):
+        clock.now += 3  # Claude working out the next call
+        call(window, qtbot, "inspect_document")
+    # Measured now: to the second, and counting down between calls.
+    assert re.fullmatch(r"▸ 0m 37s · ~\dm \d\ds left", panel.heading), panel.heading
     call(window, qtbot, "report_progress", {"calls_left": 0})
-    panel = window.timing
     assert not panel.ticking
-    assert panel.heading == "▸ 0m 17s · 3 calls"  # stopped at once, before any Accept
+    assert panel.heading == "▸ 0m 37s"  # stopped at once, before any Accept: just the time
+    assert shown(window)["MCP/tool calls"] == "13"  # the count is in the fields
     assert not window.proposal_card.isHidden()  # the proposal still waits for you
 
 
-@pytest.mark.parametrize("arguments", [{}, {"calls_left": -1}, {"calls_left": 2.5}])
-def test_a_bad_estimate_is_refused_and_changes_nothing(timed, qtbot, arguments) -> None:
+BASE = Timing(
+    date=date(2026, 9, 28),
+    total=None,
+    calls=5,
+    first_response=None,
+    longest_call=None,
+    proposal_creation=None,
+    accept=None,
+    elapsed=30.0,
+)
+
+
+@pytest.mark.parametrize(
+    ("changes", "text"),
+    [
+        ({}, "no estimate"),
+        ({"expected": 5}, "finishing…"),
+        ({"expected": 40, "left": 200.0, "rough": True}, "about 3 min left"),
+        ({"expected": 40, "left": 25.0, "rough": True}, "under a minute left"),
+        ({"expected": 40, "left": 65.4}, "~1m 05s left"),
+        ({"expected": 40, "left": 0.4}, "finishing…"),
+    ],
+    ids=["no plan", "plan done", "rough", "rough and short", "measured", "run out"],
+)
+def test_the_line_says_how_long_is_left_only_as_precisely_as_it_knows(
+    changes: dict[str, object], text: str
+) -> None:
+    assert time_left(dataclasses.replace(BASE, **changes)) == text  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "field"),
+    [
+        ({}, "calls_left"),
+        ({"calls_left": -1}, "calls_left"),
+        ({"calls_left": 2.5}, "calls_left"),
+        ({"calls_left": 3, "checks": -2}, "checks"),
+        ({"calls_left": 3, "repeats": True}, "repeats"),
+    ],
+)
+def test_a_bad_estimate_is_refused_and_changes_nothing(timed, qtbot, arguments, field) -> None:
     window, _, _ = timed
     answer = call(window, qtbot, "report_progress", arguments)
     assert answer.is_error
-    assert "calls_left" in answer.content["error"]
+    assert field in answer.content["error"]
     assert window.mcp.timer.timing is not None
     assert window.mcp.timer.timing.expected is None
 
