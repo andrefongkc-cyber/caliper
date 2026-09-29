@@ -7,11 +7,14 @@ value follows it, what's held stays held and says what holds it, and every edit 
 exactly. The rejections say what they mean, for a person or a model reading them.
 """
 
+import math
+
 import pytest
 
 from caliper.contracts.commands import (
     Applied,
     Command,
+    CreateAngleDimension,
     CreateCircle,
     CreateConstraint,
     CreateDistanceDimension,
@@ -148,6 +151,34 @@ def test_a_dimension_change_moves_what_is_measured_from_it() -> None:
     assert isinstance(circle, Circle)
     assert circle.radius == pytest.approx(5.0)
     assert bus.queries.solve_status().dof == 0
+
+
+def test_a_feature_keeps_its_side_of_the_edge_it_is_measured_from() -> None:
+    # Shrink the plate past the hole: it stays 20 to the left of the right edge, outside the
+    # plate now, rather than jumping to the other side where the distance also holds. That's
+    # what the design says; the checks are where to catch it.
+    bus = part()
+    run(bus, ModifyEntity(id=E("e5"), changes={"value": 10.0}))
+    assert hole(bus) == Point2(x=-10.0, y=35.0)
+    run(bus, ModifyEntity(id=E("e5"), changes={"value": 1000.0}))
+    assert hole(bus) == Point2(x=980.0, y=35.0)
+    run(bus, ModifyEntity(id=E("e6"), changes={"value": 5.0}))
+    assert hole(bus) == Point2(x=980.0, y=-10.0)
+
+
+@pytest.mark.parametrize("degrees", [120.0, 179.0, 1.0, 90.0])
+def test_an_angle_driven_anywhere_keeps_the_line_on_its_side(degrees: float) -> None:
+    bus = Bus()
+    run(bus, CreateLine(start=Point2(x=0, y=0), end=Point2(x=10, y=0)))
+    run(bus, CreateConstraint(type=C.FIX, refs=(ref("e1", "curve"),)))
+    run(bus, CreateLine(start=Point2(x=0, y=0), end=Point2(x=5, y=5)))
+    run(bus, CreateConstraint(type=C.COINCIDENT, refs=(ref("e1", "start"), ref("e3", "start"))))
+    run(bus, CreateAngleDimension(a=ref("e1", "curve"), b=ref("e3", "curve"), offset=4, value=45.0))
+    run(bus, ModifyEntity(id=E("e5"), changes={"value": degrees}))
+    end = line(bus, "e3").end
+    assert end.y > 0  # above the fixed line, where it started
+    assert math.degrees(math.atan2(end.y, end.x)) == pytest.approx(degrees, abs=1e-6)
+    assert math.hypot(end.x, end.y) == pytest.approx(math.hypot(5, 5))  # it turned, not shrank
 
 
 # --- Moving what's held -------------------------------------------------------------------
