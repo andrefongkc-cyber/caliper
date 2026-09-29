@@ -20,7 +20,7 @@ from enum import StrEnum
 from types import NoneType, UnionType
 from typing import Union, get_args, get_origin, get_type_hints
 
-from caliper.ai import patterns
+from caliper.ai import construct, patterns
 from caliper.ai.context import describe
 from caliper.ai.model import ToolCall, ToolOutcome, ToolSpec
 from caliper.contracts.commands import Applied, Command, Delta, Rejected
@@ -147,6 +147,9 @@ CONVENTIONS = (
     "everything that depends on it. Finish one feature, such as a tooth or a hole, and check it "
     "before repeating it from the same layout."
     "\n\n"
+    "Trace an outline with create_outline, one call for its lines and arcs with their "
+    "joints (and tangency where you ask), and an arc through three known points with "
+    "create_arc_through_points, rather than working out centres yourself. "
     "Repeat rather than redraw: mirror the second half of a symmetric feature with "
     "mirror_entities, repeat rows and grids with linear_pattern, and repeat round a centre "
     "(holes, teeth, a star's points) with circular_pattern, one call each. The copies stay "
@@ -262,9 +265,11 @@ QUERY_TOOLS = (
 )
 
 REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN, patterns.CIRCULAR)
+DRAWING_TOOLS = (construct.ARC_THROUGH, construct.OUTLINE)
 
 TOOLS: tuple[ToolSpec, ...] = (
     *(_command_spec(kind, cls) for kind, cls in COMMAND_KINDS.items()),
+    *DRAWING_TOOLS,
     *REPEAT_TOOLS,
     *QUERY_TOOLS,
 )
@@ -303,6 +308,10 @@ class Workspace:
             patterns.CIRCULAR.name: lambda arguments: self._repeat(
                 patterns.circular_pattern, arguments
             ),
+            construct.ARC_THROUGH.name: lambda arguments: self._repeat(
+                construct.arc_through_points, arguments
+            ),
+            construct.OUTLINE.name: lambda arguments: self._repeat(construct.outline, arguments),
             "inspect_document": self._inspect_document,
             "inspect_entities": self._inspect_entities,
             "measure_distance": self._measure_distance,
@@ -406,9 +415,11 @@ class Workspace:
         self._calls.append((len(steps), made.label))
         delta = _merged([step.delta for step in steps])
         shown = set(made.copies) | {id for ids in made.copies.values() for id in _listed(ids)}
+        shown |= {str(id) for id in made.created}
         return {
             "applied": True,
             "label": made.label,
+            **({"created": made.created} if made.created else {}),
             "copies": made.copies,
             "construction": made.construction,
             "constraints": made.constraints,
