@@ -9,7 +9,7 @@ import pytest
 from caliper.ai import patterns
 from caliper.ai.model import ToolCall
 from caliper.ai.tools import CONVENTIONS, TOOLS, Workspace
-from caliper.contracts.commands import CreateCircle, CreateLine
+from caliper.contracts.commands import CreateCircle, CreateLine, ModifyEntity, Rejected
 from caliper.contracts.document import (
     Arc,
     Circle,
@@ -832,3 +832,75 @@ def test_originals_that_overlap_their_own_copies_are_refused() -> None:
     assert "overlap their own copies" in refused(
         w, "circular_pattern", ids=[chord], center=centre, count=8
     )
+
+
+# --- After Accept: design intent in the document -----------------------------------------
+
+
+def accepted(w: Workspace) -> Bus:
+    """The workspace's commands accepted on the user's bus, as the window does: in one
+    transaction, committing what already ran."""
+    from caliper.engine.commands.handlers import already
+
+    bus = Bus(w.base)
+    with already(w.executed), bus.transaction("Accept"):
+        for command in w.commands:
+            bus.execute(command)
+    assert bus.document is w.document
+    return bus
+
+
+def test_an_accepted_pattern_undoes_and_redoes_as_one_step_and_keeps_its_intent() -> None:
+    w, _, made = grid()
+    assert isinstance(made, dict)
+    bus = accepted(w)
+    done = bus.document
+    bus.undo()
+    assert bus.document == w.base
+    bus.redo()
+    assert bus.document == done
+    across = made["dimensions"][0]  # type: ignore[index]
+    result = bus.execute(ModifyEntity(id=EntityId(str(across)), changes={"value": 25.0}))
+    assert not isinstance(result, Rejected)
+    centres = sorted(
+        (round(e.center.x, 6), round(e.center.y, 6))
+        for e in bus.document.entities.values()
+        if isinstance(e, Circle)
+    )
+    assert centres == sorted((60.0 + 25 * i, 25.0 + 30 * j) for i in range(5) for j in range(4))
+
+
+@pytest.mark.parametrize("tool", ["mirror", "linear", "circular"])
+def test_repeating_moves_nothing_that_was_there_before(tool: str) -> None:
+    # The copies are made where they belong, so no solve along the way moves the originals or
+    # anything else: what the result says changed is only what's new.
+    if tool == "mirror":
+        w = laid_out()
+        r, left, right, _ = slot(w)
+        made = call(w, "mirror_entities", ids=[r, left, right], axis="e3")
+    elif tool == "linear":
+        w, _, made = grid()
+    else:
+        w, centre, a, b, _ = star_point()
+        made = call(w, "circular_pattern", ids=[a, b], center=centre, count=12)
+    assert isinstance(made, dict)
+    changed = made["changed"]
+    assert isinstance(changed, dict)
+    assert changed["modified"] == {}
+    assert "also_modified" not in changed
+
+
+def test_a_mirrored_arc_follows_its_original() -> None:
+    w = laid_out()
+    arc = created(
+        call(w, "create_arc", center={"x": 40, "y": 60}, radius=10, start_angle=30, sweep_angle=100)
+    )
+    made = call(w, "mirror_entities", ids=[arc], axis="e3")
+    assert isinstance(made, dict)
+    copy = made["copies"][arc]  # type: ignore[index]
+    call(w, "modify_entity", id=arc, changes={"radius": 14})
+    original, mirrored = entity(w, arc), entity(w, copy)
+    assert isinstance(original, Arc)
+    assert isinstance(mirrored, Arc)
+    assert mirrored.radius == pytest.approx(14)
+    assert close(mirrored.center, 240 - original.center.x, original.center.y)
