@@ -23,8 +23,10 @@ What ties a linear pattern's copy to the original: its anchor (a point, a circle
 line's start, a rectangle's bottom-left corner) is joined to the previous copy's by a
 construction line equal and parallel to the pattern's first such line, which carries the
 spacing as a driving dimension and is horizontal or vertical when the direction is; and it is
-the same size (equal radius, equal and parallel line, equal sides). Arcs aren't patterned:
-no constraint ties a copy's angles to its original's.
+the same size (equal radius, equal and parallel line, equal sides). An arc's two ends are
+joined that way, and its centre through a construction point joined the same way, the copy's
+centre level with it across the chord (the way mirror holds an arc: a copied radius and chord
+can't hold a semicircle, whose chord is its diameter).
 
 What places a circular pattern's copies, around a centre point: each point of the originals
 (a point, a line's ends, a circle's centre) and its copies make an orbit, the same point turned
@@ -34,8 +36,9 @@ circle that fixes the step, so the count alone sets the spacing; a partial patte
 one angle dimension between two radial construction lines. A copy's point that lands where
 another point already is (the ends of a star's edges, which meet at the next copy's corner) is
 joined to it with a coincident constraint instead, so outlines close, and each orbit is placed
-once. Circles are the same size as the original. Arcs and rectangles aren't turned: nothing
-ties an arc's angles, and a rectangle is always axis-aligned. The originals should be fully
+once. Circles are the same size as the original. An arc's ends have orbits, and its centre
+one through a construction point per copy, the copy's centre level with it across the chord.
+Rectangles aren't turned: a rectangle is always axis-aligned. The originals should be fully
 constrained first, so that their points are exactly a step apart where they should meet.
 """
 
@@ -112,9 +115,10 @@ MIRROR = ToolSpec(
 PATTERN = ToolSpec(
     name="linear_pattern",
     description=(
-        "Repeat geometry in a row, or a grid with count2: points, lines, circles, and "
-        "rectangles. Counts include the original. Each copy is the same size as the original "
-        "(equal radius, equal and parallel line, equal sides) and is joined to the previous "
+        "Repeat geometry in a row, or a grid with count2: points, lines, circles, arcs, and "
+        "rectangles (a slot's lines and arcs together, say). Counts include the original. "
+        "Each copy is the same size as the original (equal radius, equal and parallel line, "
+        "equal sides; an arc by its ends and centre) and is joined to the previous "
         "one by a construction line equal and parallel to the first, which gets a driving "
         "dimension of the spacing and is horizontal or vertical when the direction is. So one "
         "dimension respaces the pattern and the original's size drives every copy: dimension "
@@ -141,7 +145,8 @@ PATTERN = ToolSpec(
 CIRCULAR = ToolSpec(
     name="circular_pattern",
     description=(
-        "Repeat geometry around a centre point: points, lines, and circles. count includes the "
+        "Repeat geometry around a centre point: points, lines, circles, and arcs (a gear's "
+        "teeth, a star's points). count includes the "
         "original; the copies are evenly spaced over angle, 360 by default (a full circle), "
         "counter-clockwise, or clockwise for a negative angle. Copies of each point sit on a "
         "construction circle, joined by equal construction chords, so a full circle's spacing "
@@ -348,14 +353,16 @@ def mirror(document: Document, arguments: Mapping[str, object], run: Run) -> Rep
                     _ref(held, Feature.POINT),
                     line,
                 )
-                chord = _arc_chord(entity)
-                across = (-chord[1], chord[0])  # the bisector's direction, mirrored or not
-                level_with = (
-                    ConstraintType.VERTICAL  # the same x: the bisector runs sideways
-                    if abs(across[0]) >= abs(across[1])
-                    else ConstraintType.HORIZONTAL
+                # Across the copy's chord, which a slanted axis turns from the original's.
+                mirrored = Arc(
+                    center=center,
+                    radius=entity.radius,
+                    start_angle=start,
+                    sweep_angle=entity.sweep_angle,
                 )
-                build.constrain(level_with, _ref(held, Feature.POINT), _ref(copy, Feature.CENTER))
+                build.constrain(
+                    _across(mirrored), _ref(held, Feature.POINT), _ref(copy, Feature.CENTER)
+                )
             case Rectangle():
                 corners = [
                     reflect(Point2(x=entity.corner.x + dx, y=entity.corner.y + dy))
@@ -439,15 +446,6 @@ def _same(p: Point2, q: Point2) -> bool:
 # --- Linear pattern ---------------------------------------------------------------------
 
 
-_ANCHORS = {
-    Point: Feature.POINT,
-    Circle: Feature.CENTER,
-    Line: Feature.START,
-    Rectangle: Feature.BOTTOM_LEFT,
-}
-"""The point of each kind of geometry that a pattern's construction lines join."""
-
-
 def linear_pattern(document: Document, arguments: Mapping[str, object], run: Run) -> Repeated:
     ids = _ids(arguments.get("ids"))
     count = _count(arguments, "count", None)
@@ -462,20 +460,12 @@ def linear_pattern(document: Document, arguments: Mapping[str, object], run: Run
     if count2 > 1 and abs(first[0] * second[1] - first[1] * second[0]) <= SAME:
         raise PatternError({"error": "angle and angle2 are parallel: the grid would be a row"})
     made = Repeated(label="Linear Pattern")
-    seeds: list[tuple[EntityId, Point | Line | Circle | Rectangle]] = []
+    seeds: list[tuple[EntityId, Point | Line | Circle | Arc | Rectangle]] = []
     for id in ids:
         entity = document.entities.get(id)
         if entity is None:
             raise PatternError({"error": f"no entity {id!r}"})
-        if isinstance(entity, Arc):
-            raise PatternError(
-                {
-                    "error": f"{id} is an arc, which can't be patterned: no constraint ties a "
-                    "copy's angles to its original's. Pattern the lines and circles around it, "
-                    "or mirror it"
-                }
-            )
-        if isinstance(entity, Point | Line | Circle | Rectangle):
+        if isinstance(entity, Point | Line | Circle | Arc | Rectangle):
             seeds.append((id, entity))
         else:
             made.skipped[id] = f"a {entity.kind}: each copy is tied to its original instead"
@@ -502,48 +492,74 @@ def linear_pattern(document: Document, arguments: Mapping[str, object], run: Run
     ]
     build = _Builder(run, made)
     masters: dict[int, EntityId] = {}
+
+    def link(before: Ref, after: Ref, start: Point2, end: Point2, way: int) -> None:
+        """A construction line from a point of the copy before to the same point of this
+        one: the first in each direction carries the spacing, the rest are equal and parallel
+        to it."""
+        joint = build.layout(CreateLine(start=start, end=end, construction=True))
+        build.constrain(ConstraintType.COINCIDENT, before, _ref(joint, Feature.START))
+        build.constrain(ConstraintType.COINCIDENT, after, _ref(joint, Feature.END))
+        master = masters.get(way)
+        if master is None:
+            masters[way] = joint
+            if (held := directions[way]) is not None:
+                build.constrain(held, _ref(joint, Feature.CURVE))
+            made.dimensions.append(
+                build.create(
+                    CreateDistanceDimension(
+                        a=_ref(joint, Feature.START),
+                        b=_ref(joint, Feature.END),
+                        orientation=DistanceOrientation.ALIGNED,
+                        offset=offsets[way],
+                        value=spacings[way],
+                    )
+                )
+            )
+        else:
+            build.constrain(
+                ConstraintType.EQUAL, _ref(master, Feature.CURVE), _ref(joint, Feature.CURVE)
+            )
+            build.constrain(
+                ConstraintType.PARALLEL, _ref(master, Feature.CURVE), _ref(joint, Feature.CURVE)
+            )
+
     for id, seed in seeds:
-        anchor = _ANCHORS[type(seed)]
         at: dict[tuple[int, int], EntityId] = {(0, 0): id}
+        centres: dict[tuple[int, int], Ref] = {(0, 0): _ref(id, Feature.CENTER)}
         for i, j in places:
             shift = (
                 i * steps[1][0] + j * steps[2][0],
                 i * steps[1][1] + j * steps[2][1],
             )
             copy = build.create(_moved(seed, shift))
-            before = at[(i - 1, j)] if j == 0 else at[(i, j - 1)]
             way = 1 if j == 0 else 2
-            origin = _anchor_point(seed, (shift[0] - steps[way][0], shift[1] - steps[way][1]))
-            joint = build.layout(
-                CreateLine(start=origin, end=_anchor_point(seed, shift), construction=True)
-            )
-            build.constrain(
-                ConstraintType.COINCIDENT, _ref(before, anchor), _ref(joint, Feature.START)
-            )
-            build.constrain(ConstraintType.COINCIDENT, _ref(copy, anchor), _ref(joint, Feature.END))
-            master = masters.get(way)
-            if master is None:
-                masters[way] = joint
-                if (held := directions[way]) is not None:
-                    build.constrain(held, _ref(joint, Feature.CURVE))
-                made.dimensions.append(
-                    build.create(
-                        CreateDistanceDimension(
-                            a=_ref(joint, Feature.START),
-                            b=_ref(joint, Feature.END),
-                            orientation=DistanceOrientation.ALIGNED,
-                            offset=offsets[way],
-                            value=spacings[way],
-                        )
-                    )
+            before = (i - 1, j) if j == 0 else (i, j - 1)
+            back = (shift[0] - steps[way][0], shift[1] - steps[way][1])
+            for feature in _CHAINED[type(seed)]:
+                link(
+                    _ref(at[before], feature),
+                    _ref(copy, feature),
+                    _shifted(_point(seed, feature), back),
+                    _shifted(_point(seed, feature), shift),
+                    way,
                 )
-            else:
-                build.constrain(
-                    ConstraintType.EQUAL, _ref(master, Feature.CURVE), _ref(joint, Feature.CURVE)
+            if isinstance(seed, Arc):
+                # Its ends leave the centre free along the chord's bisector: a construction
+                # point follows the original's centre, and the copy's is level with it across.
+                where = _shifted(seed.center, shift)
+                held = build.layout(CreatePoint(position=where, construction=True))
+                link(
+                    centres[before],
+                    _ref(held, Feature.POINT),
+                    _shifted(seed.center, back),
+                    where,
+                    way,
                 )
                 build.constrain(
-                    ConstraintType.PARALLEL, _ref(master, Feature.CURVE), _ref(joint, Feature.CURVE)
+                    _across(seed), _ref(held, Feature.POINT), _ref(copy, Feature.CENTER)
                 )
+                centres[(i, j)] = _ref(held, Feature.POINT)
             _same_size(build, id, seed, copy)
             at[(i, j)] = copy
         made.copies[id] = [at[place] for place in places]
@@ -556,7 +572,35 @@ def linear_pattern(document: Document, arguments: Mapping[str, object], run: Run
     return made
 
 
-def _moved(seed: Point | Line | Circle | Rectangle, by: tuple[float, float]) -> Command:
+_CHAINED: Mapping[type, tuple[Feature, ...]] = {
+    Point: (Feature.POINT,),
+    Circle: (Feature.CENTER,),
+    Line: (Feature.START,),
+    Rectangle: (Feature.BOTTOM_LEFT,),
+    Arc: (Feature.START, Feature.END),
+}
+"""The points of each kind of geometry that a linear pattern's construction lines join. An
+arc's centre is joined through a construction point (see `linear_pattern`)."""
+
+
+def _shifted(p: Point2, by: tuple[float, float]) -> Point2:
+    return Point2(x=p.x + by[0], y=p.y + by[1])
+
+
+def _across(arc: Arc) -> ConstraintType:
+    """What holds an arc's centre, once its ends are placed, to a point it should be level
+    with: the centre is free along the chord's perpendicular bisector, so the same x where
+    that runs sideways, the same y where it runs up and down."""
+    chord = _arc_chord(arc)
+    bisector = (-chord[1], chord[0])
+    return (
+        ConstraintType.VERTICAL
+        if abs(bisector[0]) >= abs(bisector[1])
+        else ConstraintType.HORIZONTAL
+    )
+
+
+def _moved(seed: Point | Line | Circle | Arc | Rectangle, by: tuple[float, float]) -> Command:
     def move(p: Point2) -> Point2:
         return Point2(x=p.x + by[0], y=p.y + by[1])
 
@@ -578,23 +622,18 @@ def _moved(seed: Point | Line | Circle | Rectangle, by: tuple[float, float]) -> 
                 height=seed.height,
                 construction=seed.construction,
             )
-
-
-def _anchor_point(seed: Point | Line | Circle | Rectangle, by: tuple[float, float]) -> Point2:
-    match seed:
-        case Point():
-            p = seed.position
-        case Line():
-            p = seed.start
-        case Circle():
-            p = seed.center
-        case Rectangle():
-            p = seed.corner
-    return Point2(x=p.x + by[0], y=p.y + by[1])
+        case Arc():
+            return CreateArc(
+                center=move(seed.center),
+                radius=seed.radius,
+                start_angle=seed.start_angle,
+                sweep_angle=seed.sweep_angle,
+                construction=seed.construction,
+            )
 
 
 def _same_size(
-    build: _Builder, id: EntityId, seed: Point | Line | Circle | Rectangle, copy: EntityId
+    build: _Builder, id: EntityId, seed: Point | Line | Circle | Arc | Rectangle, copy: EntityId
 ) -> None:
     match seed:
         case Circle():
@@ -611,8 +650,8 @@ def _same_size(
         case Rectangle():
             for side in (Feature.BOTTOM, Feature.LEFT):
                 build.constrain(ConstraintType.EQUAL, _ref(id, side), _ref(copy, side))
-        case Point():
-            pass
+        case Point() | Arc():
+            pass  # an arc's ends and centre, placed, fix its size
 
 
 def _unit(degrees: float) -> tuple[float, float]:
@@ -638,12 +677,19 @@ def _level(degrees: float) -> ConstraintType | None:
 # --- Circular pattern -------------------------------------------------------------------
 
 
-_TURNED = {
+_TURNED: Mapping[type, tuple[Feature, ...]] = {
     Point: (Feature.POINT,),
     Line: (Feature.START, Feature.END),
     Circle: (Feature.CENTER,),
+    Arc: (Feature.START, Feature.END),
 }
-"""The points that place each kind of geometry a circular pattern turns."""
+"""The points that place each kind of geometry a circular pattern turns. An arc's centre is
+placed through a construction point (see `circular_pattern`)."""
+
+
+def _orbits(seed: Point | Line | Circle | Arc) -> tuple[Feature, ...]:
+    """The points of a seed that have orbits: its turned points, and an arc's centre."""
+    return (*_TURNED[type(seed)], *((Feature.CENTER,) if isinstance(seed, Arc) else ()))
 
 
 def circular_pattern(document: Document, arguments: Mapping[str, object], run: Run) -> Repeated:
@@ -673,21 +719,19 @@ def circular_pattern(document: Document, arguments: Mapping[str, object], run: R
             x=c.x + dx * math.cos(t) - dy * math.sin(t), y=c.y + dx * math.sin(t) + dy * math.cos(t)
         )
 
-    seeds: list[tuple[EntityId, Point | Line | Circle]] = []
+    seeds: list[tuple[EntityId, Point | Line | Circle | Arc]] = []
     for id in ids:
         entity = document.entities.get(id)
         if entity is None:
             raise PatternError({"error": f"no entity {id!r}"})
-        if isinstance(entity, Arc | Rectangle):
-            why = (
-                "an arc: no constraint ties a copy's angles to its original's. Mirror it, or "
-                "draw it to the patterned points"
-                if isinstance(entity, Arc)
-                else "a rectangle, which is always axis-aligned, so it can't be turned; draw "
-                "it as four lines"
+        if isinstance(entity, Rectangle):
+            raise PatternError(
+                {
+                    "error": f"{id} is a rectangle, which is always axis-aligned, so it can't "
+                    "be turned; draw it as four lines"
+                }
             )
-            raise PatternError({"error": f"{id} is {why}"})
-        if not isinstance(entity, Point | Line | Circle):
+        if not isinstance(entity, Point | Line | Circle | Arc):
             made.skipped[id] = f"a {entity.kind}: each copy is placed instead"
         elif all(
             _same(turn(_point(entity, f), 1), _point(entity, f)) for f in _TURNED[type(entity)]
@@ -704,7 +748,7 @@ def circular_pattern(document: Document, arguments: Mapping[str, object], run: R
         )
     size = max(
         [1.0, abs(c.x), abs(c.y)]
-        + [abs(v) for _, e in seeds for f in _TURNED[type(e)] for v in _xy(_point(e, f))]
+        + [abs(v) for _, e in seeds for f in _orbits(e) for v in _xy(_point(e, f))]
     )
 
     # Every point's owner: the first point placed at its spot, original or copy.
@@ -721,20 +765,35 @@ def circular_pattern(document: Document, arguments: Mapping[str, object], run: R
         return None
 
     for id, seed in seeds:
-        for feature in _TURNED[type(seed)]:
+        for feature in _orbits(seed):
             if owner(_point(seed, feature)) is None:
                 owners.append((_point(seed, feature), _ref(id, feature), True))
 
     build = _Builder(run, made)
     joins: list[tuple[Ref, Ref]] = []
     at_copy: dict[EntityId, list[EntityId]] = {id: [] for id, _ in seeds}
+    levels: list[tuple[Ref, EntityId, ConstraintType]] = []  # an arc copy's centre, across
     for times in range(1, count):
         for id, seed in seeds:
-            copy = build.create(_turned(seed, times, turn))
+            turned = _turned(seed, times, turn, step)
+            copy = build.create(turned)
             at_copy[id].append(copy)
-            for feature in _TURNED[type(seed)]:
-                where = turn(_point(seed, feature), times)
-                mine = _ref(copy, feature)
+            points = [(turn(_point(seed, f), times), _ref(copy, f)) for f in _TURNED[type(seed)]]
+            if isinstance(seed, Arc):
+                # Its ends leave the centre free along the chord's bisector: a construction
+                # point takes the centre's place in its orbit, and the copy's centre is level
+                # with it across.
+                assert isinstance(turned, CreateArc)
+                held = build.layout(CreatePoint(position=turned.center, construction=True))
+                points.append((turned.center, _ref(held, Feature.POINT)))
+                copied = Arc(
+                    center=turned.center,
+                    radius=turned.radius,
+                    start_angle=turned.start_angle,
+                    sweep_angle=turned.sweep_angle,
+                )
+                levels.append((_ref(held, Feature.POINT), copy, _across(copied)))
+            for where, mine in points:
                 found = owner(where)
                 if found is None:
                     owners.append((where, mine, False))
@@ -745,7 +804,7 @@ def circular_pattern(document: Document, arguments: Mapping[str, object], run: R
     # Each orbit placed once: its copies' owners on a circle, joined by equal chords.
     chained: set[Ref] = set()
     for _, seed in seeds:
-        for feature in _TURNED[type(seed)]:
+        for feature in _orbits(seed):
             start = _point(seed, feature)
             if _same(turn(start, 1), start):
                 continue  # at the centre: every copy of it is joined to it
@@ -758,6 +817,8 @@ def circular_pattern(document: Document, arguments: Mapping[str, object], run: R
             chained.update(ref for ref, _ in vertices)
     for placed_ref, joined in joins:
         build.constrain(ConstraintType.COINCIDENT, placed_ref, joined)
+    for held_ref, copy, across in levels:
+        build.constrain(across, held_ref, _ref(copy, Feature.CENTER))
     for id, seed in seeds:
         if isinstance(seed, Circle):
             for circle in at_copy[id]:
@@ -865,8 +926,13 @@ def _orbit(
 
 
 def _turned(
-    seed: Point | Line | Circle, times: int, turn: Callable[[Point2, int], Point2]
+    seed: Point | Line | Circle | Arc,
+    times: int,
+    turn: Callable[[Point2, int], Point2],
+    step: float,
 ) -> Command:
+    turn_by = step * times
+
     def by(p: Point2) -> Point2:
         return turn(p, times)
 
@@ -880,6 +946,14 @@ def _turned(
         case Circle():
             return CreateCircle(
                 center=by(seed.center), radius=seed.radius, construction=seed.construction
+            )
+        case Arc():
+            return CreateArc(
+                center=by(seed.center),
+                radius=seed.radius,
+                start_angle=(seed.start_angle + turn_by) % 360.0,
+                sweep_angle=seed.sweep_angle,
+                construction=seed.construction,
             )
 
 
