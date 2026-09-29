@@ -31,8 +31,10 @@ The sessions are small (`rectangle`, a short request written by hand), medium
 
 Synthetic cases cover what the sessions don't reach: many entities, many constraints, many
 checks, a large `inspect_document`, saving and opening a large sketch, drawing it, and what
-the Timing panel costs a call. Times are wall-clock seconds (or milliseconds and microseconds
-where marked) on this machine; compare runs on the same machine only.
+the Timing panel costs a call. `repeat/*` times one mirror, linear pattern, and circular
+pattern call each (the recorded sessions predate those tools). Times are wall-clock seconds
+(or milliseconds and microseconds where marked) on this machine; compare runs on the same
+machine only.
 
 The script uses only what `main` had before Performance V2 where it can (Accept falls back to
 replaying), so `PYTHONPATH=<a main checkout> python bench/perf.py --save before.json` measures
@@ -403,6 +405,126 @@ def many_constraints() -> Result:
     return result
 
 
+def repeats() -> list[Result]:
+    """Mirror, linear pattern, and circular pattern, each one tool call in a workspace, as the
+    MCP host runs them: a 5 by 4 grid of dimensioned holes, half a 12-point star mirrored about
+    its centreline, and the whole star from one fully constrained point. `commands` is how
+    many of Caliper's commands the call ran, each solved."""
+    import itertools
+    import math
+
+    from caliper.ai.model import ToolCall
+    from caliper.ai.tools import Workspace
+
+    def call(w: Workspace, name: str, **arguments: object) -> dict[str, object]:
+        outcome = w.call(ToolCall(id="bench", name=name, arguments=arguments))
+        assert not outcome.is_error, outcome.content
+        assert isinstance(outcome.content, dict)
+        return outcome.content
+
+    def ref(entity: object, feature: str) -> dict[str, object]:
+        return {"entity": entity, "feature": feature}
+
+    def made(content: dict[str, object]) -> str:
+        created = content["created"]
+        assert isinstance(created, list)
+        return str(created[0])
+
+    def at(radius: float, degrees: float) -> dict[str, float]:
+        t = math.radians(degrees)
+        return {"x": 120 + radius * math.cos(t), "y": 80 + radius * math.sin(t)}
+
+    def star_layout() -> tuple[Workspace, str, str, str, str]:
+        """The star's fixed centre, a vertical centreline, and its R25 and R12 circles."""
+        w = Workspace(Document.empty())
+        centre = made(call(w, "create_point", position=at(0, 0), construction=True))
+        call(w, "create_constraint", type="fix", refs=[ref(centre, "point")])
+        axis = made(call(w, "create_line", start=at(0, 0), end=at(40, 90), construction=True))
+        call(
+            w,
+            "create_constraint",
+            type="coincident",
+            refs=[ref(centre, "point"), ref(axis, "start")],
+        )
+        call(w, "create_constraint", type="vertical", refs=[ref(axis, "curve")])
+        rings = []
+        for radius in (25, 12):
+            ring = made(call(w, "create_circle", center=at(0, 0), radius=radius, construction=True))
+            call(
+                w,
+                "create_constraint",
+                type="concentric",
+                refs=[ref(ring, "curve"), ref(centre, "point")],
+            )
+            rings.append(ring)
+        return w, centre, axis, rings[0], rings[1]
+
+    def grid() -> tuple[Workspace, dict[str, object]]:
+        w = Workspace(Document.empty())
+        origin = made(call(w, "create_point", position={"x": 0, "y": 0}))
+        call(w, "create_constraint", type="fix", refs=[ref(origin, "point")])
+        hole = made(call(w, "create_circle", center={"x": 60, "y": 25}, radius=3))
+        for orientation, value in (("horizontal", 60), ("vertical", 25)):
+            call(
+                w,
+                "create_distance_dimension",
+                a=ref(origin, "point"),
+                b=ref(hole, "center"),
+                orientation=orientation,
+                offset=5,
+                value=value,
+            )
+        return w, {"ids": [hole], "count": 5, "spacing": 30, "count2": 4, "spacing2": 30}
+
+    def half_star() -> tuple[Workspace, dict[str, object]]:
+        w, _, axis, _, _ = star_layout()
+        corners = [at(25 if k % 2 == 0 else 12, 90 + 15 * k) for k in range(13)]
+        lines = [
+            made(call(w, "create_line", start=a, end=b)) for a, b in itertools.pairwise(corners)
+        ]
+        for a, b in itertools.pairwise(lines):
+            call(w, "create_constraint", type="coincident", refs=[ref(a, "end"), ref(b, "start")])
+        return w, {"ids": lines, "axis": axis}
+
+    def star_point() -> tuple[Workspace, dict[str, object]]:
+        w, centre, axis, outer, inner = star_layout()
+        right = made(call(w, "create_line", start=at(12, 75), end=at(25, 90)))
+        left = made(call(w, "create_line", start=at(25, 90), end=at(12, 105)))
+        for refs in (
+            [ref(right, "end"), ref(left, "start")],
+            [ref(axis, "curve"), ref(right, "end")],
+            [ref(outer, "curve"), ref(right, "end")],
+            [ref(inner, "curve"), ref(left, "end")],
+        ):
+            call(w, "create_constraint", type="coincident", refs=refs)
+        call(
+            w,
+            "create_constraint",
+            type="symmetric",
+            refs=[ref(left, "end"), ref(right, "start"), ref(axis, "curve")],
+        )
+        return w, {"ids": [right, left], "center": centre, "count": 12}
+
+    results = []
+    for name, tool, build in (
+        ("repeat/linear-pattern/grid-5x4", "linear_pattern", grid),
+        ("repeat/mirror/half-star", "mirror_entities", half_star),
+        ("repeat/circular-pattern/star-12", "circular_pattern", star_point),
+    ):
+        samples, commands = [], 0
+        for _ in range(3):
+            w, arguments = build()
+            before = len(w.commands)
+            started = time.perf_counter()
+            call(w, tool, **arguments)
+            samples.append(time.perf_counter() - started)
+            commands = len(w.commands) - before
+        result = Result(name, spread(samples))
+        result.metrics["commands"] = commands
+        results.append(result)
+    return results
+
+
 def many_checks() -> Result:
     """Preparing a proposal with 200 checks, and the Checks panel re-measuring 200 checks."""
     from caliper.app.agent.proposal import Plan, prepare
@@ -529,6 +651,7 @@ def cases() -> list[tuple[str, Callable[[], list[Result]]]]:
     found.append(("synthetic/many-entities", lambda: [many_entities()]))
     found.append(("synthetic/many-constraints", lambda: [many_constraints()]))
     found.append(("synthetic/many-checks", lambda: [many_checks()]))
+    found.append(("repeat", repeats))
     found.append(("synthetic/inspect-document", lambda: [large_inspect()]))
     found.append(("synthetic/file", lambda: [large_file()]))
     found.append(("synthetic/render", lambda: [large_render()]))
