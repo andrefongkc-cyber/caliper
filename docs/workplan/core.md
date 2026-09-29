@@ -139,7 +139,7 @@ The cost is the keeping check, one evaluation per solve that has something to ke
 ### Deferred, and why
 
 - **Reusing a factorization between edits**: the Jacobian changes at every Newton step, and the redundancy check needs one at the solved point; building and compiling the system are 2–6% of a solve.
-- **One scale per solve** (C-12 in docs/known-issues.md): Newton converges at the scale a solve starts from and checks collapse at the one it ends at, so a solve that squeezes geometry to nothing can be accepted a little outside tolerance. The reference does the same; fixing it changes which commands are accepted, so it needs a decision.
+- ~~**One scale per solve** (C-12)~~: fixed 2026-09-29 on `shared/known-issue-fixes`: collapse is judged at the larger of a solve's start and end scales.
 - **Angles in the scale**: degrees count toward it, so a small sketch with arcs has a scale of up to 360 and a looser tolerance. Changing it changes every solve.
 
 ### Notes for review

@@ -949,14 +949,17 @@ def _written(system: System, values: Sequence[float]) -> dict[EntityId, Entity] 
     """The geometry `values` describe, or None if any of it became degenerate.
 
     Degenerate includes nearly so: a line shrunk to a billionth of the sketch's size has
-    satisfied its equations by collapsing, which no one asked for.
+    satisfied its equations by collapsing, which no one asked for. The size is the larger of
+    the solve's start and end: Newton converged at the start's, so a solve that squeezes the
+    sketch (a 69 mm rectangle to 1e-9 mm wide) is judged at that size too, not at the tiny
+    one it made (C-12).
     """
     from caliper.engine.commands.validation import (  # the command layer is above
         canonical_angle,
         domain_errors,
     )
 
-    tiny = tolerance.unchanged(values)
+    tiny = tolerance.unchanged([*system.values, *values])
     changes: dict[EntityId, dict[str, float]] = {}
     for (id, path), old, new in zip(system.params, system.values, values, strict=True):
         if new != old:

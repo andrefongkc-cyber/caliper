@@ -382,16 +382,18 @@ def test_a_value_no_geometry_can_meet_is_refused_without_blaming_itself() -> Non
 # --- Known limitations --------------------------------------------------------------------
 
 
-def test_c12_a_constraint_that_holds_only_by_squeezing_to_nothing_is_accepted_today() -> None:
-    """Known issue C-12, pinned as it is: the fix (one scale for convergence and collapse)
-    changes which commands are accepted, and waits for a decision. If this starts failing, the
-    behaviour changed: update docs/known-issues.md with it."""
+def test_c12_a_constraint_that_holds_only_by_squeezing_to_nothing_is_refused() -> None:
+    """C-12: a vertical constraint between a 69 by 1 rectangle's corner and its centre holds
+    only with no width. The solver squeezed it to 1e-9 mm and accepted that, judging collapse
+    at the size it had made (1 mm) instead of the size it started from (69 mm)."""
     bus = Bus()
     run(bus, CreateRectangle(corner=Point2(x=0, y=0), width=69, height=1))
-    run(
+    message = refused(
         bus,
         CreateConstraint(type=C.VERTICAL, refs=(ref("e1", "bottom_left"), ref("e1", "center"))),
+        ErrorCode.CONSTRAINT_CONFLICT,
     )
-    squeezed = bus.document.entities[E("e1")]
-    assert isinstance(squeezed, Rectangle)
-    assert squeezed.width < 1e-6
+    assert "nothing may shrink to nothing" in message
+    rectangle = bus.document.entities[E("e1")]
+    assert isinstance(rectangle, Rectangle)
+    assert rectangle.width == 69.0
