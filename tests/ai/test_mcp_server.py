@@ -157,7 +157,9 @@ def test_accepted_changes_undo_and_redo_and_the_client_hears_of_it(
 
     async def after(client: Client) -> None:
         result = await client.call_tool("inspect_entities", {"ids": ["e1"]})
-        assert texts(result)[0] == f"Note: {Ended.ACCEPTED.value}"
+        # Ended by a blank line, so a client that joins blocks keeps it off the JSON (AI-4).
+        assert texts(result)[0] == f"Note: {Ended.ACCEPTED.value}\n\n"
+        assert "".join(texts(result)).split("\n\n", 1)[1].startswith("{")
         assert data(result)["e1"]["width"] == 100.0  # type: ignore[index]
         again = await client.call_tool("solve_status", {})
         assert len(again.content) == 1  # said once
