@@ -23,11 +23,11 @@ point: a double root), a residual of `SOLVED` leaves the point free by about its
 `PRECISION`. So two correct solvers, or the same solver stopping one step apart, can differ by
 that much there, and by round-off everywhere else.
 
-A solve's tolerances come from the scale of the values it starts from. One that shrinks the
-geometry a thousandfold (a constraint that only holds with a rectangle squeezed to nothing)
-converges at the old scale, so a relation can end a little outside `SOLVED` at the new one
-(docs/known-issues.md, C-12). A stored value a solve didn't need to change is only kept when
-every relation holds at both scales (`sketch._kept`).
+A solve's tolerances come from the scale of the values it starts from, and whether its
+result has collapsed is judged at the larger of that and the scale it ends at: a solve that
+squeezes a rectangle to nothing to make a constraint hold is refused, not accepted at the tiny
+scale it made (C-12, fixed 2026-09-29). A stored value a solve didn't need to change is only
+kept when every relation holds at both scales (`sketch._kept`).
 """
 
 import math
