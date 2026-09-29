@@ -1,14 +1,19 @@
-"""pytest-qt fixtures for the shell. Runs offscreen: QT_QPA_PLATFORM=offscreen.
+"""pytest-qt fixtures for the shell. Runs offscreen: QT_QPA_PLATFORM defaults to offscreen.
 
 The Linux core job installs no Qt, so every Qt test module is skipped there; the macOS app
 job runs them.
 """
 
 import importlib.util
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
+
+# Offscreen unless you ask for another platform: without a window server (SSH, a sandbox) Qt
+# aborts the whole run otherwise (C-11). Set before anything imports Qt.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 HAVE_QT = all(importlib.util.find_spec(name) for name in ("PySide6", "pytestqt"))
 QT_FREE = {"test_viewport_math.py", "test_tokens.py"}
