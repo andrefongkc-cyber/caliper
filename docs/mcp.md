@@ -157,18 +157,35 @@ own notes), follow [test-runs-andre/README.md](../test-runs-andre/README.md).
 ## Timing
 
 Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** panel, above
-Properties, shows the latest run on one line, e.g. `▸ 4m 07s · 57 calls · running`. Click the
+Properties, shows the latest run on one line, e.g. `▸ 4m 07s · ~1m 20s left`. Click the
 line for every field. While the run is live its time ticks every second. The numbers stay up
 after the run ends.
 
 **Time left.** At the start of a task of more than about ten calls, Claude says how many calls
-it plans (the `report_progress` tool, one quick call), and the line shows the time left:
-`▸ 1m 12s · ~3m 40s left · 35 calls`. Caliper works it out from the calls to go, at the run's
-own pace once it has ten calls (2 s a call before that, test 002's pace), so Claude spends no
-effort on the arithmetic. It counts down between calls and is worked out again at each one;
-`almost done` means the countdown ran out with calls still to go. It's an estimate, shown only
-on screen, never recorded. Claude calls `report_progress` again with 0 when it's done, which
-stops the time at once.
+it plans, and, if it knows, how many are mirrors or patterns and how many are checks (the
+`report_progress` tool, one quick call). The line then shows the time left:
+`▸ 1m 12s · ~3m 40s left`. The call count isn't on the line; it's in the fields below.
+
+- **How it's worked out.** A call costs two things, both measured by Caliper: the time
+  between calls (Claude working out the next one, the MCP round trip, and redrawing, which is
+  most of it) and the time inside Caliper (the command, the solve, and the proposal). They
+  depend on the kind of call: a mirror or pattern is a long solve that Claude thinks about
+  first, and checks come in quick batches. So each kind of call still to go is priced at what
+  that kind has cost so far in this run, and the calls Claude didn't sort by kind at the
+  run's average. Claude does none of the arithmetic.
+- **At first, and as it learns.** The first estimate uses typical costs from test 003 (1.7 s a
+  call, 0.8 s a check, 5 s a repeat), blended out as the run's own calls are measured. Until
+  ten calls are measured it's rough, and says so: `about 4 min left`, or `under a minute
+  left`. After that it's to the second.
+- **Steady on screen.** It counts down every second. Every 15 seconds, and as soon as a
+  mirror or pattern finishes, it moves halfway to the latest figure, so one slow or quick call
+  doesn't make it jump. A new plan from Claude, or a figure more than half out from what's
+  shown, replaces it at once.
+- **When it can't say.** `no estimate` means Claude hasn't said how many calls it plans.
+  `finishing…` means the plan's calls are done (or the countdown ran out on the last one)
+  and Claude is still working. When the run stops, the line shows just the final time.
+- Claude calls `report_progress` with 0 when it's done, which stops the time at once. The
+  estimate is shown only on screen, never recorded.
 
 **Saving the drawing into its test folder** (`test-runs-andre/NNN-name/`) writes that
 folder's `003-timing.md` for you, from this panel. It never overwrites one that's already
