@@ -1,0 +1,214 @@
+{
+ "bridge/round-trip": {
+  "calls": 200.0,
+  "max_ms": 1.4454999472945929,
+  "median_ms": 0.1304794568568468,
+  "p95_ms": 0.1796248834580183,
+  "total": 0.02948266640305519
+ },
+ "repeat/circular-pattern/star-12": {
+  "calls": 3.0,
+  "commands": 162,
+  "max_ms": 2593.339833896607,
+  "median_ms": 2352.8135831002146,
+  "p95_ms": 2593.339833896607,
+  "total": 7.274887208128348
+ },
+ "repeat/linear-pattern/grid-5x4": {
+  "calls": 3.0,
+  "commands": 133,
+  "max_ms": 225.75225005857646,
+  "median_ms": 224.56712508574128,
+  "p95_ms": 225.75225005857646,
+  "total": 0.6739575422834605
+ },
+ "repeat/mirror/half-star": {
+  "calls": 3.0,
+  "commands": 36,
+  "max_ms": 54.88841701298952,
+  "median_ms": 54.68524992465973,
+  "p95_ms": 54.88841701298952,
+  "total": 0.16399100003764033
+ },
+ "session/ball-bearing/accept-engine": {
+  "replay": 0.11426883307285607,
+  "total": 0.0007005420047789812
+ },
+ "session/ball-bearing/engine": {
+  "calls": 74.0,
+  "check_ms": 0.11950102634727955,
+  "checks": 5.0,
+  "commands": 66.0,
+  "deferred": 0.0,
+  "evaluations": 861.0,
+  "max_ms": 11.726124910637736,
+  "median_ms": 0.3036250127479434,
+  "p95_ms": 8.897708030417562,
+  "solve_ms": 129.21903491951525,
+  "status_ms": 1.9623341504484415,
+  "total": 0.14018887840211391
+ },
+ "session/ball-bearing/memory": {
+  "accept_peak_mib": 0.06252861022949219,
+  "peak_mib": 0.7627172470092773,
+  "retained_mib": 0.14581298828125
+ },
+ "session/ball-bearing/results": {
+  "calls": 74.0,
+  "max_kib": 1.44921875,
+  "total_kib": 25.728515625
+ },
+ "session/ball-bearing/window": {
+  "calls": 74.0,
+  "max_ms": 9.365708101540804,
+  "median_ms": 1.3791454257443547,
+  "p95_ms": 7.274416973814368,
+  "total": 0.18472175649367273,
+  "ui_share_ms": 0.6319999229162931
+ },
+ "session/ball-bearing/window-accept": {
+  "entities": 66.0,
+  "total": 0.01398362498730421
+ },
+ "session/ball-bearing/window-reject": {
+  "total": 0.0001763750333338976
+ },
+ "session/ball-bearing/workflow": {
+  "total": 0.19870538148097694
+ },
+ "session/rectangle/accept-engine": {
+  "replay": 0.0004946249537169933,
+  "total": 7.254187949001789e-05
+ },
+ "session/rectangle/engine": {
+  "calls": 10.0,
+  "check_ms": 0.03995816223323345,
+  "checks": 2.0,
+  "commands": 6.0,
+  "deferred": 0.0,
+  "evaluations": 10.0,
+  "max_ms": 0.19920803606510162,
+  "median_ms": 0.10312511585652828,
+  "p95_ms": 0.19920803606510162,
+  "solve_ms": 0.36508310586214066,
+  "status_ms": 0.09908410720527172,
+  "total": 0.0010903326328843832
+ },
+ "session/rectangle/memory": {
+  "accept_peak_mib": 0.01052093505859375,
+  "peak_mib": 0.04472541809082031,
+  "retained_mib": 0.018228530883789062
+ },
+ "session/rectangle/results": {
+  "calls": 10.0,
+  "max_kib": 0.3203125,
+  "total_kib": 1.9111328125
+ },
+ "session/rectangle/window": {
+  "calls": 10.0,
+  "max_ms": 6.583916023373604,
+  "median_ms": 1.8837085226550698,
+  "p95_ms": 6.583916023373604,
+  "total": 0.023003834998235106,
+  "ui_share_ms": 0.9057504357770085
+ },
+ "session/rectangle/window-accept": {
+  "entities": 6.0,
+  "total": 0.010708958143368363
+ },
+ "session/rectangle/window-reject": {
+  "total": 0.0003082500770688057
+ },
+ "session/rectangle/workflow": {
+  "total": 0.03371279314160347
+ },
+ "session/stress-plate-build/accept-engine": {
+  "replay": 0.5116023330483586,
+  "total": 0.004172208020463586
+ },
+ "session/stress-plate-build/engine": {
+  "calls": 281.0,
+  "check_ms": 0.358999939635396,
+  "checks": 10.0,
+  "commands": 255.0,
+  "deferred": 2.0,
+  "evaluations": 1793.0,
+  "max_ms": 29.79275002144277,
+  "median_ms": 0.35629095509648323,
+  "p95_ms": 11.355708818882704,
+  "solve_ms": 496.36362749151886,
+  "status_ms": 17.60729029774666,
+  "total": 0.5399887426756322
+ },
+ "session/stress-plate-build/memory": {
+  "accept_peak_mib": 0.23580455780029297,
+  "peak_mib": 1.8448801040649414,
+  "retained_mib": 0.497894287109375
+ },
+ "session/stress-plate-build/results": {
+  "calls": 281.0,
+  "max_kib": 5.1396484375,
+  "total_kib": 89.296875
+ },
+ "session/stress-plate-build/window": {
+  "calls": 281.0,
+  "max_ms": 30.897916993126273,
+  "median_ms": 1.2195829767733812,
+  "p95_ms": 12.463500024750829,
+  "total": 0.7686635856516659,
+  "ui_share_ms": 0.4405837971717119
+ },
+ "session/stress-plate-build/window-accept": {
+  "entities": 255.0,
+  "total": 0.023592291167005897
+ },
+ "session/stress-plate-build/window-reject": {
+  "total": 0.00019629206508398056
+ },
+ "session/stress-plate-build/workflow": {
+  "total": 0.7922558768186718
+ },
+ "synthetic/file/2000": {
+  "dumps_ms": 9.448832832276821,
+  "loads_ms": 55.90250017121434,
+  "save_ms": 11.384542100131512,
+  "size_kib": 622.13671875
+ },
+ "synthetic/inspect-document/2000": {
+  "calls": 4.0,
+  "max_kib": 41.865234375,
+  "max_ms": 3.627167083323002,
+  "median_ms": 2.7065834729000926,
+  "p95_ms": 3.627167083323002,
+  "total": 0.011368958977982402
+ },
+ "synthetic/many-checks/prepare-200": {
+  "calls": 20.0,
+  "max_ms": 1.474207965657115,
+  "median_ms": 0.787083525210619,
+  "p95_ms": 1.474207965657115,
+  "total": 0.016502499114722013
+ },
+ "synthetic/many-constraints/chain-150": {
+  "calls": 299.0,
+  "max_ms": 37.979708053171635,
+  "median_ms": 0.5066660232841969,
+  "p95_ms": 32.383874990046024,
+  "status_ms": 72.42112490348518,
+  "total": 2.3029311306308955
+ },
+ "synthetic/many-entities/create": {
+  "calls": 50.0,
+  "max_ms": 0.2619170118123293,
+  "median_ms": 0.1549585722386837,
+  "p95_ms": 0.19191601313650608,
+  "total": 0.007955122040584683
+ },
+ "synthetic/render/2000": {
+  "badges_ms": 10.184916900470853,
+  "no_badges_ms": 6.619874853640795
+ },
+ "timing/overhead": {
+  "per_call_us": 16.833888366818428
+ }
+}
