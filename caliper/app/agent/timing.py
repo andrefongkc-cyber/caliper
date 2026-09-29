@@ -12,7 +12,7 @@ While a run is live its elapsed time ticks on screen. It stops when Claude says 
 another run starts or a document opens, or after a quiet spell: `QUIET` seconds with no call,
 or `IDLE` while Claude's estimate says it has calls to go. Total run then settles on the
 recorded value. Saving a drawing into a test folder writes that folder's 003-timing.md
-(`timing_file`, test-runs-manual/README.md).
+(`timing_file`, test-runs-andre/README.md).
 
 Time left: Claude can say how many calls a task will take (`progress`, the MCP tool
 report_progress), and Caliper turns that into time at the run's own pace, or `PACE` until the
@@ -222,7 +222,7 @@ class RunTimer:
 
 def timing_file(drawing: Path) -> Path | None:
     """Where a test's timing goes when its drawing is saved in a test folder
-    (`test-runs-manual/NNN-name/`, test-runs-manual/README.md); None anywhere else."""
+    (`test-runs-andre/NNN-name/`, test-runs-andre/README.md); None anywhere else."""
     folder = drawing.parent
     if TEST_FOLDER.fullmatch(folder.name) and folder.parent.name.startswith("test-runs"):
         return folder / TIMING_FILE

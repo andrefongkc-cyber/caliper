@@ -152,7 +152,7 @@ If step 4 shows no tools, check Claude Desktop's MCP log (Settings → Developer
 config.
 
 To keep a record of a test (the prompt, Claude's output, the drawing, the timing, and your
-own notes), follow [test-runs-manual/README.md](../test-runs-manual/README.md).
+own notes), follow [test-runs-andre/README.md](../test-runs-andre/README.md).
 
 ## Timing
 
@@ -170,7 +170,7 @@ effort on the arithmetic. It counts down between calls and is worked out again a
 on screen, never recorded. Claude calls `report_progress` again with 0 when it's done, which
 stops the time at once.
 
-**Saving the drawing into its test folder** (`test-runs-manual/NNN-name/`) writes that
+**Saving the drawing into its test folder** (`test-runs-andre/NNN-name/`) writes that
 folder's `003-timing.md` for you, from this panel. It never overwrites one that's already
 there, so save after you accept or reject. **Copy for 003-timing.md** puts the same text on
 the clipboard. The format is exactly:
