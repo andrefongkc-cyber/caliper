@@ -1,4 +1,4 @@
-Status: #39–#46 merged; Performance V2's AI side (Accept without solving again, checks with nothing pending kept, smaller tool results, Stop for the in-app assistant) on `shared/performance-v2`, local commits, not pushed, next: Andre's review, then a live timed rerun of test 002 on it
+Status: #39–#46 merged; Performance V2's AI side (Accept without solving again, checks with nothing pending kept, smaller tool results, Stop for the in-app assistant) on `shared/performance-v2`, PR #47, next: review, then a live timed rerun of test 002 on it
 
 # AI workplan
 
