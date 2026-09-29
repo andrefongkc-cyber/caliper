@@ -4,7 +4,7 @@ AI-native engineering platform. The wedge is a geometry core whose API lets an a
 its own work (measure, query, assert, retry) against real parametric geometry. Current scope:
 **V1 (2D sketching) and V1.5 (sketch constraints and dimensions) are done and on `main`,
 and the contract is frozen again.** The AI layer is on `main` too: the in-app assistant (#32)
-and Claude Desktop over MCP (#34, fixes #35). In review: Performance V2 (`shared/performance-v2`, local, not pushed). Where things stand: `WORKPLAN.md` → `docs/workplan/`.
+and Claude Desktop over MCP (#34, fixes #35). In review: Performance V2 (`shared/performance-v2`, PR #47). Where things stand: `WORKPLAN.md` → `docs/workplan/`.
 How it fits together: `docs/architecture.md`. Don't load `docs/vision.md` unless asked.
 
 ## Stack

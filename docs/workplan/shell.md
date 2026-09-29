@@ -1,4 +1,4 @@
-Status: P7 and its follow-ups merged; Performance V2's shell side (one redraw per transaction, a lazy proposal card, a plain-text Assistant log, hidden glyphs cost nothing, Stop) on `shared/performance-v2`, local commits, not pushed, next: Andre's review
+Status: P7 and its follow-ups merged; Performance V2's shell side (one redraw per transaction, a lazy proposal card, a plain-text Assistant log, hidden glyphs cost nothing, Stop) on `shared/performance-v2`, PR #47, next: review
 
 # Shell workplan — Stream B
 
