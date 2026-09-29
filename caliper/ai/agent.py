@@ -7,7 +7,8 @@ ends with the commands the model ran (already resolved and replayable on the doc
 started from), the checks it ran, and what it said. Nothing here changes the user's document:
 the caller shows the turn for review and applies its commands as one undoable step.
 
-The conversation carries over between turns, so a follow-up can say "make it wider".
+The conversation carries over between turns, so a follow-up can say "make it wider", for the
+last `KEEP_TURNS` turns.
 """
 
 import json
@@ -48,6 +49,12 @@ what you did, and say so plainly if you couldn't do some of it.\
 
 MAX_REPLIES = 16
 """Model replies per turn. A turn that needs more stops and says so."""
+
+KEEP_TURNS = 4
+"""Earlier turns the model still sees with a new request: enough for a follow-up ("make it
+wider"). Each request carries the sketch as it is, so older turns cost more on every request
+without saying anything new (AI-7). Whole turns are dropped, so every tool call stays with its
+result."""
 
 STOPPED = "Stopped before finishing. Nothing it did was kept."
 
@@ -99,6 +106,7 @@ class Assistant:
     ) -> Turn:
         """`stop` is asked before each request to the model (the user pressed Stop): when it
         says so, the turn ends there and is forgotten, as if never asked, with no changes."""
+        self._forget_old_turns()
         seen, start = self._last_seen, len(self.conversation)
         workspace = Workspace(document, frozenset(selection))
         context = describe(
@@ -153,6 +161,11 @@ class Assistant:
             error=error,
             executed=workspace.executed,
         )
+
+    def _forget_old_turns(self) -> None:
+        starts = [i for i, m in enumerate(self.conversation) if isinstance(m, UserTurn)]
+        if len(starts) > KEEP_TURNS:
+            del self.conversation[: starts[-KEEP_TURNS]]
 
 
 def from_environment() -> Assistant | None:
