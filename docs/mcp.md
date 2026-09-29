@@ -92,13 +92,17 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
 - While Caliper's own assistant is working on a request, changes from Claude Desktop are
   refused with a "try again" message; looking still works.
 - Each call shows in the Assistant tab, marked with the client's name (e.g. `claude-ai →`).
-- **Mirror and linear pattern** (`mirror_entities`, `linear_pattern`) repeat geometry in one
-  call: the copies and the constraints that tie them to the original. A mirrored copy is held
-  by symmetric constraints about the line. A pattern's copies are joined by construction lines
-  equal and parallel to the first, which carries the spacing as one dimension. So editing the
-  original, the line, or that one dimension moves every copy. They're made of the same
-  commands Claude could send one by one, so they join the proposal like any change; Claude's
-  `undo` takes back a whole mirror or pattern. Arcs mirror but don't pattern.
+- **Mirror, linear pattern, and circular pattern** (`mirror_entities`, `linear_pattern`,
+  `circular_pattern`) repeat geometry in one call: the copies and the constraints that tie
+  them to the original. A mirrored copy is held by symmetric constraints about the line. A
+  linear pattern's copies are joined by construction lines equal and parallel to the first,
+  which carries the spacing as one dimension. A circular pattern's copies sit on construction
+  circles round the centre, joined by equal chords, so a full circle's spacing comes from the
+  count (a partial one has one angle dimension), and copies whose points land together, like
+  a star's corners, are joined so the outline closes. Editing the original, the line or
+  centre, or that one dimension moves every copy. They're made of the same commands Claude
+  could send one by one, so they join the proposal like any change; Claude's `undo` takes
+  back a whole mirror or pattern. Arcs mirror but don't pattern; rectangles don't turn.
 - A proposal of more than 6 changes shows a summary ("187 changes · 57 checks, all passing",
   failures in red) with the list of changes behind **Show changes**, so the card keeps its size
   and Accept stays in reach; errors and failing checks are always shown.
@@ -128,7 +132,7 @@ makes no API request of Caliper's own; Claude Desktop uses your Claude account.
    yours only: `ls -l ~/.caliper/` shows `srwx------`.
 2. Make sure the `caliper` entry is in Claude Desktop's config (Set up, step 3).
 3. Restart Claude Desktop.
-4. In a new chat, open the tools menu: **caliper** is listed with 24 tools.
+4. In a new chat, open the tools menu: **caliper** is listed with 25 tools.
 5. Ask: *"Show me the entities near the origin in Caliper."* Claude calls
    `inspect_document` (allow it when asked). The Assistant tab in Caliper shows
    `claude-ai → inspect_document`, and nothing changes on the canvas.

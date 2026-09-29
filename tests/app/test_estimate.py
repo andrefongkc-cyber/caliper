@@ -25,6 +25,7 @@ OTHER, CHECK, REPEAT = PRIORS[Kind.OTHER], PRIORS[Kind.CHECK], PRIORS[Kind.REPEA
     [
         ("mirror_entities", Kind.REPEAT),
         ("linear_pattern", Kind.REPEAT),
+        ("circular_pattern", Kind.REPEAT),
         ("run_check", Kind.CHECK),
         ("create_line", Kind.OTHER),
         ("solve_status", Kind.OTHER),
