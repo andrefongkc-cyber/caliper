@@ -1,4 +1,4 @@
-Status: mirror, linear and circular pattern, and the Timing panel's time left (priced by kind, smoothed) and auto-stop, on `shared/mirror-pattern-time-left` (stacked on `shared/performance-v2`, local, not pushed), next: a live Claude Desktop run on it, then Andre's review
+Status: mirror, linear and circular pattern, and the Timing panel's time left (priced by kind, smoothed) and auto-stop, on `shared/mirror-pattern-time-left`, PR #48 (stacked on #47), next: a live Claude Desktop run on it, then review
 
 # AI workplan
 

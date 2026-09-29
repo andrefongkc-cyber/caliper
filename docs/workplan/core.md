@@ -1,4 +1,4 @@
-Status: Performance V2 and Solver V2.1 (numerical stability) done on `shared/performance-v2` (local commits, not pushed), next: Andre's review, including the last-digit note and C-12, then a PR; planned, not started: the dependency and recomputation graph
+Status: Performance V2 and Solver V2.1 (numerical stability) done on `shared/performance-v2`, PR #47, next: review, including the last-digit note and C-12; planned, not started: the dependency and recomputation graph
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -107,7 +107,7 @@ The cost is the keeping check, one evaluation per solve that has something to ke
 
 ## Performance V2 (branch `shared/performance-v2`, 2026-09-24 to 2026-09-27)
 
-Two requests. 2026-09-24: profile every engine area before optimizing, keep results bit-for-bit, and stop and report anything that would change them (paused after item 1 for the AI milestone). 2026-09-27: one cohesive pass over 27 items, from proposal building, solving, checks, Accept, and Reject to MCP, rendering, the Assistant log, timing, files, memory, threads, and a benchmark suite, measured on the recorded stress tests; don't push. The branch started as `stream/core/performance-v2` and became `shared/` because the work spans every area. Local commits only.
+Two requests. 2026-09-24: profile every engine area before optimizing, keep results bit-for-bit, and stop and report anything that would change them (paused after item 1 for the AI milestone). 2026-09-27: one cohesive pass over 27 items, from proposal building, solving, checks, Accept, and Reject to MCP, rendering, the Assistant log, timing, files, memory, threads, and a benchmark suite, measured on the recorded stress tests; don't push. The branch started as `stream/core/performance-v2` and became `shared/` because the work spans every area. In review as PR #47 (2026-09-28).
 
 ### Before and after
 
