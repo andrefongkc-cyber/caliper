@@ -61,6 +61,8 @@ class McpHost(QObject):
         self.draft = Draft()
         self.timer = RunTimer()
         self._client = "MCP client"
+        self._tool: str | None = None
+        """The tool of the call being answered, for its timing."""
         self._shown: Proposal | None = None
         """The draft's proposal, while it's the one on the card."""
         self._accepted: Proposal | None = None
@@ -107,11 +109,11 @@ class McpHost(QObject):
     def handle(self, line: bytes) -> bytes:
         """One request line in, one response line out, timed."""
         arrived = self.timer.arrived()
-        changed = False
+        changed, self._tool = False, None
         try:
             response, changed = self._respond(line)
         finally:
-            self.timer.finished(arrived, changed=changed)
+            self.timer.finished(arrived, changed=changed, tool=self._tool)
         self.timed.emit(self.timer.timing)
         return response
 
@@ -121,6 +123,7 @@ class McpHost(QObject):
             request = decode_request(line)
         except ValueError as e:
             return encode_response(Response({"error": str(e)}, is_error=True)), False
+        self._tool = request.tool
         if request.tool == PROGRESS.name:
             self._client = request.client
             outcome = self._progress(request.arguments)
@@ -150,11 +153,19 @@ class McpHost(QObject):
         """report_progress: Claude's estimate, for the time left. It never touches the draft,
         so a note about the draft waits for the next call that does."""
         call = ToolCall(id="mcp", name=PROGRESS.name, arguments=arguments)
-        left = arguments.get("calls_left")
-        if isinstance(left, bool) or not isinstance(left, int) or left < 0:
-            error = {"error": "calls_left must be a whole number, 0 or more"}
-            return ToolOutcome(call, error, is_error=True)
-        self.timer.progress(left)
+        counts: dict[str, int | None] = {}
+        for name in ("calls_left", "repeats", "checks"):
+            value = arguments.get(name)
+            if value is None and name != "calls_left":
+                counts[name] = None
+            elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                error = {"error": f"{name} must be a whole number, 0 or more"}
+                return ToolOutcome(call, error, is_error=True)
+            else:
+                counts[name] = value
+        left = counts["calls_left"]
+        assert left is not None
+        self.timer.progress(left, repeats=counts["repeats"], checks=counts["checks"])
         return ToolOutcome(call, {"ok": True, "done": left == 0})
 
     def _connected(self) -> None:

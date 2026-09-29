@@ -1,10 +1,12 @@
 """The Timing panel, above Properties: how long the latest Claude Desktop task took.
 
-One line until opened (`▸ 4m 07s · 57 calls`), then the six fields of docs/mcp.md, Timing,
-with Start run and a copy in the test folders' 003-timing.md format. While a run is live its
-time ticks every second, with the time left once Claude has said how many calls it expects
-(`▸ 1m 12s · ~3m 40s left · 35 calls`); it settles on the recorded Total run when the run
-stops (`caliper.app.agent.timing`). Shown only while Claude Desktop can connect.
+One line until opened: the time, and while the run is live the time left
+(`▸ 1m 12s · ~3m 40s left`); then the six fields of docs/mcp.md, Timing, with Start run and a
+copy in the test folders' 003-timing.md format. While a run is live its time ticks every
+second. The time left needs Claude to say how many calls it plans (`no estimate` until then),
+is to the minute while it's rough, and is `caliper.app.agent.estimate`'s smoothed countdown.
+When the run stops the line settles on the recorded Total run
+(`caliper.app.agent.timing`). Shown only while Claude Desktop can connect.
 """
 
 from collections.abc import Callable
@@ -28,6 +30,17 @@ from caliper.app.agent.timing import FIELDS, TIMING_FILE, Timing, markdown, minu
 from caliper.app.tokens import SPACE
 
 TICK_MS = 1000
+
+
+def time_left(timing: Timing) -> str:
+    """What the line says about the time left while a run is live."""
+    left = timing.left
+    if left is None:  # no plan from Claude, or all of it done
+        return "no estimate" if timing.expected is None else "finishing…"
+    if timing.rough:  # mostly the prior: to the minute, no more
+        whole = round(left / 60)
+        return f"about {whole} min left" if whole >= 1 else "under a minute left"
+    return f"~{minutes(left)} left" if left >= 1 else "finishing…"
 
 
 class TimingPanel(QFrame):
@@ -122,11 +135,9 @@ class TimingPanel(QFrame):
         shown = minutes(timing.elapsed if timing.live else timing.total)
         if not timing.calls:
             return f"{shown} · waiting for Claude…" if timing.live else "waiting for Claude…"
-        calls = f"{timing.calls} call{'s' if timing.calls != 1 else ''}"
-        if timing.left is not None:
-            left = f"~{minutes(timing.left)} left" if timing.left >= 1 else "almost done"
-            return f"{shown} · {left} · {calls}"  # before the calls, which elide first
-        return f"{shown} · {calls}" + (" · running" if timing.live else "")
+        if not timing.live:
+            return shown  # the calls are in the fields below
+        return f"{shown} · {time_left(timing)}"
 
     def copy(self) -> None:
         if self.timing is not None:

@@ -9,10 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from caliper.app.agent.estimate import INFORMED, PRIOR_WEIGHT, PRIORS, Kind
 from caliper.app.agent.timing import (
     IDLE,
-    PACE,
-    PACE_CALLS,
     QUIET,
     RunTimer,
     Timing,
@@ -46,12 +45,20 @@ def timer(clock: Clock) -> RunTimer:
     return RunTimer(clock=clock, today=lambda: DAY)
 
 
-def call(timer: RunTimer, clock: Clock, took: float, *, after: float = 0.0, changed=False) -> None:
-    """One MCP call: `after` seconds of quiet, then `took` seconds inside Caliper."""
+def call(
+    timer: RunTimer,
+    clock: Clock,
+    took: float,
+    *,
+    after: float = 0.0,
+    changed: bool = False,
+    tool: str | None = None,
+) -> None:
+    """One MCP call to `tool`: `after` seconds of quiet, then `took` seconds inside Caliper."""
     clock.advance(after)
     arrived = timer.arrived()
     clock.advance(took)
-    timer.finished(arrived, changed=changed)
+    timer.finished(arrived, changed=changed, tool=tool)
 
 
 def now(timer: RunTimer) -> Timing:
@@ -296,14 +303,24 @@ def test_before_the_first_call_the_time_waits_for_claude_as_long_as_a_run_lasts(
 
 
 # --- Time left --------------------------------------------------------------------------
+# The estimate's arithmetic and smoothing are in test_estimate.py; these check what the run
+# feeds it and shows.
 
 
-def progress(timer: RunTimer, clock: Clock, calls_left: int, *, after: float = 0.0) -> None:
+def progress(
+    timer: RunTimer,
+    clock: Clock,
+    calls_left: int,
+    *,
+    after: float = 0.0,
+    repeats: int | None = None,
+    checks: int | None = None,
+) -> None:
     """Claude's report_progress call, which takes no time inside Caliper."""
     clock.advance(after)
     arrived = timer.arrived()
-    timer.progress(calls_left)
-    timer.finished(arrived, changed=False)
+    timer.progress(calls_left, repeats=repeats, checks=checks)
+    timer.finished(arrived, changed=False, tool="report_progress")
 
 
 def test_there_is_no_time_left_until_claude_says_how_many_calls(
@@ -314,42 +331,64 @@ def test_there_is_no_time_left_until_claude_says_how_many_calls(
     assert now(timer).expected is None
 
 
-def test_the_estimate_counts_down_at_the_usual_pace_until_the_run_has_its_own(
+def test_the_first_estimate_is_the_priors_and_is_marked_rough(
     timer: RunTimer, clock: Clock
 ) -> None:
     timer.start()
     progress(timer, clock, 30, after=4)
     timing = now(timer)
     assert timing.expected == 31  # counting the call that said so
-    assert timing.left == pytest.approx(30 * PACE)
-    clock.advance(5)
-    assert now(timer).left == pytest.approx(30 * PACE - 5)  # ticking down between calls
-    call(timer, clock, 1.0)  # a call: worked out again from its end
-    assert now(timer).left == pytest.approx(29 * PACE)
+    assert timing.left == pytest.approx(30 * PRIORS[Kind.OTHER])
+    assert timing.rough
+    clock.advance(1)
+    assert now(timer).left == pytest.approx(30 * PRIORS[Kind.OTHER] - 1)  # counting down
 
 
-def test_once_the_run_has_its_own_pace_the_estimate_uses_it(timer: RunTimer, clock: Clock) -> None:
+def test_a_pattern_call_is_priced_and_counted_as_a_repeat(timer: RunTimer, clock: Clock) -> None:
+    progress(timer, clock, 3, repeats=2)  # the first call: nothing before it to measure from
+    call(timer, clock, 2.0, after=10.0, tool="linear_pattern")  # 12 s from the call before
+    # One repeat and one other call to go, the repeat at the run's own cost blended with the
+    # prior; what was shown (13.3 s) has run out, so the new figure shows at once.
+    repeat = (12.0 + PRIOR_WEIGHT * PRIORS[Kind.REPEAT]) / (1 + PRIOR_WEIGHT)
+    assert now(timer).left == pytest.approx(repeat + PRIORS[Kind.OTHER])
+
+
+def test_a_check_is_priced_as_a_check(timer: RunTimer, clock: Clock) -> None:
+    progress(timer, clock, 4, checks=3)
+    call(timer, clock, 0.1, after=40.0, tool="run_check")  # stale: replaced at once
+    check = (40.1 + PRIOR_WEIGHT * PRIORS[Kind.CHECK]) / (1 + PRIOR_WEIGHT)
+    assert now(timer).left == pytest.approx(2 * check + PRIORS[Kind.OTHER])
+
+
+def test_the_run_s_own_figures_take_over_and_the_estimate_is_no_longer_rough(
+    timer: RunTimer, clock: Clock
+) -> None:
     progress(timer, clock, 40)
-    for _ in range(PACE_CALLS - 1):
-        call(timer, clock, 0.5, after=2.5)  # 3 s a call, slower than PACE
+    for _ in range(INFORMED):
+        call(timer, clock, 0.5, after=2.5, tool="create_line")  # 3 s a call
+        now(timer)  # the panel looks every second; here, after every call
     timing = now(timer)
-    assert timing.calls == PACE_CALLS
-    pace = (timing.total or 0) / PACE_CALLS
-    assert pace == pytest.approx(0.9 * 3.0)  # the first call, the estimate, took no time
-    assert timing.left == pytest.approx((41 - PACE_CALLS) * pace)
+    assert not timing.rough
+    cost = (INFORMED * 3.0 + PRIOR_WEIGHT * PRIORS[Kind.OTHER]) / (INFORMED + PRIOR_WEIGHT)
+    figure = (40 - INFORMED) * cost
+    assert timing.left is not None
+    # Smoothed toward it at each 15 s refresh, not jumped to it.
+    assert 40 * PRIORS[Kind.OTHER] - 30 < timing.left <= figure
 
 
-def test_a_new_estimate_replaces_the_old(timer: RunTimer, clock: Clock) -> None:
+def test_a_new_plan_replaces_what_is_shown_at_once(timer: RunTimer, clock: Clock) -> None:
     progress(timer, clock, 100)
-    call(timer, clock, 1.0)
-    progress(timer, clock, 5)
+    call(timer, clock, 1.0, tool="create_line")
+    now(timer)
+    progress(timer, clock, 5)  # the report itself isn't one of the five
     assert now(timer).expected == 3 + 5
-    assert now(timer).left == pytest.approx(5 * PACE)
+    cost = (1.0 + 0.0 + PRIOR_WEIGHT * PRIORS[Kind.OTHER]) / (2 + PRIOR_WEIGHT)
+    assert now(timer).left == pytest.approx(5 * cost)
 
 
 def test_the_time_left_never_goes_below_nothing(timer: RunTimer, clock: Clock) -> None:
-    progress(timer, clock, 2)
-    clock.advance(30)  # thinking longer than two calls' worth
+    progress(timer, clock, 1)
+    clock.advance(30)  # thinking longer than the last call's worth
     timing = now(timer)
     assert timing.live
     assert timing.left == 0.0
@@ -375,6 +414,7 @@ def test_past_its_estimate_there_is_no_time_left_and_a_quiet_spell_stops_the_tim
     timing = now(timer)
     assert timing.live
     assert timing.left is None
+    assert timing.expected is not None  # the panel says it's finishing
     clock.advance(QUIET + 1)
     assert not now(timer).live
 
