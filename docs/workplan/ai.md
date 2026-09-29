@@ -8,6 +8,16 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
 
+## The AI side of the 2D V1 audit (branch `shared/2d-v1-audit`, 2026-09-29; local)
+
+Part of the audit in [core.md](core.md#2d-v1-audit-and-hardening-branch-shared2d-v1-audit-2026-09-29-local-not-pushed). Only changes with evidence behind them from the test runs:
+
+- [x] **AI-2, in part**: a check of the same measurement (metric, refs, ids) run again replaces the earlier one, and the result says what it replaced; a check that shouldn't be there at all still can't be removed
+- [x] **AI-5**: `run_check`'s description says what each metric reads and measures (`tools.METRICS`); a test fails if the contract gains a metric without one
+- [x] **AI-4**: the note before a result ends with a blank line
+- [x] Rejections a model reads are truer (engine): "partly implied" where a constraint repeats only part of the others, and no conflict that names itself
+- [x] Not changed, and why: the create tools' one-line descriptions (no run showed a problem); a profile tool for outlines (AI-10) and arcs in patterns (AI-11) are new features, left for after the audit
+
 ## Circular pattern, and a better time left (branch `shared/mirror-pattern-time-left`, 2026-09-28)
 
 Andre, after test 003 (the stress plate on mirror and linear pattern: 4m 40s and 162 calls, against 9m 17s and 281): make a circular pattern tool; the Timing line should show only the time and the time left (the calls are in the fields); and can the time left be more accurate.

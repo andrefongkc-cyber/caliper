@@ -51,41 +51,42 @@ in it two ways, as the in-app assistant or from Claude Desktop over MCP. 3D is n
 | Area | Status |
 |---|---|
 | **Desktop app** (macOS, PySide6) | Draw lines, circles, arcs, and rectangles; fillet corners; select, box-select, move, and delete; type exact sizes while drawing; alignment snapping; measure; ⌘K command palette; undo and redo with named steps; New, Open, Save |
-| **Constraints and dimensions** | Our own solver ([ADR 0008](docs/adr/0008-constraint-solver-our-own.md)): coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, midpoint, symmetric, concentric, fix, and more; driving and driven distance, radius, diameter, and angle dimensions; degrees of freedom shown live; conflicts and redundancies named, never guessed |
+| **Constraints and dimensions** | Our own solver ([ADR 0008](docs/adr/0008-constraint-solver-our-own.md)): coincident, horizontal, vertical, parallel, perpendicular, tangent (including at fillet and slot joints), equal, midpoint, symmetric, concentric, fix, normal, and curvature; driving and driven distance, radius, diameter, and angle dimensions; constraints and dimensions can be edited, re-pointed, and removed after the fact; degrees of freedom shown live; conflicts and redundancies refused and named, never guessed |
+| **Repeating geometry** | Three AI tools, each one call made of Caliper's own commands: `mirror_entities` (about a line), `linear_pattern` (rows and grids), and `circular_pattern` (round a centre). Each copy is tied to its original by constraints, so editing the original, the mirror line, or the one spacing dimension updates every copy |
 | **Checks** | `check` measures distances, positions, bounding boxes, area, and dimension values against a tolerance, and the Checks panel keeps yours |
 | **Headless** | `python -m caliper.engine replay` turns a command script into a byte-identical `.caliper` file; `inspect` and `export` too |
-| **AI assistant** | In the prompt bar: Claude through the Anthropic API (opt-in), working through 21 tools made from Caliper's own commands and queries. Its changes arrive as a proposal you accept as one undo step ([#32](https://github.com/andrefongkc-cyber/caliper/pull/32)) |
-| **Claude Desktop over MCP** | Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper. Setup: [docs/mcp.md](docs/mcp.md) ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)) |
+| **AI assistant** | In the prompt bar: Claude through the Anthropic API (opt-in), working through 24 tools made from Caliper's own commands and queries. Its changes arrive as a proposal you accept as one undo step ([#32](https://github.com/andrefongkc-cyber/caliper/pull/32)) |
+| **Claude Desktop over MCP** | Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper. The Timing panel times each task and shows the time left. Setup: [docs/mcp.md](docs/mcp.md) ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)) |
+| **Performance** | Only what a change reaches is solved again, and Accept commits what the proposal already solved: the 281-call stress plate costs Caliper under 1 s in all, and Accept 0.02 s (Performance V2, [#47](https://github.com/andrefongkc-cyber/caliper/pull/47)) |
 | **Not yet** | 3D parts (V2), simulation (V4), and everything after |
 
-## Recent findings: Claude builds real parts
+## What the test runs found
 
-The first stress tests ran Claude Desktop against Caliper over MCP, with every change validated
-by Caliper and accepted by a person.
+Every Claude task in Caliper is validated by Caliper and accepted by a person. The runs by hand
+are recorded in [test-runs-andre/](test-runs-andre/).
 
-- **A fully constrained test plate:** 400 × 250 mm with R25 corners, two U-cutouts with R20
-  bottoms, two side notches, nine holes, and two slots, symmetric about both axes. That's
-  187 entities, 121 constraints, and 18 driving dimensions, with **0 degrees of freedom and
-  57 of 57 checks passing**.
-- **Design intent held:** resizing a smaller part by changing two driving dimensions moved
-  every hole with its corner and kept the symmetry.
+- **A fully constrained stress-test plate** (240 × 160 mm, R12 fillets, two slots, a 5 × 4
+  hole grid, a D cutout, a 12-point star, a Ø0.2 hole): **0 degrees of freedom, 12 of 12
+  checks passing**. The second rerun, with the mirror and pattern tools, took **4m 40s and
+  162 calls, against 9m 17s and 281** for the first.
+- **Design intent held:** resizing a part through its driving dimensions moved every hole
+  with the edge it's measured from and kept the symmetry.
 - **Bad input was refused** with Caliper's own errors, such as `value.not_positive` for a
   radius of −5.
 
-The tests found three problems, fixed in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35):
+What the runs found and what fixed it: tangency at a fillet joint ([#35](https://github.com/andrefongkc-cyber/caliper/pull/35)),
+large proposals replaying every command ([#35](https://github.com/andrefongkc-cyber/caliper/pull/35)),
+a 25 s Accept and slow calls (Performance V2), and tangency to a rectangle's side (C-2).
 
-| Found | Cause | Fix |
-|---|---|---|
-| A fillet's tangent constraint was rejected as redundant | At the joint, "centre is *r* from the line" has the same first-order gradient as the joint itself | Tangency at a joint is written as the radius being perpendicular to the line |
-| Large proposals slowed to a crawl, and checks timed out | Every change replayed all pending commands (224 changes: 5 s a call, 277 s in all) | The proposal reuses the draft's own document: 128 changes went from 20.3 s to 0.69 s |
-| The proposal card grew past the window | It listed every change | Over 6 changes, it shows a summary line and a collapsible, scrolling list |
-
-Still open:
-- Checks run while no proposal is pending don't reach the Checks panel.
-- Accepting a very large proposal takes about 10 s. That's the solver, and it's the next
-  performance work.
-- Solver round-off (like `8.6e-78` for zero) is saved in files.
-- Tangency through a point in between, or to a rectangle's side, still uses the old form.
+Known limitations today, all in [docs/known-issues.md](docs/known-issues.md):
+- Checks aren't saved in the file (C-1).
+- There's no arc through three points (AI-9), and joining a traced outline takes a call per
+  joint (AI-10).
+- Arcs can be mirrored but not patterned (AI-11).
+- One large, tightly joined shape is slow to change: a 12-point star from one circular
+  pattern call takes about 2 s (C-6).
+- A constraint that can only hold by squeezing geometry to nothing is accepted (C-12, a
+  decision pending).
 
 <details>
 <summary><b>The ⌘K palette</b>: every command, found by name, with typed fields</summary>
@@ -175,6 +176,10 @@ flowchart TD
   own inverse.
 - **Files store inputs only.** A rectangle is a corner, a width, and a height, never computed
   geometry, so files stay small, diffable, and reproducible.
+- **Constraints are solved inside the command that changes them**, and only what a change
+  reaches: geometry joined by constraints forms clusters, and entities a change left alone
+  are the same objects, so everything derived from them (clusters, status, checks) is kept.
+  A command the constraints can't allow is refused, naming the constraints in the way.
 - **Rules are tested, not just written down.** CI fails if the engine imports Qt, if anything
   besides the kernel module imports OpenCascade, or if a stream's branch touches the other
   stream's files.
@@ -213,9 +218,10 @@ caliper/
   engine/      headless core: command bus, queries, file I/O, kernels, CLI
   app/         PySide6 desktop app
   ai/          the assistant: tools over commands and queries, the Claude adapter, the loop
-bench/         end-to-end cases the AI is measured against
+bench/         benchmarks: end-to-end cases, recorded Claude sessions, solver numerics
 tests/         test suite (tests/app/ runs offscreen with pytest-qt)
-docs/          architecture, decision records, workplans, vision
+docs/          architecture, decision records, workplans, known issues, MCP setup
+test-runs-andre/  records of the Claude tests run by hand
 ```
 
 ## Contributing
@@ -225,6 +231,20 @@ desktop app. The contract in `caliper/contracts/` is the seam between them. Ever
 needs the other stream's approval and green CI, starts with a plain-language summary, and is
 merged with **Rebase and merge**. The AI layer (`caliper/ai/`) is Andre's, on `ai/<topic>`
 branches; changes that cross areas go on `shared/<topic>` branches.
+
+### Tests and benchmarks
+
+- **`tests/`** runs with `uv run pytest`: unit tests for every command, constraint, dimension,
+  and query; property tests (Hypothesis) over random constrained sketches and command
+  sequences; a reference solver (`sketch.reference()`, the solver before its optimizations)
+  that the fast one must match; and the app, driven offscreen with pytest-qt.
+- **`bench/perf.py`** replays recorded Claude Desktop sessions (`bench/sessions/`) with and
+  without the window, plus synthetic large cases and the repeat tools; `--save` and
+  `--compare` track changes. Saved runs are in `bench/results/`.
+- **`bench/numerics.py`** runs every recorded command through the fast solver and the
+  reference from the same document and fails on any significant difference.
+- **`bench/run.py`** checks each case in `bench/cases/` (a prompt, its expectations, and a
+  known-good command script) end to end, the harness an AI solver will be measured by.
 
 Before pushing, run what CI runs:
 
