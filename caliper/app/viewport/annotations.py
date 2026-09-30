@@ -81,6 +81,10 @@ class DimensionDrawing:
     label_at: Point2
     text: str
     arc: AngleLayout | None = None
+    extensions: tuple[tuple[Point2, Point2], ...] = ()
+    """A referenced line carried on past its end to where the dimension meets it. Dashed, so
+    it reads as a guide and not as the line: solid, it looked like an edge running on past
+    the fillet at its end."""
 
 
 def drawing(session: Source, id: EntityId, view: ViewTransform) -> DimensionDrawing | None:
@@ -129,6 +133,10 @@ def paint_annotations(
 
 
 def paint(painter: ModelPainter, plan: DimensionDrawing, color: QColor) -> None:
+    if plan.extensions:
+        painter.set_pen(cosmetic_pen(color, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine))
+        for a, b in plan.extensions:
+            painter.line(a, b)
     painter.set_pen(cosmetic_pen(color, theme.GUIDE_WIDTH))
     for a, b in plan.lines:
         painter.line(a, b)
@@ -161,15 +169,24 @@ def _distance(
         orientation = DistanceOrientation.ALIGNED  # the contract: curve references are aligned
     geo = layout(orientation, a, b, dim.offset)
     overshoot = view.length_to_model(EXTENSION_OVERSHOOT_PX)
-    lines = [
-        (point, Point2(x=foot.x + ox * overshoot, y=foot.y + oy * overshoot))
-        for point, foot, (ox, oy) in ((a, geo.start, geo.out_a), (b, geo.end, geo.out_b))
-    ]
-    # A foot beyond the end of a referenced line: extend the line to it, thin like the
-    # extension lines, so the dimension visibly attaches to that line.
-    for ref, at in ((ref_a, a), (ref_b, b)):
-        if isinstance(ref, Segment) and not _within(ref, at):
-            lines.append((_nearest_end(ref, at), at))
+    lines: list[tuple[Point2, Point2]] = []
+    extensions: list[tuple[Point2, Point2]] = []
+    for ref, point, foot, (ox, oy) in (
+        (ref_a, a, geo.start, geo.out_a),
+        (ref_b, b, geo.end, geo.out_b),
+    ):
+        tip = Point2(x=foot.x + ox * overshoot, y=foot.y + oy * overshoot)
+        if isinstance(ref, Segment) and _on_line(ref, tip):
+            # The extension line runs along the referenced line itself (a distance from a
+            # point to a line is square to the line). The line draws the part on it; the part
+            # past its end is the line carried on, dashed, so the line doesn't seem to run
+            # on: drawn solid, a plate's edge poked out past the fillet at its end.
+            extensions += _past_ends(ref, point, tip)
+            continue
+        lines.append((point, tip))
+        if isinstance(ref, Segment) and not _within(ref, point):
+            # A foot beyond the line's end: carry the line on to it, dashed.
+            extensions.append((_nearest_end(ref, point), point))
     lines.append((geo.start, geo.end))
     ux, uy = geo.along
     return DimensionDrawing(
@@ -177,6 +194,7 @@ def _distance(
         arrows=(Arrow(geo.start, (ux, uy)), Arrow(geo.end, (-ux, -uy))),
         label_at=midpoint(geo.start, geo.end),
         text=value_text(session, id),
+        extensions=tuple(extensions),
     )
 
 
@@ -223,14 +241,15 @@ def _angle(
     end = math.radians(arc.start_angle + arc.sweep)
     first = _on_arc(arc, start)
     second = _on_arc(arc, end)
-    lines = [
+    extensions = tuple(
         (_nearest_end(segment, at), at)
         for segment, at in ((a, first), (b, second), (a, second), (b, first))
         if _on_line(segment, at) and not _within(segment, at)
-    ]
+    )
     del view
     return DimensionDrawing(
-        lines=tuple(lines),
+        lines=(),
+        extensions=extensions,
         arrows=(
             Arrow(first, (-math.sin(start), math.cos(start))),
             Arrow(second, (math.sin(end), -math.cos(end))),
@@ -263,6 +282,25 @@ def _within(segment: Segment, p: Point2) -> bool:
     length2 = dx * dx + dy * dy
     t = 0.0 if length2 == 0 else ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2
     return 0.0 <= t <= 1.0
+
+
+def _past_ends(segment: Segment, p: Point2, q: Point2) -> list[tuple[Point2, Point2]]:
+    """The segment carried on from each end to cover p..q, both on its line: nothing where
+    p..q is on the segment itself."""
+    a, b = segment.start, segment.end
+    dx, dy = b.x - a.x, b.y - a.y
+    length2 = dx * dx + dy * dy
+    if length2 == 0:
+        return []
+    ts = [((r.x - a.x) * dx + (r.y - a.y) * dy) / length2 for r in (p, q)]
+    carried = []
+    if min(ts) < 0:
+        t = min(ts)
+        carried.append((a, Point2(x=a.x + t * dx, y=a.y + t * dy)))
+    if max(ts) > 1:
+        t = max(ts)
+        carried.append((b, Point2(x=a.x + t * dx, y=a.y + t * dy)))
+    return carried
 
 
 def _nearest_end(segment: Segment, p: Point2) -> Point2:
