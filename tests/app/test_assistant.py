@@ -79,19 +79,21 @@ def test_a_request_creates_real_geometry_once_accepted_and_undoes_normally(windo
         "→ create_rectangle: Create Rectangle (e1)",
         "✓ run_check: 100",
         "scripted: Created a 100 x 50 rectangle at the origin.",
-        "Proposed 1 change: accept or reject on the canvas.",
+        "Proposed 2 changes: accept or reject on the canvas.",  # the check is stored too
     ]
     window.proposal_card.accept_button.click()
     assert session.document.entities[E1] == Rectangle(
         corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0
     )
     assert session.history[-1].author is Author.AGENT
-    assert session.history[-1].commands == (
-        CreateRectangle(corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0, id=E1),
+    assert session.history[-1].commands[0] == CreateRectangle(
+        corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0, id=E1
     )
+    assert [c.kind for c in session.history[-1].commands] == ["create_rectangle", "create_check"]
+    assert len(session.checks) == 1
     assert window.undo_action.text() == "Undo Create Rectangle"
     window.undo_action.trigger()
-    assert dict(session.document.entities) == {}
+    assert dict(session.document.entities) == {}  # the rectangle and its check
     window.redo_action.trigger()
     assert E1 in session.document.entities
 

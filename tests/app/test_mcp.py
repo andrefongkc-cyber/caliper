@@ -102,7 +102,10 @@ def test_a_change_from_claude_desktop_is_proposed_and_applies_as_one_undo_step(
     assert dict(session.document.entities) == {}
     assert window.assistant_log.lines() == ["claude-ai → create_rectangle: Create Rectangle (e1)"]
     call(window, qtbot, "run_check", WIDTH_CHECK)
-    assert window.agent.proposal.plan.checks[0].expected == 100.0
+    (check,) = window.agent.proposal.checks
+    assert check.agent
+    assert check.expectation.expected == 100.0
+    assert window.proposal_card.title.text() == "Create Rectangle"  # its check goes with it
     base = session.document
 
     window.proposal_card.accept_button.click()
@@ -353,12 +356,12 @@ def test_a_proposal_from_a_workspace_is_the_same_without_replaying_it() -> None:
     draft.call(base, (), "run_check", check)
     assert draft.workspace is not None
     assert len(draft.commands) > 60
-    plan = Plan(draft.label, "", draft.commands, draft.checks)
-    mine = draft.checks  # a user check too, before and after
-    replayed = prepare(plan, base, mine)
-    reused = prepare(plan, base, mine, result=draft.workspace.document)
+    plan = Plan(draft.label, "", draft.commands)
+    replayed = prepare(plan, base)
+    reused = prepare(plan, base, result=draft.workspace.document)
     assert reused == replayed
     assert reused.errors == ()
+    assert len(reused.checks) == 1
     assert all(c.after.passed for c in reused.checks)
 
 
@@ -390,9 +393,9 @@ def test_a_long_mcp_session_never_replays_the_proposal_and_accepts_as_one_step(
     # the n-th change replayed all n: 1 + 2 + ... + n commands).
     assert replayed == []
     proposal = window.agent.proposal
-    assert len(proposal.plan.commands) == len(calls)
-    assert len(proposal.plan.checks) == 4
-    assert all(c.after.passed for c in proposal.checks)
+    assert len(proposal.plan.commands) == len(calls) + 4  # each check is stored (C-1)
+    assert len(proposal.checks) == 4
+    assert all(c.agent and c.after.passed for c in proposal.checks)
     assert dict(session.document.entities) == {}  # still only a proposal
     history = len(session.history)
     window.proposal_card.accept_button.click()
@@ -459,15 +462,17 @@ def test_a_large_proposal_collapses_to_a_summary_and_stops_growing(served, qtbot
         call(window, qtbot, name, arguments)
     check = {"metric": "bbox_height", "expected": 20, "tolerance": 0.001, "ids": ["e1"]}
     call(window, qtbot, "run_check", check)
-    assert card.summary.text() == "31 changes · 1 check, all passing"
-    assert card.details_button.text() == "Show 31 changes ▾"
+    assert card.summary.text() == "32 changes · 1 check, all passing"  # the check is one
+    assert card.details_button.text() == "Show 32 changes ▾"
     assert not card.details.isVisible()
     assert "Height of e1" in card.checks.text()
     height = card.height()
     assert height < 300
-    for name, arguments in calls[31:]:  # more changes arrive: the card doesn't grow
-        call(window, qtbot, name, arguments)
-    assert card.summary.text().startswith(f"{len(calls)} changes · ")
+    # More changes arrive: the card doesn't grow. (Not the rest of the comb: the check took
+    # an id, e32, so the ids its later calls name are one out.)
+    for k in range(13):
+        call(window, qtbot, "create_circle", {"center": {"x": 10 * k, "y": 40}, "radius": 2})
+    assert card.summary.text().startswith("45 changes · ")
     assert card.height() == height
     assert within(window, card.accept_button)
     assert within(window, card.reject_button)
@@ -888,16 +893,23 @@ def test_a_growing_proposal_moves_the_view_only_when_it_outgrows_it(served, qtbo
     assert canvas.view.scale < framed[0]
 
 
-def test_a_check_run_with_nothing_pending_reaches_the_checks_panel(served, qtbot) -> None:
+def test_a_check_run_with_nothing_pending_is_proposed_then_kept(served, qtbot) -> None:
+    # AI-1 put such a check straight into the Checks panel. It's stored in the sketch now
+    # (C-1), so like any change from Claude it's proposed, and the user accepts it.
     window, session = served, served.session
     call(window, qtbot, "create_rectangle", RECTANGLE)
     window.proposal_card.accept_button.click()
     assert session.checks == ()
     assert not call(window, qtbot, "run_check", WIDTH_CHECK).is_error  # after Accept
+    assert window.proposal_card.title.text() == "Create Check"
+    assert session.checks == ()  # not until it's accepted
+    call(window, qtbot, "run_check", WIDTH_CHECK)  # the same check again: proposed once
+    assert len(window.agent.proposal.checks) == 1
+    window.proposal_card.accept_button.click()
     assert [c.expected for c in session.checks] == [100.0]
-    call(window, qtbot, "run_check", WIDTH_CHECK)  # the same check again: kept once
-    assert len(session.checks) == 1
-    assert window.agent.proposal is None  # still nothing to review
+    assert window.checks.summary.text() == "1 of 1 pass"
+    window.undo_action.trigger()
+    assert session.checks == ()
 
 
 def test_tool_results_show_what_changed_without_echoing_the_command(served, qtbot) -> None:

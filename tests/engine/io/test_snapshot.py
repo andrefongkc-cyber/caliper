@@ -176,7 +176,7 @@ def test_schema_1_files_gain_the_constraint_fields() -> None:
     data = json.loads((V1 / "dimensioned.caliper").read_text())
     upgraded = snapshot.migrate(data, 1)
     entities = upgraded["document"]["entities"]  # type: ignore[index]
-    assert upgraded["schema_version"] == 2
+    assert upgraded["schema_version"] == snapshot.SCHEMA_VERSION
     assert entities["e1"] == {
         "construction": False,
         "corner": {"x": 0.0, "y": 0.0},
@@ -210,9 +210,23 @@ def test_old_files_load_with_arc_start_angles_in_range() -> None:
     assert snapshot.dumps(snapshot.load(V1 / "arcs.caliper")) == expected.read_text()
     # Schema 2, as the V1.5 engine wrote it before this change.
     data = json.loads(expected.read_text())
+    data["schema_version"] = 2
     data["document"]["entities"]["e1"]["start_angle"] = -90.0
     data["document"]["entities"]["e2"]["start_angle"] = 360.0
     assert snapshot.loads(json.dumps(data)) == snapshot.load(expected)
+
+
+def test_schema_2_files_load_unchanged_as_schema_3() -> None:
+    """Migration 2 → 3 adds the `check` kind (C-1): a schema-2 file has none, so its data is
+    the same, and it reads as the document the current engine writes."""
+    start = FIXTURES.parents[2] / "bench" / "cases" / "constrained-plate-width-120"
+    data = json.loads((start / "start.caliper").read_text())
+    assert data["schema_version"] == 2
+    upgraded = snapshot.migrate(json.loads((start / "start.caliper").read_text()), 2)
+    assert upgraded == data | {"schema_version": 3}
+    read = snapshot.read((start / "start.caliper").read_text())
+    assert read.schema_version == 2
+    assert snapshot.dumps(read.document) == canonical.dumps(upgraded)  # type: ignore[arg-type]
 
 
 def test_every_schema_version_below_the_current_one_has_a_migration() -> None:

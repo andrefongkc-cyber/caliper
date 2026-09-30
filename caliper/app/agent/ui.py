@@ -229,6 +229,7 @@ class ProposalCard(QFrame):
         problems += [
             f"Breaks your check: {describe(c.expectation)}" for c in proposal.broken_checks
         ]
+        problems += [f"Removes your check: {describe(e)}" for e in proposal.removed_checks]
         self.warning.setText("\n".join(problems))
         self.warning.setVisible(bool(problems))
         self.accept_button.setEnabled(not proposal.errors)
@@ -338,7 +339,7 @@ class AgentController(QObject):
     def propose(self, plan: Plan, base: Document, *, result: Document | None = None) -> Proposal:
         """Show `plan`, prepared against `base`, for review, in place of any other proposal.
         `result` is the document a workspace already built from it (see `prepare`)."""
-        self.proposal = prepare(plan, base, self.session.checks, result=result)
+        self.proposal = prepare(plan, base, result=result)
         self.card.show_proposal(self.proposal)
         self.proposal_changed.emit()
         self.proposal_shown.emit(self.proposal)
@@ -362,9 +363,6 @@ class AgentController(QObject):
         ):
             for command in proposal.plan.commands:
                 self.session.execute(command, author=Author.AGENT)
-        for expectation in proposal.plan.checks:
-            if expectation not in self.session.checks:
-                self.session.add_check(expectation)
         self.bar.input.clear()
         self.applied.emit(proposal, perf_counter() - pressed)
         self._close()
@@ -426,21 +424,16 @@ class AgentController(QObject):
         if isinstance(result, Exception):
             self.session.message.emit(f"The assistant failed: {result}")
             return
-        if result.commands:
+        if result.commands:  # its checks too: they're stored, so they're changes (C-1)
             plan = Plan(
                 result.label,
                 result.reply or "The assistant's changes.",
                 result.commands,
-                result.checks,
-                result.executed,
+                executed=result.executed,
             )
             self.propose(plan, result.base, result=result.result)
-        else:
-            for expectation in result.checks:  # no change to carry them: straight to Checks
-                if expectation not in self.session.checks:
-                    self.session.add_check(expectation)
-            if result.error is not None:
-                self.session.message.emit(result.error)
+        elif result.error is not None:
+            self.session.message.emit(result.error)
 
     def _forget(self) -> None:
         self._generation += 1

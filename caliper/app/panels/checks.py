@@ -2,8 +2,9 @@
 
 Each check is a contract `Expectation` evaluated with `queries.check`, the same call a bench
 case or an AI agent makes. Add one from the current selection (a width, a height, an area,
-a dimension's value) or from the last Measure. Checks are session state for now: whether
-they're saved with the part or beside it is an open decision.
+a dimension's value) or from the last Measure. Checks are stored in the document (C-1, ADR
+0010): adding or deleting one is a change like any other, undone with ⌘Z and saved with the
+part. A check whose geometry was deleted stays, and can't be measured until it's put right.
 """
 
 from dataclasses import dataclass
@@ -38,12 +39,14 @@ from caliper.contracts.document import (
     Constraint,
     DistanceDimension,
     EntityId,
+    Expectation,
+    Metric,
     RadialDimension,
     Rectangle,
     Ref,
 )
 from caliper.contracts.errors import ErrorCode
-from caliper.contracts.queries import CheckResult, Expectation, Metric
+from caliper.contracts.queries import CheckResult
 
 DEFAULT_TOLERANCE = 0.01
 STATUS_ROLE = Qt.ItemDataRole.UserRole

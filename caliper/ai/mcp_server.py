@@ -79,15 +79,13 @@ READ_ONLY = frozenset(
         "inspect_document",
         "inspect_entities",
         "measure_distance",
-        "run_check",
         "solve_status",
         "applicable_constraints",
-        "remove_check",
         PROGRESS.name,
     }
 )
-"""Tools that never change the sketch (run_check and remove_check change only the checks that
-go with the proposal)."""
+"""Tools that never change the sketch. Not run_check or remove_check: a check is stored in the
+sketch (C-1), so they add to the proposal like any change."""
 
 MCP_TOOLS = (*TOOLS, PROGRESS)
 

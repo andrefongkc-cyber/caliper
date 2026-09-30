@@ -82,9 +82,13 @@ def test_hidden_glyphs_cost_nothing_until_they_are_shown(window, monkeypatch) ->
     assert hung
 
 
-def test_an_assistant_turn_that_only_checks_keeps_its_checks(window, qtbot) -> None:
+def test_an_assistant_turn_that_only_checks_proposes_its_checks(window, qtbot) -> None:
+    # A check is stored in the sketch (C-1), so a turn that only checks proposes it, rather
+    # than putting it into the Checks panel unreviewed (AI-1).
     window.session.execute(CreateCircle(center=Point2(x=50, y=25), radius=50))  # e1: 100 wide
     with_model(window, calls(WIDTH_CHECK), Reply(text="It's 100 wide."))
     ask(window, qtbot, "check the width")
-    assert window.agent.proposal is None  # nothing to review: it only looked
+    assert window.proposal_card.title.text() == "Create Check"
+    assert window.session.checks == ()
+    window.proposal_card.accept_button.click()
     assert [(c.metric, c.expected) for c in window.session.checks] == [(Metric.BBOX_WIDTH, 100.0)]

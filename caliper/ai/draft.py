@@ -9,7 +9,9 @@ that changes the draft, the shell shows the whole draft as a proposal, and the u
 The draft ends when the user accepts or closes it, changes the sketch, or opens another
 document. The client's next call then starts from the user's document as it is, and its result
 comes with a note saying what happened, so the client isn't left guessing. Calls that only
-look (inspect, measure, check, ...) run on the draft if there is one, else on the document.
+look (inspect, measure, ...) run on the draft if there is one, else on the document. A check
+is a change (it's stored in the sketch, C-1), so a check run with nothing pending starts a
+draft of its own, for the user to accept like any other.
 Qt-free: the shell feeds it the document and says when a proposal closes.
 """
 
@@ -21,9 +23,7 @@ from caliper.ai.model import ToolCall, ToolOutcome
 from caliper.ai.tools import Workspace
 from caliper.contracts.commands import Command
 from caliper.contracts.document import Document, EntityId
-from caliper.contracts.queries import Expectation
 from caliper.engine.commands.handlers import Executed
-from caliper.engine.io.codec import COMMAND_KINDS
 
 
 class Ended(StrEnum):
@@ -47,10 +47,7 @@ class Answer:
     note: str | None = None
     """What happened to the client's earlier changes since its last call, if anything."""
     changed: bool = False
-    """The draft's commands or checks changed: the shell should show it again."""
-    checked: tuple[Expectation, ...] = ()
-    """Checks this call ran with no change pending, so no proposal will carry them: the shell
-    adds them to the user's checks, or they'd be lost."""
+    """The draft's commands changed: the shell should show it again."""
 
 
 class Draft:
@@ -72,19 +69,14 @@ class Draft:
         return () if self._workspace is None else self._workspace.commands
 
     @property
-    def checks(self) -> tuple[Expectation, ...]:
-        return () if self._workspace is None else self._workspace.checks
-
-    @property
     def executed(self) -> Executed | None:
         """How the commands ran, for accepting them without solving each one again."""
         return None if self._workspace is None else self._workspace.executed
 
     @property
     def label(self) -> str:
-        """For the undo menu: the single change's own label, or one for several."""
-        labels = () if self._workspace is None else self._workspace.labels
-        return labels[0] if len(labels) == 1 else "Assistant Changes"
+        """For the undo menu: see `Workspace.label`."""
+        return "Assistant Changes" if self._workspace is None else self._workspace.label
 
     def end(self, why: Ended) -> None:
         """The pending changes are gone (accepted, closed, or overtaken). The latest reason
@@ -112,14 +104,14 @@ class Draft:
         if workspace is None:
             # A fresh look at the document. It becomes the draft only if a change lands.
             workspace = Workspace(document, frozenset(selection))
-        before = (workspace.commands, workspace.checks)
+        before = workspace.commands
         outcome = workspace.call(call)
         if self._workspace is None:
-            if name in COMMAND_KINDS and workspace.commands:
+            if workspace.commands:  # a command, a mirror or pattern, a check, ...
                 self._workspace = workspace
                 return Answer(outcome, note, changed=True)
-            return Answer(outcome, note, checked=workspace.checks)
-        changed = (workspace.commands, workspace.checks) != before
+            return Answer(outcome, note)
+        changed = workspace.commands != before
         if not workspace.commands:
             self._workspace = None  # the client undid all of it: nothing is pending
         return Answer(outcome, note, changed=changed)

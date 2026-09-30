@@ -1,9 +1,11 @@
 """One open document: the bus, its file, and the UI state that goes with it.
 
 The bus owns the document. The session owns what the document is not allowed to hold:
-selection, hover, the file path, and whether there are unsaved changes.
+selection, hover, the file path, and whether there are unsaved changes. Checks are in the
+document (C-1): the session only reads them out, and adds and removes them by command.
 """
 
+import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -20,11 +22,13 @@ from caliper.contracts.commands import (
     Command,
     CommandBus,
     CommandResult,
+    CreateCheck,
+    DeleteEntities,
     Rejected,
     Transaction,
 )
-from caliper.contracts.document import Document, EntityId, Ref
-from caliper.contracts.queries import CheckResult, Expectation, Queries
+from caliper.contracts.document import Document, EntityId, Expectation, Ref
+from caliper.contracts.queries import CheckResult, Queries
 from caliper.engine.commands.bus import Bus
 from caliper.engine.document.delta import diff, is_empty
 from caliper.engine.io import snapshot
@@ -64,6 +68,7 @@ class DocumentSession(QObject):
     """Something worth a line in the status bar."""
     history_changed = Signal()
     checks_changed = Signal()
+    """A change added, edited, or removed a check, or another document came in."""
     references_changed = Signal()
     """The points and curves picked for a constraint changed (`references`)."""
     flagged_changed = Signal()
@@ -91,7 +96,6 @@ class DocumentSession(QObject):
         self.opened_steps = 0
         """How many recorded steps the file just opened carried, for the status line."""
         """Write the optional history section when saving (ADR 0005: off by default)."""
-        self._checks: list[Expectation] = []
         self.last_measurement: tuple[Ref, Ref] | None = None
         """The two points the Measure tool last measured, for turning into a check."""
 
@@ -189,21 +193,32 @@ class DocumentSession(QObject):
     # --- Checks ---------------------------------------------------------------------------
 
     @property
+    def check_ids(self) -> tuple[EntityId, ...]:
+        """The document's checks, in the order they were made (e2 before e10)."""
+        return tuple(
+            sorted(
+                (id for id, e in self.document.entities.items() if isinstance(e, Expectation)),
+                key=_natural,
+            )
+        )
+
+    @property
     def checks(self) -> tuple[Expectation, ...]:
-        """Requirements for this session. Not saved yet: where they live is undecided."""
-        return tuple(self._checks)
+        """The requirements stored in the document, in `check_ids` order."""
+        entities = self.document.entities
+        return tuple(entities[id] for id in self.check_ids)  # type: ignore[misc]
 
-    def add_check(self, expectation: Expectation) -> None:
-        self._checks.append(expectation)
-        self.checks_changed.emit()
+    def add_check(self, expectation: Expectation, *, author: Author = Author.YOU) -> CommandResult:
+        """Store a check: a command like any change, so it's undone and saved like one."""
+        return self.execute(check_command(expectation), author=author)
 
-    def remove_check(self, index: int) -> None:
-        del self._checks[index]
-        self.checks_changed.emit()
+    def remove_check(self, index: int) -> CommandResult:
+        """Delete the check at `index` in `checks`."""
+        return self.execute(DeleteEntities(ids=(self.check_ids[index],)))
 
     def check_results(self) -> list[CheckResult]:
         queries = self.queries
-        return [queries.check(e) for e in self._checks]
+        return [queries.check(e) for e in self.checks]
 
     def _on_change(self, change: Change) -> None:
         if self._transaction_depth:
@@ -229,6 +244,11 @@ class DocumentSession(QObject):
         self.changed.emit(change)
         self.document_changed.emit()
         self.file_changed.emit()
+        if any(
+            isinstance(e, Expectation)
+            for e in (*change.delta.before.values(), *change.delta.after.values())
+        ):
+            self.checks_changed.emit()
 
     # --- Files ----------------------------------------------------------------------------
 
@@ -253,7 +273,6 @@ class DocumentSession(QObject):
         self._flagged = frozenset()
         self._history = []
         self._history_position = 0
-        self._checks = []
         self.last_measurement = None
         self.history_changed.emit()
         self.checks_changed.emit()
@@ -339,3 +358,18 @@ class DocumentSession(QObject):
         if ids != self._flagged:
             self._flagged = ids
             self.flagged_changed.emit()
+
+
+def check_command(expectation: Expectation) -> CreateCheck:
+    """The command that stores `expectation` in the document."""
+    return CreateCheck(
+        metric=expectation.metric,
+        expected=expectation.expected,
+        tolerance=expectation.tolerance,
+        refs=expectation.refs,
+        ids=expectation.ids,
+    )
+
+
+def _natural(id: EntityId) -> list[int | str]:
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", id)]

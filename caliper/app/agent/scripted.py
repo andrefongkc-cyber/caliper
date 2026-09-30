@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 
 from caliper.app.agent.proposal import Plan
+from caliper.app.session import check_command
 from caliper.contracts.commands import (
     Command,
     CreateCircle,
@@ -194,4 +195,6 @@ def _plan(
     commands: tuple[Command, ...],
     checks: tuple[Expectation, ...] = (),
 ) -> Understood:
-    return Understood(Plan(label, explanation, commands, checks), explanation)
+    # Its checks are stored with the change (C-1), after the commands that make what they measure.
+    stored = tuple(check_command(e) for e in checks)
+    return Understood(Plan(label, explanation, (*commands, *stored)), explanation)

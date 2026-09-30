@@ -8,7 +8,9 @@ mid-computation.
 Frozen as of V1: changing anything here needs a joint `contracts/` PR. V1.5 added the
 constraint queries (`solve_status`, `applicable_constraints`, `infer_dimension`,
 `dimension_type`, `suggest_constraints`, `constraints_on`) and `reference_at_point`. The
-post-V1 fixes added the position metrics (`Metric.POSITION_X`, `Metric.POSITION_Y`).
+post-V1 fixes added the position metrics (`Metric.POSITION_X`, `Metric.POSITION_Y`), and
+C-1 moved `Metric` and `Expectation` to the document contract, since checks are stored now;
+they are still importable from here.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -25,6 +27,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from caliper.contracts.document import ConstraintType, EntityId, Point2, Ref
+from caliper.contracts.document import Expectation as Expectation  # moved there (C-1)
+from caliper.contracts.document import Metric as Metric
 from caliper.contracts.errors import Error
 
 # --- Result values ----------------------------------------------------------------------
@@ -74,43 +78,6 @@ class AreaProperties:
 
 
 # --- Assertions -------------------------------------------------------------------------
-
-
-class Metric(StrEnum):
-    """What an Expectation measures, and which inputs it reads."""
-
-    DISTANCE = "distance"
-    """refs=(a, b)"""
-    DISTANCE_X = "distance_x"
-    """refs=(a, b); absolute horizontal distance"""
-    DISTANCE_Y = "distance_y"
-    """refs=(a, b); absolute vertical distance"""
-    POSITION_X = "position_x"
-    """refs=(point,); the point feature's x coordinate, signed, from the origin"""
-    POSITION_Y = "position_y"
-    """refs=(point,); the point feature's y coordinate, signed, from the origin"""
-    BBOX_WIDTH = "bbox_width"
-    """ids; empty means the whole document"""
-    BBOX_HEIGHT = "bbox_height"
-    """ids; empty means the whole document"""
-    AREA = "area"
-    """ids forming one closed profile"""
-    DIMENSION_VALUE = "dimension_value"
-    """ids=(dimension,)"""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Expectation:
-    """A numeric claim about the document that can be checked headlessly.
-
-    Plain data, so bench cases, tests, and the AI loop can all write and store them.
-    """
-
-    metric: Metric
-    expected: float
-    tolerance: float
-    refs: tuple[Ref, ...] = ()
-    ids: tuple[EntityId, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

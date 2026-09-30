@@ -22,7 +22,8 @@ Conventions:
 
 Frozen as of V1: a new command type, or a change to an existing one, needs a joint
 `contracts/` PR. ADR 0002 has the reasoning. The post-V1 fixes added `ChangeReason.COMMIT`,
-so committing a transaction is announced like every other change to the undo stack.
+so committing a transaction is announced like every other change to the undo stack. C-1
+added `CreateCheck` (ADR 0010), and C-4 `Change.source`.
 """
 
 from collections.abc import Callable, Mapping
@@ -37,6 +38,7 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    Metric,
     Point2,
     RadialMeasure,
     Ref,
@@ -164,6 +166,27 @@ class CreateConstraint:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class CreateCheck:
+    """Store a check (an `Expectation`) in the document, to be checked from then on.
+
+    Rejected when the check can't be evaluated now, with the error `Queries.check` gives
+    (the wrong number of refs or ids, one that doesn't exist, an open profile's area). A
+    check that fails is stored: a requirement the sketch doesn't meet yet is still a
+    requirement. Edited with `ModifyEntity` (validated the same way) and removed with
+    `DeleteEntities`; deleting what a check measures leaves the check, failing. Nothing is
+    solved.
+    """
+
+    kind: ClassVar[str] = "create_check"
+    metric: Metric
+    expected: float
+    tolerance: float
+    refs: tuple[Ref, ...] = ()
+    ids: tuple[EntityId, ...] = ()
+    id: EntityId | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class FilletCorner:
     """Round the corner where two lines meet with an arc of `radius`, tangent to both.
 
@@ -214,9 +237,11 @@ ParamValue = (
     | Ref
     | tuple[Ref, ...]
     | EntityId
+    | tuple[EntityId, ...]
     | DistanceOrientation
     | RadialMeasure
     | ConstraintType
+    | Metric
     | None
 )
 """Any value an entity field can hold. None only where the field allows it (`value`)."""
@@ -250,6 +275,7 @@ Command = (
     | CreateAngleDimension
     | CreateDimension
     | CreateConstraint
+    | CreateCheck
     | MoveEntities
     | DeleteEntities
     | ModifyEntity

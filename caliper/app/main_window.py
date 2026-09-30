@@ -39,7 +39,7 @@ from caliper.app.tools.constrain import constraint_options
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
 from caliper.contracts.commands import Applied, CreateConstraint, DeleteEntities, ModifyEntity
-from caliper.contracts.document import ConstraintType, Document, Point2
+from caliper.contracts.document import ConstraintType, Document, Expectation, Point2
 from caliper.contracts.errors import Error
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io.canonical import LoadError
@@ -684,7 +684,11 @@ class MainWindow(QMainWindow):
                     self.session.execute(ModifyEntity(id=id, changes={"construction": make}))
 
     def select_all(self) -> None:
-        self.session.set_selection(frozenset(self.session.document.entities))
+        """Everything in the sketch; not its checks, which aren't drawn (the Checks panel)."""
+        entities = self.session.document.entities
+        self.session.set_selection(
+            frozenset(id for id, e in entities.items() if not isinstance(e, Expectation))
+        )
 
     # --- State ----------------------------------------------------------------------------
 

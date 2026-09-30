@@ -1,7 +1,7 @@
 """The draft: an MCP client's changes collect for review, and it hears what became of them."""
 
 from caliper.ai.draft import Draft, Ended
-from caliper.contracts.commands import CreateCircle, CreateRectangle
+from caliper.contracts.commands import CreateCheck, CreateCircle, CreateRectangle
 from caliper.contracts.document import EntityId, Point2
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
@@ -78,9 +78,36 @@ def test_checks_join_the_draft() -> None:
     draft.call(document, (), "create_rectangle", RECTANGLE)
     answer = draft.call(document, (), "run_check", WIDTH_CHECK)
     assert answer.changed
-    assert answer.outcome.content == {"passed": True, "actual": 100.0, "error": None}
-    assert len(draft.checks) == 1
+    assert answer.outcome.content == {"check": "e2", "passed": True, "actual": 100.0, "error": None}
+    assert [type(c) for c in draft.commands] == [CreateRectangle, CreateCheck]
     assert not draft.call(document, (), "run_check", WIDTH_CHECK).changed  # already there
+
+
+def test_a_check_with_nothing_pending_starts_a_draft() -> None:
+    # A check is stored in the sketch (C-1), so it's a change for the user to accept, not
+    # something added behind their back (AI-1 put it straight into the Checks panel).
+    bus, draft = Bus(), Draft()
+    bus.execute(CreateRectangle(corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0))
+    answer = draft.call(bus.document, (), "run_check", WIDTH_CHECK)
+    assert answer.changed
+    assert [type(c) for c in draft.commands] == [CreateCheck]
+    assert draft.base is bus.document
+    looked = Draft()
+    assert not looked.call(bus.document, (), "inspect_document", {}).changed
+    assert looked.workspace is None
+
+
+def test_a_mirror_or_pattern_as_the_first_change_starts_a_draft() -> None:
+    # It used to be run and then dropped: only a command tool's name started a draft.
+    bus, draft = Bus(), Draft()
+    bus.execute(CreateRectangle(corner=Point2(x=0.0, y=0.0), width=10.0, height=10.0))
+    answer = draft.call(
+        bus.document, (), "linear_pattern", {"ids": ["e1"], "count": 3, "spacing": 20}
+    )
+    assert not answer.outcome.is_error, answer.outcome.content
+    assert answer.changed
+    assert draft.workspace is not None
+    assert len(draft.commands) > 1
 
 
 def test_undoing_everything_leaves_nothing_pending() -> None:

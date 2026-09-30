@@ -120,9 +120,11 @@ def test_the_tolerances_keep_their_order_and_meaning() -> None:
     ],
 )
 def test_the_reference_writes_the_files_main_wrote(name: str, digest: str) -> None:
-    """The hashes are of `main`'s own files (a394639), so the oracle is the old solver."""
+    """The hashes are of `main`'s own files (a394639), so the oracle is the old solver.
+    Those were written at schema 2; only the version line has changed since (C-1)."""
     with sketch.reference():
         text = snapshot.dumps(replay(name).document)
+    text = text.replace(f'"schema_version": {snapshot.SCHEMA_VERSION},', '"schema_version": 2,')
     assert hashlib.sha256(text.encode()).hexdigest() == digest
 
 
