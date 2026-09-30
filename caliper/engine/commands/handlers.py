@@ -19,6 +19,7 @@ from caliper.contracts.commands import (
     Command,
     CreateAngleDimension,
     CreateArc,
+    CreateCheck,
     CreateCircle,
     CreateConstraint,
     CreateDimension,
@@ -42,6 +43,7 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    Expectation,
     Feature,
     Geometry,
     Line,
@@ -77,6 +79,7 @@ from caliper.engine.constraints.sketch import (
     turning,
 )
 from caliper.engine.document.delta import apply
+from caliper.engine.queries import DocumentQueries
 
 CreateCommand = (
     CreatePoint
@@ -88,6 +91,7 @@ CreateCommand = (
     | CreateRadialDimension
     | CreateAngleDimension
     | CreateConstraint
+    | CreateCheck
 )
 
 _CREATES: Mapping[type[CreateCommand], type[Entity]] = {
@@ -100,6 +104,7 @@ _CREATES: Mapping[type[CreateCommand], type[Entity]] = {
     CreateRadialDimension: RadialDimension,
     CreateAngleDimension: AngleDimension,
     CreateConstraint: Constraint,
+    CreateCheck: Expectation,
 }
 
 _PLACEMENT_FIELDS = frozenset({"offset", "label_angle"})
@@ -207,6 +212,7 @@ def _apply(document: Document, command: Command) -> Handled | list[Error]:
             | CreateRadialDimension()
             | CreateAngleDimension()
             | CreateConstraint()
+            | CreateCheck()
         ):
             return _create(document, command)
         case CreateDimension():
@@ -227,7 +233,7 @@ def _create(document: Document, command: CreateCommand) -> Handled | list[Error]
     entity_type = _CREATES[type(command)]
     names = field_types(entity_type)
     built = build_entity(entity_type, {name: getattr(command, name) for name in names}, document)
-    errors = list(built) if isinstance(built, list) else []
+    errors = list(built) if isinstance(built, list) else _check_errors(document, built)
     entity_id, next_id = _resolve_id(document, command.id, errors)
     if errors or isinstance(built, list):
         return errors
@@ -291,6 +297,15 @@ def _create_dimension(document: Document, command: CreateDimension) -> Handled |
         created_ids=(entity_id,),
         solve=_relation_solve(after, entity_id, new=True) if value is not None else None,
     )
+
+
+def _check_errors(document: Document, entity: Entity) -> list[Error]:
+    """Why a check can't be stored as it is: it must be one `Queries.check` can evaluate
+    now. It may fail; that's what it's for."""
+    if not isinstance(entity, Expectation):
+        return []
+    result = DocumentQueries(document).check(entity)
+    return [] if result.error is None else [result.error]
 
 
 def _relation_solve(document: Document, id: EntityId, *, new: bool) -> Request:
@@ -357,6 +372,8 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
     built = build_entity(type(current), values, document)
     if isinstance(built, list):
         return built
+    if problems := _check_errors(document, built):
+        return problems
     changed = list(command.changes)
     after = Document(
         entities=MappingProxyType({**document.entities, entity_id: built}),

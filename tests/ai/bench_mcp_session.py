@@ -64,13 +64,13 @@ def comb(teeth: int) -> list[tuple[str, dict[str, object]]]:
 
 
 def replay(draft: Draft, base: Document) -> None:
-    prepare(Plan(draft.label, "", draft.commands, draft.checks), base, ())
+    prepare(Plan(draft.label, "", draft.commands), base)
 
 
 def reuse(draft: Draft, base: Document) -> None:
     assert draft.workspace is not None
-    plan = Plan(draft.label, "", draft.commands, draft.checks)
-    prepare(plan, base, (), result=draft.workspace.document)
+    plan = Plan(draft.label, "", draft.commands)
+    prepare(plan, base, result=draft.workspace.document)
 
 
 def session(calls: list[tuple[str, dict[str, object]]], show: Show) -> tuple[float, float, Draft]:
