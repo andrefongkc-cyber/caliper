@@ -225,12 +225,10 @@ class ProposalCard(QFrame):
         rows = check_rows(proposal.checks)
         self.checks.setText("<br>".join(rows))
         self.checks.setVisible(bool(rows))
-        problems = [e.message for e in proposal.errors]
-        problems += [
-            f"Breaks your check: {describe(c.expectation)}" for c in proposal.broken_checks
-        ]
-        problems += [f"Removes your check: {describe(e)}" for e in proposal.removed_checks]
+        shown, every = check_warnings(proposal)
+        problems = [e.message for e in proposal.errors] + shown
         self.warning.setText("\n".join(problems))
+        self.warning.setToolTip("\n".join(every) if every != shown else "")
         self.warning.setVisible(bool(problems))
         self.accept_button.setEnabled(not proposal.errors)
         self.accept_button.setText("Accept anyway" if proposal.broken_checks else "Accept")
@@ -447,6 +445,9 @@ class AgentController(QObject):
 
 
 MAX_CHECK_ROWS = 4
+MAX_WARNING_ROWS = 2
+"""Checks a proposal breaks, or removes, named one per line up to this many of each; more are
+counted in one line, so a proposal that clears the sketch keeps Accept on the card."""
 
 
 def _command_text(command: object) -> str:
@@ -491,6 +492,23 @@ def summary(proposal: Proposal) -> str:
     return (
         f"{changes} · {stated}, <span style='color:{theme.ERROR.name()}'>{failing} failing</span>"
     )
+
+
+def check_warnings(proposal: Proposal) -> tuple[list[str], list[str]]:
+    """The card's lines for the user's checks a proposal breaks or removes, and all of them
+    one per line, for the tooltip when the card counts them instead."""
+    shown: list[str] = []
+    every: list[str] = []
+    for verb, found in (
+        ("Breaks", [describe(c.expectation) for c in proposal.broken_checks]),
+        ("Removes", [describe(e) for e in proposal.removed_checks]),
+    ):
+        lines = [f"{verb} your check: {text}" for text in found]
+        every += lines
+        shown += (
+            lines if len(lines) <= MAX_WARNING_ROWS else [f"{verb} {len(lines)} of your checks"]
+        )
+    return shown, every
 
 
 def check_rows(changes: tuple[CheckChange, ...]) -> list[str]:
