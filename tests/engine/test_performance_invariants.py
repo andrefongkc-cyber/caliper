@@ -230,9 +230,9 @@ def test_a_factorization_carried_on_is_bit_for_bit_a_fresh_one(
     first = rows[: max(1, int(split * len(rows)))]
     columns = tuple((EntityId(f"e{n}"), "x") for n in range(width + grow))
     padded = [[*row, *[0.0] * grow] for row in rows]
-    sketch._FACTORED.last = []
-    sketch._extended(columns[:width], first, existing=len(first) // 2)
-    carried = sketch._extended(columns, padded, existing=len(first))
+    sketch._FACTORED.last = None
+    sketch._extended(columns[:width], first)
+    carried = sketch._extended(columns, padded)
     fresh = RowBasis(width + grow)
     for i, row in enumerate(padded):
         fresh.add(i, row)
@@ -242,13 +242,19 @@ def test_a_factorization_carried_on_is_bit_for_bit_a_fresh_one(
     assert carried.q == fresh.q
     assert carried.supports == fresh.supports
     assert carried.masks == fresh.masks
-    # A changed earlier row is a different check: nothing is carried over.
-    changed = [[x + 1.0 for x in padded[0]], *padded[1:]]
-    again = sketch._extended(columns, changed, existing=len(first))
+    # A changed row (an edit that moved geometry): the rows before it are carried over,
+    # the rest factorized again, and it's still what factorizing afresh gives.
+    at = int(split * (len(padded) - 1))
+    changed = [*padded[:at], [x + 1.0 for x in padded[at]], *padded[at + 1 :]]
+    again = sketch._extended(columns, changed)
     fresh = RowBasis(width + grow)
     for i, row in enumerate(changed):
         fresh.add(i, row)
-    assert (again.kept, again.lower, again.q) == (fresh.kept, fresh.lower, fresh.q)
+    assert again.kept == fresh.kept
+    assert again.lower == fresh.lower
+    assert again.dependent == fresh.dependent
+    assert again.q == fresh.q
+    assert again.supports == fresh.supports
 
 
 def test_a_chain_decides_and_solves_exactly_as_it_would_afresh(
@@ -292,9 +298,9 @@ def test_a_chain_decides_and_solves_exactly_as_it_would_afresh(
     carried = build()
     real = sketch._extended
 
-    def afresh(columns, rows, existing):  # type: ignore[no-untyped-def]
-        sketch._FACTORED.last = []
-        return real(columns, rows, existing)
+    def afresh(columns, rows):  # type: ignore[no-untyped-def]
+        sketch._FACTORED.last = None
+        return real(columns, rows)
 
     monkeypatch.setattr(sketch, "_extended", afresh)
     assert build() == carried
