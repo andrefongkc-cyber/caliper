@@ -5,7 +5,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from caliper.contracts.document import Document
+from caliper.contracts.commands import CreateCheck, CreateRectangle
+from caliper.contracts.document import Document, EntityId, Metric, Point2
+from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -85,6 +87,28 @@ def test_inspect_summarizes_a_file(tmp_path: Path) -> None:
         " = 120.0",
         "  e4  radial_dimension    target e2, measure diameter = 20.0",
     ]
+
+
+def test_inspect_says_whether_each_check_passes(tmp_path: Path) -> None:
+    bus = Bus()
+    bus.execute(CreateRectangle(corner=Point2(x=0.0, y=0.0), width=40.0, height=20.0))
+    for expected in (40.0, 30.0):
+        bus.execute(
+            CreateCheck(
+                metric=Metric.BBOX_WIDTH, expected=expected, tolerance=0.01, ids=(EntityId("e1"),)
+            )
+        )
+    path = tmp_path / "checked.caliper"
+    snapshot.save(bus.document, path)
+    lines = run("inspect", path).stdout.decode().splitlines()
+    assert (
+        "  e2  check      metric bbox_width, expected 40.0, tolerance 0.01, ids e1 = 40.0 (passes)"
+        in lines
+    )
+    assert (
+        "  e3  check      metric bbox_width, expected 30.0, tolerance 0.01, ids e1 = 40.0 (fails)"
+        in lines
+    )
 
 
 def test_inspect_shows_constraints_freedom_and_driving_values() -> None:
