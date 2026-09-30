@@ -13,7 +13,6 @@ from caliper.app.dimension_layout import (
     Segment,
     anchors,
     angle_layout,
-    engine_placement,
     layout,
     offset_for,
 )
@@ -87,7 +86,7 @@ def test_a_dimension_the_engine_creates_is_drawn_through_its_placement(
         bus,
         CreateDimension(
             refs=(ref_a, ref_b),
-            placement=engine_placement(orientation, a, b, placement),
+            placement=placement,
             type=TYPE_FOR[orientation],
         ),
     )
@@ -99,9 +98,9 @@ def test_a_dimension_the_engine_creates_is_drawn_through_its_placement(
     assert cross == pytest.approx(0, abs=1e-9)
 
 
-def test_the_engine_still_measures_horizontal_offsets_across_a_to_b() -> None:
-    """The contract gap `engine_placement` works around. When this fails, the engine has
-    adopted the shell's rule: delete `engine_placement` and pass the real placement."""
+def test_the_engine_places_a_label_by_the_rule_the_canvas_draws_with() -> None:
+    """C-3: a horizontal dimension between slanted points, labelled above them, used to be
+    stored as the distance across a→b, so the canvas drew it somewhere else."""
     bus = Bus()
     a, b, placement = P(x=10, y=5), P(x=70, y=45), P(x=33, y=90)
     dim = _created(
@@ -113,7 +112,8 @@ def test_the_engine_still_measures_horizontal_offsets_across_a_to_b() -> None:
         ),
     )
     assert isinstance(dim, DistanceDimension)
-    assert dim.offset != pytest.approx(offset_for(O.HORIZONTAL, a, b, placement), abs=1e-6)
+    assert dim.offset == pytest.approx(offset_for(O.HORIZONTAL, a, b, placement), abs=1e-9)
+    assert dim.offset == pytest.approx(90 - 25)  # above the midpoint's height
 
 
 def test_a_distance_to_a_line_attaches_at_the_perpendicular_foot() -> None:

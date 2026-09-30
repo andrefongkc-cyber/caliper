@@ -297,18 +297,30 @@ def _entity(
     if len(refs) == 2 and any(ref_kind(document, r) is RefKind.LINE for r in refs):
         a, b = _as_point(document, refs[0]), _as_point(document, refs[1])
     return DistanceDimension(
-        a=a, b=b, orientation=orientation, offset=_offset(document, a, b, placement)
+        a=a,
+        b=b,
+        orientation=orientation,
+        offset=_offset(document, a, b, placement, orientation),
     )
 
 
-def _offset(document: Document, a: Ref, b: Ref, placement: Point2) -> float:
-    """Signed distance from the a→b direction to the placement, positive on its left."""
+def _offset(
+    document: Document, a: Ref, b: Ref, placement: Point2, orientation: DistanceOrientation
+) -> float:
+    """The offset that puts the dimension line through `placement`, by the rule on
+    `DistanceDimension.offset`: from the anchors' midpoint, along the measured direction
+    turned 90° counter-clockwise."""
     p, q = _anchor(document, a, b), _anchor(document, b, a)
-    dx, dy = q.x - p.x, q.y - p.y
-    length = math.hypot(dx, dy)
-    if length == 0.0:
-        return 0.0
-    return (dx * (placement.y - p.y) - dy * (placement.x - p.x)) / length + 0.0
+    match orientation:
+        case DistanceOrientation.HORIZONTAL:
+            ux, uy = 1.0, 0.0
+        case DistanceOrientation.VERTICAL:
+            ux, uy = 0.0, 1.0
+        case DistanceOrientation.ALIGNED:
+            length = math.hypot(q.x - p.x, q.y - p.y)
+            ux, uy = ((q.x - p.x) / length, (q.y - p.y) / length) if length else (1.0, 0.0)
+    mid_x, mid_y = (p.x + q.x) / 2, (p.y + q.y) / 2
+    return (placement.x - mid_x) * -uy + (placement.y - mid_y) * ux + 0.0
 
 
 def _anchor(document: Document, ref: Ref, other: Ref) -> Point2:

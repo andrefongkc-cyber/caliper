@@ -98,20 +98,28 @@ def _description(cls: type) -> str:
     return doc
 
 
-_FIELD_DESCRIPTIONS = {
+_FIELD_DESCRIPTIONS: dict[str | tuple[str, str], str] = {
+    ("create_distance_dimension", "offset"): (
+        "Where the dimension line sits, in mm: from the midpoint of a and b, along the "
+        "measured direction turned 90 degrees counter-clockwise. Positive puts a horizontal "
+        "dimension above its points, a vertical one to their left, and an aligned one on the "
+        "left of a to b. Keep it small, so the label sits just outside what it measures."
+    ),
     "construction": (
         "True for layout geometry: centre lines and reference circles that other geometry is "
         "constrained and dimensioned to. It is solved like any geometry but is not part of the "
         "part's outline."
     ),
 }
-"""What a command field is for, where its name and type don't say."""
+"""What a command field is for, where its name and type don't say: by (command, field), or
+by field for every command that has it."""
 
 
-def _field_schema(name: str, tp: object) -> dict[str, object]:
+def _field_schema(kind: str, name: str, tp: object) -> dict[str, object]:
     schema = _schema(tp)
-    if name in _FIELD_DESCRIPTIONS:
-        return {**schema, "description": _FIELD_DESCRIPTIONS[name]}
+    described = _FIELD_DESCRIPTIONS.get((kind, name)) or _FIELD_DESCRIPTIONS.get(name)
+    if described:
+        return {**schema, "description": described}
     return schema
 
 
@@ -126,7 +134,7 @@ def _command_spec(kind: str, cls: type) -> ToolSpec:
         description=_description(cls),
         input_schema={
             "type": "object",
-            "properties": {name: _field_schema(name, hints[name]) for name in names},
+            "properties": {name: _field_schema(kind, name, hints[name]) for name in names},
             "required": required,
             "additionalProperties": False,
         },
