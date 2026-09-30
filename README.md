@@ -54,7 +54,7 @@ in it two ways, as the in-app assistant or from Claude Desktop over MCP. 3D is n
 | **Constraints and dimensions** | Our own solver ([ADR 0008](docs/adr/0008-constraint-solver-our-own.md)): coincident, horizontal, vertical, parallel, perpendicular, tangent (including at fillet and slot joints), equal, midpoint, symmetric, concentric, fix, normal, and curvature; driving and driven distance, radius, diameter, and angle dimensions; constraints and dimensions can be edited, re-pointed, and removed after the fact; degrees of freedom shown live; conflicts and redundancies refused and named, never guessed |
 | **Repeating geometry** | Three AI tools, each one call made of Caliper's own commands: `mirror_entities` (about a line), `linear_pattern` (rows and grids), and `circular_pattern` (round a centre), for points, lines, circles, and arcs. Each copy is tied to its original by constraints, so editing the original, the mirror line, or the one spacing dimension updates every copy |
 | **Drawing in fewer calls** | `create_outline` draws a traced outline of lines and arcs, joined and optionally tangent, in one call; `create_arc_through_points` works out an arc from three points |
-| **Checks** | `check` measures distances, positions, bounding boxes, area, and dimension values against a tolerance, and the Checks panel keeps yours |
+| **Checks** | `check` measures distances, positions, bounding boxes, area, and dimension values against a tolerance. Checks are saved in the file with the part, and adding or removing one is undone like any change ([ADR 0010](docs/adr/0010-checks-in-the-document.md)) |
 | **Headless** | `python -m caliper.engine replay` turns a command script into a byte-identical `.caliper` file; `inspect` and `export` too |
 | **AI assistant** | In the prompt bar: Claude through the Anthropic API (opt-in), working through 27 tools made from Caliper's own commands and queries. Its changes arrive as a proposal you accept as one undo step ([#32](https://github.com/andrefongkc-cyber/caliper/pull/32)) |
 | **Claude Desktop over MCP** | Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper. The Timing panel times each task and shows the time left. Setup: [docs/mcp.md](docs/mcp.md) ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)) |
@@ -80,7 +80,6 @@ large proposals replaying every command ([#35](https://github.com/andrefongkc-cy
 a 25 s Accept and slow calls (Performance V2), and tangency to a rectangle's side (C-2).
 
 Known limitations today, all in [docs/known-issues.md](docs/known-issues.md):
-- Checks aren't saved in the file (C-1).
 - An edit that moves a large, tightly joined shape takes tens of milliseconds (C-6).
 - MCP needs macOS or Linux (AI-8).
 

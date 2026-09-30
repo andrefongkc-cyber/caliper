@@ -1,9 +1,24 @@
-Status: 2D V1 audit and hardening on `shared/2d-v1-audit` (stacked on #48, local, not pushed): C-2 fixed, clearer rejections, editing and repeats tested, next: Andre's review; Performance V2 and Solver V2.1 in review as PR #47; planned, not started: the dependency and recomputation graph
+Status: checks in the document (C-1, ADR 0010 proposed), one dimension label rule (C-3), a source on every change (C-4), and more of C-6, on `contracts/checks-authors-labels` (stacked on `shared/known-issue-fixes`, local, not pushed), next: Andre's review of the stacked branches; Performance V2 and Solver V2.1 in review as PR #47; planned, not started: the dependency and recomputation graph
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## The rest of the client-side fixes (branch `contracts/checks-authors-labels`, 2026-09-29; local, not pushed)
+
+Andre (2026-09-29): "finish the rest of the c fixes", C-1 decided as Option A of #16 ("In the document"). A joint contract change, stacked on `shared/known-issue-fixes`.
+
+- [x] **C-4, who made a change** (#17 item 1): `Change.source`, given to `execute` and `transaction` and carried by undo and redo; History records a change another caller made on the session's bus under its source (`tests/engine/test_change_source.py`)
+- [x] **C-3, one label rule** (#28 item 1): `DistanceDimension.offset` runs from the midpoint along the measured direction turned 90° counter-clockwise, the rule the canvas draws by. The engine's `_offset` uses it, the shell's `engine_placement` bridge is gone, and the tool schema says which way is positive
+- [x] **C-6, further**: a redundancy check carries on from the last factorization up to the first row that changed (`_extended`, `_truncated`), not only when every row matches; tested bit for bit against a fresh factorization, and a chain of commands decides and solves exactly as afresh. The plate session: 0.54 s to 0.50 s. The star's constraints, where every row moves, are still about 29 ms each: that needs an update in place (known issues)
+- [x] **C-1, checks in the document** ([ADR 0010](../adr/0010-checks-in-the-document.md), proposed): `Expectation` is an entity of kind `check`, made by `CreateCheck` (refused when it can't be measured, stored when it fails), edited by `ModifyEntity`, removed by `DeleteEntities`, never cascaded to; file schema 3 with a no-op migration and fixtures moved to 3; `inspect` says whether each check passes. The shell and the AI tools read and change checks through commands (`tests/engine/test_checks_in_document.py`, the Checks panel tests, `tests/ai/test_tools.py`)
+- [x] **Found on the way**: a mirror, pattern, or outline as the first change of a Claude Desktop draft was run and dropped (`tests/ai/test_draft.py`)
+
+### Notes for review
+- A check takes an entity id, so ids after it are one higher; the app's `comb` test script predicted ids and was adjusted
+- The hash pins in `test_numerics.py` normalize the schema line: `main`'s files were written at schema 2
+- CLAUDE.md's ADR table needs a row for 0010 (a maintainer file: not edited here)
 
 ## 2D V1 audit and hardening (branch `shared/2d-v1-audit`, 2026-09-29; local, not pushed)
 
@@ -41,10 +56,10 @@ Andre (2026-09-28): an overnight audit of the 2D foundation (constraints, editin
 - **For 3D:** directed feature order, cached kernel results, persistent naming, invalid propagation: the plan below
 
 ### Future work
-- [ ] Keep the redundancy check's factorization between the commands of one call (C-6; the repeat tools' main cost)
-- [ ] A profile tool for traced outlines (AI-10), and arcs in patterns (AI-11)
-- [ ] Decide C-12; the ADR for checks in the document (C-1, #16)
-- [ ] `remove_check`, the rest of AI-2
+- [x] Keep the redundancy check's factorization between the commands of one call (C-6; the repeat tools' main cost): `shared/known-issue-fixes`, then up to the first changed row on `contracts/checks-authors-labels`
+- [x] A profile tool for traced outlines (AI-10, `create_outline`), and arcs in patterns (AI-11): `shared/known-issue-fixes`
+- [x] Decide C-12 (refused, `shared/known-issue-fixes`); the ADR for checks in the document (C-1, #16: ADR 0010, `contracts/checks-authors-labels`)
+- [x] `remove_check`, the rest of AI-2: `shared/known-issue-fixes`
 - [ ] Pin the stress-plate session's reference output in `test_numerics.py`, now that C-2 changes its replay
 
 ## Dependency and recomputation graph (planned, 2026-09-28; not started)

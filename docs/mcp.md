@@ -90,8 +90,10 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
   250-change proposal applies at once. **Reject** discards it. Claude can't accept.
 - To stop Claude part-way, stop it in Claude Desktop, then press **Reject**: the draft is
   dropped and your sketch is as it was. Nothing Claude does touches the sketch before Accept.
-- A check Claude runs while nothing is pending (just after you accepted, or when it only
-  looks) goes straight to your Checks panel, as a check on a proposal does when you accept it.
+- A check Claude runs is saved in your sketch with its other changes, so it's part of the
+  proposal, and it stays in the Checks panel (and the file) once you accept. A check run while
+  nothing else is pending (just after you accepted, or when it only looked) is a proposal of
+  its own. Running the same check again corrects its value; `remove_check` deletes one.
 - If you edit the sketch or open another document while a proposal is pending, it's
   dropped. Claude's next call starts from your sketch as it is, and its result begins with a
   note saying what happened (accepted, rejected, sketch changed, another document opened).

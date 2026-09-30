@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-1, C-3, C-4 | C-6 | |
+| Client side | | C-6 | |
 
 ---
 
@@ -36,44 +36,44 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 
 ## Client side
 
-### C-1. Your checks are lost on save and reopen
-- **What happens:** checks live only in the open session. Save and reopen, or New or Open,
-  and the Checks panel is empty.
-- **Where:** `caliper/app/session.py` (`_checks`, cleared in `replace`).
-- **Status:** needs an ADR, [#16](https://github.com/andrefongkc-cyber/caliper/issues/16).
-  Option A (expectations in the document, changed by commands) is recommended there.
-
-### C-3. H/V dimensions from scripts and AI place labels by a different rule than the app
-- **What happens:** for a horizontal or vertical dimension between diagonal points, the
-  engine measures the label offset perpendicular to a→b, while the app uses the axis normal.
-  The app works around it, but scripts and the AI tools get the engine's rule, so labels can
-  land somewhere unexpected.
-- **Where:** `caliper/engine/constraints/dimensions.py`, `_offset`, bridged in
-  `caliper/app/dimension_layout.py`, `engine_placement`.
-- **Status:** a joint `contracts/` change,
-  [#28](https://github.com/andrefongkc-cyber/caliper/issues/28) item 1.
-
-### C-4. Changes from scripts show no author
-- **What happens:** `Change` doesn't say who made a change. The app stamps "You" or "Agent"
-  itself, but a script calling the bus directly shows up unattributed in History.
-- **Where:** `caliper/contracts/commands.py`, `Change`.
-- **Status:** [#17](https://github.com/andrefongkc-cyber/caliper/issues/17) item 1.
-
 ### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the
-  clusters it touches, and a run of commands that adds to one cluster without moving it (a
-  pattern, a mirror) reuses the last check's factorization (see Recently fixed). But an edit
-  that moves the cluster's geometry, however slightly, changes its rows, so the check starts
-  again: in the recorded plate, each constraint on the 12-point star (24 lines, one cluster)
-  took 20–35 ms.
-- **Where:** `caliper/engine/constraints/sketch.py`, `_redundancy` and `_extended`; called from
-  `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
-- **Fix, if it matters:** update the factorization for rows that changed instead of starting
-  again, or solve only the part of a cluster a command can move.
+  clusters it touches, and a redundancy check carries on from the last one's factorization up
+  to the first row that changed (see Recently fixed). But an edit that moves geometry changes
+  the rows of everything it moved, so where every row moves the check starts again: each
+  constraint on the stress plate's 12-point star (24 lines, one cluster) still takes about
+  29 ms.
+- **Where:** `caliper/engine/constraints/sketch.py`, `_redundancy`, `_extended`, and
+  `_truncated`; called from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
+- **Fix, if it matters:** update the factorization in place for rows that changed (a rank
+  update) instead of redoing them, or solve only the part of a cluster a command can move.
 
 ---
 
 ## Recently fixed
+
+On `contracts/checks-authors-labels` (stacked on the known-issue fixes, not pushed):
+
+- C-1: checks were lost on save and reopen, New, or Open. They're stored in the document now
+  ([ADR 0010](adr/0010-checks-in-the-document.md), Option A of
+  [#16](https://github.com/andrefongkc-cyber/caliper/issues/16)): made by `CreateCheck`,
+  edited and deleted by the usual commands, undone like any change, and saved with the part
+  (file schema 3). A check whose geometry is deleted stays, failing, until it's put right.
+- AI-1, changed: a check Claude runs with nothing pending is a change now, so it's proposed
+  for you to accept rather than put straight into the Checks panel.
+- Found on the way: a mirror, pattern, or outline as Claude's first change after an Accept
+  was reported as applied and then dropped. It starts a proposal now.
+- C-3: horizontal and vertical dimensions from scripts and the AI placed their labels by a
+  different rule than the app. There's one rule now, the one the canvas draws by: the offset
+  runs from the midpoint, square to what's measured, so a positive one puts a horizontal
+  dimension above its points and a vertical one to their left, and the tool descriptions say so
+  ([#28](https://github.com/andrefongkc-cyber/caliper/issues/28) item 1).
+- C-4: changes a script made on the bus showed no author in History. Every `Change` says who
+  asked for it (`Change.source`), and History shows it
+  ([#17](https://github.com/andrefongkc-cyber/caliper/issues/17) item 1).
+- C-6, further: a redundancy check carries on from the last factorization up to the first
+  changed row, not only when every row is the same (the plate session: 0.54 s to 0.50 s).
+  Edits that move a whole cluster are still slow (above).
 
 On `shared/known-issue-fixes` (stacked on the audit, not pushed):
 
