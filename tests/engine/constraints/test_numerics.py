@@ -128,6 +128,29 @@ def test_the_reference_writes_the_files_main_wrote(name: str, digest: str) -> No
     assert hashlib.sha256(text.encode()).hexdigest() == digest
 
 
+STRESS_PLATE = "32ac2f9bca38b994b51b2f4b6722a4ba42f80cad818710e12020ae1cf843356d"
+"""The reference solver's file for the stress plate (N1), pinned 2026-09-30 on `main` at
+7d4f681. It isn't `main`'s old file: the C-2 fix accepts a tangency that one refused, so the
+replay changed then. Pinned on macOS. The plate solves arcs, which ADR 0008 allows to differ
+across platforms in the last bits; if Linux CI gives another digest for that reason, pin that
+one beside this, per platform, rather than loosening the test."""
+
+
+def test_the_reference_replays_the_stress_plate_to_the_same_bytes() -> None:
+    """The biggest recorded session, which `bench/numerics.py` compared only when run by hand.
+    A change to the reference solver's output, by one byte, fails here. The fast solver must
+    draw the same plate: no stored value differs by more than two solutions may."""
+    with sketch.reference():
+        reference = replay("stress-plate-build").document
+    text = snapshot.dumps(reference)
+    text = text.replace(f'"schema_version": {snapshot.SCHEMA_VERSION},', '"schema_version": _,')
+    assert hashlib.sha256(text.encode()).hexdigest() == STRESS_PLATE
+    fast = replay("stress-plate-build").document
+    found = equivalence.differences(reference, fast)
+    assert not [d for d in found if d.significant], equivalence.report(found)
+    assert all(d.same for d in found), equivalence.report(found)
+
+
 def test_the_reference_caches_nothing_and_stays_in_its_thread() -> None:
     document = replay("rectangle").document
     sketch._SOLVED.clear()
