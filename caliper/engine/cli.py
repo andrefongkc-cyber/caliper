@@ -22,6 +22,7 @@ from caliper.contracts.document import (
     DistanceDimension,
     Document,
     Entity,
+    Expectation,
     Point2,
     RadialDimension,
     Ref,
@@ -128,6 +129,12 @@ def _inspect(path: Path) -> int:
             line += f" = {value!r}" if isinstance(value, float) else f" = ? ({value.message})"
             if entity.value is not None:
                 line += " (driving)"
+        if isinstance(entity, Expectation):
+            result = queries.check(entity)
+            if result.error is not None:
+                line += f" = ? ({result.error.message})"
+            else:
+                line += f" = {result.actual!r} ({'passes' if result.passed else 'fails'})"
         if getattr(entity, "construction", False):
             line += " (construction)"
         if id in status.entity_dof:
@@ -184,7 +191,7 @@ def _fields(entity: Entity) -> str:
     return ", ".join(
         f"{field.name} {_value(getattr(entity, field.name))}"
         for field in fields(entity)
-        if field.name not in _HIDDEN_FIELDS
+        if field.name not in _HIDDEN_FIELDS and getattr(entity, field.name) != ()
     )
 
 
