@@ -17,10 +17,11 @@ stated once. None of this is a reason to add constraints for their own sake.
   arcs), midpoint, symmetric (two points about a line), fix, normal, and curvature.
 - **Dimensions:** distance (aligned, horizontal, or vertical), radius or diameter, and angle. Each
   is driving, or a reference if it has no value.
-- **Repeating:** `linear_pattern` (rows and grids of points, lines, circles, and rectangles),
-  `circular_pattern` (points, lines, and circles round a centre), and `mirror_entities`
-  (about a line; arcs too), one call each, with the copies tied to the original.
-- **Not yet available:** a three-point-arc tool, and patterning arcs.
+- **Repeating:** `linear_pattern` (rows and grids of points, lines, circles, arcs, and
+  rectangles), `circular_pattern` (points, lines, circles, and arcs round a centre), and
+  `mirror_entities` (about a line), one call each, with the copies tied to the original.
+- **Drawing:** `create_outline` (a traced outline of lines and arcs, joined, optionally closed
+  and tangent at chosen joints) and `create_arc_through_points` (an arc from three points).
 - **Rejections:** Caliper rejects a constraint that's already implied (`constraint.redundant`) or
   impossible (`constraint.conflict`).
 
