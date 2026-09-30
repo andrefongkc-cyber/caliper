@@ -207,3 +207,21 @@ def test_cmd_l_focuses_the_prompt(window, qtbot) -> None:
     window.canvas.setFocus()
     window.ask_action.trigger()
     assert QApplication.focusWidget() is window.prompt_bar.input
+
+
+def test_history_says_who_made_a_change_the_app_didn_t(window) -> None:
+    # C-4: a script calling the bus directly showed up unattributed.
+    session = window.session
+    heard: list[object] = []
+    session.changed.connect(heard.append)
+    session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=10, height=5))
+    assert heard[-1].source == "You"  # type: ignore[attr-defined]  # the app names itself
+    session._bus.execute(  # not through the session: another caller of its bus
+        CreateRectangle(corner=Point2(x=20, y=0), width=10, height=5), source="bracket-script"
+    )
+    session._bus.execute(CreateRectangle(corner=Point2(x=40, y=0), width=10, height=5))
+    assert [(h.label, h.author) for h in session.history] == [
+        ("Create Rectangle", Author.YOU),
+        ("Create Rectangle", "bracket-script"),
+        ("Create Rectangle", "Unknown"),
+    ]

@@ -105,7 +105,7 @@ class HistoryList(QListWidget):
             entry = history[index]
             item = QListWidgetItem(entry.label)
             item.setData(POSITION_ROLE, index + 1)
-            item.setData(AUTHOR_ROLE, entry.author.value)
+            item.setData(AUTHOR_ROLE, str(entry.author))
             item.setData(WHEN_ROLE, ago(entry.at, now))
             item.setData(UNDONE_ROLE, index >= position)
             item.setSizeHint(item.sizeHint().expandedTo(self._row_size()))
