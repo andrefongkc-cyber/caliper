@@ -210,8 +210,14 @@ class DistanceDimension:
     offset: float
     """Placement only: how far the dimension line sits from the two points, in mm.
 
-    Measured perpendicular to a→b, positive to the left of that direction, whatever the
-    orientation. Nothing measured depends on it: `dimension_value` ignores it entirely.
+    The measured direction is a→b for ALIGNED (+X if the two points coincide), +X for
+    HORIZONTAL, and +Y for VERTICAL. The offset is measured from the midpoint of a and b,
+    along that direction turned 90° counter-clockwise: a positive offset puts a horizontal
+    dimension above its points, a vertical one to their left, and an aligned one on the left
+    of a→b. Nothing measured depends on it: `dimension_value` ignores it entirely.
+
+    (Until 2026-09-29 this said perpendicular to a→b whatever the orientation, which the app
+    never drew by and which loses a horizontal or vertical label's placement: C-3, #28.)
     """
     value: float | None = None
     """None: driven. A number greater than 0: driving, in mm."""

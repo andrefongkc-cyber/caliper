@@ -20,8 +20,7 @@ from enum import StrEnum
 
 from PySide6.QtCore import Qt
 
-from caliper.app import references, theme
-from caliper.app.dimension_layout import engine_placement
+from caliper.app import theme
 from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tools.base import Pointer, Tool
@@ -29,7 +28,7 @@ from caliper.app.viewport.annotations import drawing, paint
 from caliper.app.viewport.highlight import paint_references
 from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
 from caliper.contracts.commands import Applied, CreateDimension, Rejected
-from caliper.contracts.document import DistanceDimension, EntityId, Point2, Ref
+from caliper.contracts.document import EntityId, Point2, Ref
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import DimensionType
 from caliper.engine.commands.bus import Bus
@@ -42,10 +41,6 @@ KIND_NAME = {
     DimensionType.RADIUS: "Radius",
     DimensionType.DIAMETER: "Diameter",
     DimensionType.ANGLE: "Angle",
-}
-_ALONG_AXIS = {
-    DimensionType.HORIZONTAL_DISTANCE,
-    DimensionType.VERTICAL_DISTANCE,
 }
 
 
@@ -234,26 +229,9 @@ class DimensionTool(Tool):
         return preview
 
     def _command(self, kind: DimensionType, at: Point2) -> CreateDimension | None:
-        """The command for a label at `at`.
-
-        For horizontal and vertical distances the engine measures the offset across a→b
-        rather than along the dimension's normal, so it's told the point that gives the
-        offset the shell draws (`engine_placement`), and the label lands where it was put.
-        """
-        command = CreateDimension(refs=self.refs, placement=at, type=kind)
-        if kind not in _ALONG_AXIS:
-            return command
-        first = self._run(command)
-        if first is None:
-            return None
-        dim = first.bus.document.entities[first.id]
-        if not isinstance(dim, DistanceDimension):
-            return command
-        a = references.point(first.bus.queries, dim.a)
-        b = references.point(first.bus.queries, dim.b)
-        if a is None or b is None:
-            return command
-        return replace(command, placement=engine_placement(dim.orientation, a, b, at))
+        """The command for a label at `at`: the engine places it by the rule the canvas draws
+        with (`DistanceDimension.offset`)."""
+        return CreateDimension(refs=self.refs, placement=at, type=kind)
 
     def _run(self, command: CreateDimension) -> Preview | None:
         scratch = Bus(self.session.document)
