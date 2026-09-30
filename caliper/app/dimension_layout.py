@@ -8,14 +8,11 @@ One placement rule for every orientation (the shell's since PR #5):
   vertical one sits to the left.
 - An ALIGNED dimension whose points coincide uses +X as its direction.
 
-**This differs from the frozen contract for HORIZONTAL and VERTICAL.** The contract's
-docstring on `DistanceDimension.offset` (PR #22) says the offset is measured perpendicular
-to a→b whatever the orientation, and the engine's `CreateDimension` computes it that way.
-That can't be inverted: every point along a horizontal dimension line is a different
-distance from a slanted a→b, so the placement is lost. Both rules agree for ALIGNED, and
-for HORIZONTAL (VERTICAL) whenever a→b runs left to right (upward). The shell keeps the
-rule every V1 file was written with; `engine_placement` bridges the difference until the
-contract changes (docs/workplan/shell.md, P7).
+It's the contract's rule too (`DistanceDimension.offset`), and the engine's
+`CreateDimension` places by it, so a label goes where it was put whoever made it. Until
+2026-09-29 the contract said perpendicular to a→b whatever the orientation, which loses a
+horizontal or vertical label's placement between slanted points; the shell bridged the two
+(C-3, #28).
 
 A dimension may refer to a straight curve instead of a point. It then attaches at the foot
 of the perpendicular from the other end (or, between two curves, from the other curve's
@@ -98,25 +95,6 @@ def offset_for(orientation: DistanceOrientation, a: Point2, b: Point2, placement
     nx, ny = normal(direction(orientation, a, b))
     mid = midpoint(a, b)
     return (placement.x - mid.x) * nx + (placement.y - mid.y) * ny
-
-
-def engine_placement(
-    orientation: DistanceOrientation, a: Point2, b: Point2, placement: Point2
-) -> Point2:
-    """Where to tell `CreateDimension` the label is, so the engine stores this module's offset.
-
-    The engine measures the offset perpendicular to a→b (see the module docstring), so for a
-    horizontal or vertical dimension the real placement would be stored as the wrong offset.
-    The point `offset_for(...)` away from the midpoint along a→b's left normal gives the
-    engine exactly that offset. Delete this when the contract adopts this module's rule: a
-    test against the real engine (`test_dimension_layout.py`) fails on that day.
-    """
-    if orientation is DistanceOrientation.ALIGNED:
-        return placement
-    offset = offset_for(orientation, a, b, placement)
-    ux, uy = direction(DistanceOrientation.ALIGNED, a, b)
-    mid = midpoint(a, b)
-    return Point2(x=mid.x - uy * offset, y=mid.y + ux * offset)
 
 
 def choose_orientation(a: Point2, b: Point2, placement: Point2) -> DistanceOrientation:

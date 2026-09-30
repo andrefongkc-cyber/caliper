@@ -69,6 +69,15 @@ def test_the_construction_flag_says_what_it_is_for() -> None:
         assert "layout" in field["description"]
 
 
+def test_a_distance_dimension_s_offset_says_which_way_is_positive() -> None:
+    # C-3: the rule the canvas draws by, so Claude's labels land where it means them to.
+    tools = {t.name: t for t in TOOLS}
+    offset = tools["create_distance_dimension"].input_schema["properties"]["offset"]  # type: ignore[index]
+    assert "above" in offset["description"]
+    angle = tools["create_angle_dimension"].input_schema["properties"]["offset"]  # type: ignore[index]
+    assert "description" not in angle  # an angle's offset means something else
+
+
 def test_the_conventions_ask_for_the_layout_before_the_part() -> None:
     assert "construction: true" in CONVENTIONS
     assert "layout first" in CONVENTIONS
