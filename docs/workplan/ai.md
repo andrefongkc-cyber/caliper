@@ -1,4 +1,4 @@
-Status: mirror, linear and circular pattern, and the Timing panel's time left (priced by kind, smoothed) and auto-stop, on `shared/mirror-pattern-time-left`, PR #48 (stacked on #47), next: a live Claude Desktop run on it, then review
+Status: checks are changes now (stored in the sketch, C-1): `run_check` and `remove_check` add to the proposal, on `contracts/checks-authors-labels` (local, stacked on `shared/known-issue-fixes`), next: a live Claude Desktop run on the stacked branches, then review of #47, #48, and the local branches
 
 # AI workplan
 
@@ -7,6 +7,17 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## Checks are changes (branch `contracts/checks-authors-labels`, 2026-09-29; local)
+
+C-1 put checks in the document ([ADR 0010](../adr/0010-checks-in-the-document.md)), so the AI side uses the same commands the Checks panel does (invariant 5):
+
+- [x] `run_check` measures a check, then stores it with `CreateCheck`, or corrects the sketch's check of the same measurement (the model's, the user's, or one accepted earlier) with `ModifyEntity`; the result names the check's id. A check that can't be measured is reported and not stored. `remove_check` deletes the sketch's check of a measurement with `DeleteEntities`. Both are changes: undo takes them back, and over MCP they are no longer read-only
+- [x] No `create_check` tool (`COMMAND_TOOLS`): one way to check. The MCP server still offers 28 tools
+- [x] **AI-1, changed**: a check with nothing else pending starts a proposal of its own for the user to accept, instead of going into the Checks panel unreviewed. `Answer.checked`, `Draft.checks`, `Workspace.checks`, and `Turn.checks` are gone: checks are among the commands
+- [x] Proposals are named by what else they do: a rectangle and its check is "Create Rectangle" (`Workspace.label`)
+- [x] **Fixed on the way**: a mirror, pattern, or outline as the first change of a draft was run, reported as applied, and dropped; only a command tool's name used to start a draft
+- [x] Tests: `tests/ai/test_tools.py` (stored, corrected, a user's check corrected, removed, undone), `test_draft.py` (a check or a pattern first starts a draft), `test_mcp_server.py`, and the app's MCP and assistant tests
 
 ## The AI side of the 2D V1 audit (branch `shared/2d-v1-audit`, 2026-09-29; local)
 

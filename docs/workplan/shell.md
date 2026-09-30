@@ -1,4 +1,4 @@
-Status: P7 and its follow-ups merged; Performance V2's shell side (one redraw per transaction, a lazy proposal card, a plain-text Assistant log, hidden glyphs cost nothing, Stop) on `shared/performance-v2`, PR #47, next: review
+Status: doing the shell side of C-1/C-3/C-4 on `contracts/checks-authors-labels` (checks read from the document, one label rule, History names a script's changes), next: review with Performance V2 (PR #47) and the stacked branches
 
 # Shell workplan — Stream B
 
@@ -217,11 +217,11 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 
 ### Gaps found (for Stream A / the contract)
 
-1. **`Change` has no author.** The shell stamps You/Agent itself in `DocumentSession`; a script calling the bus directly isn't attributed.
+1. ~~**`Change` has no author.**~~ Fixed on `contracts/checks-authors-labels` (C-4): `Change.source`, and History records a change another caller made under the source it gave.
 2. **A committed transaction sends no notification with its label.** Views only see each inner command; the shell refreshes undo labels on its own history signal.
-3. **Where checks live** is still undecided; they're session state, cleared by New/Open.
+3. ~~**Where checks live**~~ Decided (ADR 0010, C-1): in the document. The Checks panel reads them from it and adds and removes them by command; they're kept out of the browser and Select All.
 4. **Spatial index** for hit-testing and snapping past about 5,000 entities (numbers above).
-5. **Dimension offset rule** is implemented in the shell as proposed on PR #5 and not yet in the contract docstring.
+5. ~~**Dimension offset rule**~~ In the contract now (C-3): the engine places labels by the rule the canvas draws by.
 
 ### Found and fixed along the way
 
@@ -437,7 +437,7 @@ At 10,000 entities with 5,000 constraints an edit is 212 ms, of which the engine
 
 ### For Andre (not filed yet; drafts, to post once Lucas agrees)
 
-1. **Contract conflict, `DistanceDimension.offset` for HORIZONTAL/VERTICAL.** The frozen docstring says "perpendicular to a→b, whatever the orientation", and `CreateDimension` computes it that way. That can't be inverted: every point on a horizontal dimension line is a different distance from a slanted a→b, so the placement is lost, and a label placed above a corner-to-corner pair lands elsewhere. The shell's rule (along the orientation's normal, from the midpoint; shell.md since PR #5, gap 6) round-trips and is what every V1 file uses; both agree for ALIGNED. Proposal: engine `_offset` and the docstring adopt the shell rule. Until then `dimension_layout.engine_placement` feeds the engine a placement that yields the shell's offset; `test_the_engine_still_measures_horizontal_offsets_across_a_to_b` fails the day the engine changes, pointing at the code to delete.
+1. **Contract conflict, `DistanceDimension.offset` for HORIZONTAL/VERTICAL.** The frozen docstring says "perpendicular to a→b, whatever the orientation", and `CreateDimension` computes it that way. That can't be inverted: every point on a horizontal dimension line is a different distance from a slanted a→b, so the placement is lost, and a label placed above a corner-to-corner pair lands elsewhere. The shell's rule (along the orientation's normal, from the midpoint; shell.md since PR #5, gap 6) round-trips and is what every V1 file uses; both agree for ALIGNED. Proposal: engine `_offset` and the docstring adopt the shell rule. **Done (C-3):** the engine and docstring use the shell's rule, and `engine_placement` is deleted; the Dimension tool sends its placement as it is.
 2. **`solve_status` recomputes the whole document on every change:** 17 ms at 2,000 entities + 950 constraints, 83 ms at 10,000 + 5,000, even when the change touched an unconstrained rectangle. Caching per cluster would make it proportional to what changed. It is the biggest part of a constrained edit.
 3. **`suggest_constraints` for one entity takes 3.4 s** at 2,000 entities + 1,000 constraints, so the shell can't offer live suggestions while drawing. Needs a candidate filter (a spatial index would serve hit-testing too).
 4. **The solver writes near-zero noise into stored coordinates** (`-8.6e-78`, `1.56e-61` after a vertical constraint). It goes into files, deltas, and replays. Snapping |v| < 1e-12 to 0 on output would keep files clean; the shell now rounds for display.

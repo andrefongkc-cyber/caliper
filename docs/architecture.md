@@ -161,7 +161,9 @@ the design's history of "what someone tried" must not travel with the part.
 
 `check(Expectation(...))` is the verification loop in its smallest form. It takes a numeric
 claim (for example "distance between these two features is 120 ± 0.001") and returns a
-`CheckResult` with the actual value. Bench cases, tests, and the future AI layer all use it.
+`CheckResult` with the actual value. Bench cases, tests, and the AI layer all use it. A check
+the user or the AI keeps is stored in the document as an entity of its own, made by
+`CreateCheck` and saved with the part (ADR 0010).
 
 2D sketch queries are plain math. The **kernel** is used only for real solid-modeling work,
 such as turning a closed profile into a face to get its area properties. Two kernels
