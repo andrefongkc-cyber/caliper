@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 from caliper.app.agent.proposal import Plan, prepare
 from caliper.app.agent.scripted import EXAMPLES, understand
 from caliper.app.session import Author, check_command
-from caliper.contracts.commands import CreateCircle, CreateRectangle, ModifyEntity
+from caliper.contracts.commands import CreateCircle, CreateRectangle, DeleteEntities, ModifyEntity
 from caliper.contracts.document import Circle, Expectation, Metric, Point2
 from caliper.engine.commands.bus import Bus
 
@@ -227,3 +227,53 @@ def test_history_says_who_made_a_change_the_app_didn_t(window) -> None:
         ("Create Rectangle", "bracket-script"),
         ("Create Rectangle", "Unknown"),
     ]
+
+
+@pytest.mark.parametrize("count", [2, 5])
+def test_many_removed_checks_are_counted_in_one_line(window, plate, count: int) -> None:
+    # Clearing a sketch with its checks listed each one in red, one per line, pushing Accept
+    # down the card: 12 of them after the stress plate.
+    session = window.session
+    for n in range(count):
+        session.add_check(
+            Expectation(metric=Metric.BBOX_WIDTH, expected=120 + n, tolerance=0.01, ids=(plate,))
+        )
+    ids = session.check_ids
+    base = session.document
+    window.agent.propose(
+        Plan("Clear", "Clear the sketch.", (DeleteEntities(ids=(plate, *ids)),)), base
+    )
+    card = window.proposal_card
+    lines = card.warning.text().splitlines()
+    if count == 2:  # named one per line
+        assert lines == [
+            f"Removes your check: Width of {plate} = {120 + n} ± 0.01" for n in range(count)
+        ]
+        assert card.warning.toolTip() == ""
+    else:
+        assert lines == [f"Removes {count} of your checks"]
+        assert card.warning.toolTip().splitlines() == [
+            f"Removes your check: Width of {plate} = {120 + n} ± 0.01" for n in range(count)
+        ]
+    assert card.accept_button.isVisible()
+
+
+def test_many_broken_checks_are_counted_too(window, plate) -> None:
+    session = window.session
+    for metric in (Metric.BBOX_WIDTH, Metric.BBOX_HEIGHT):
+        session.add_check(
+            Expectation(
+                metric=metric,
+                expected=120 if metric is Metric.BBOX_WIDTH else 50,
+                tolerance=0.01,
+                ids=(plate,),
+            )
+        )
+    session.add_check(Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01))
+    base = session.document
+    plan = Plan("Grow", "", (ModifyEntity(id=plate, changes={"width": 140.0, "height": 60.0}),))
+    window.agent.propose(plan, base)
+    card = window.proposal_card
+    assert card.warning.text() == "Breaks 3 of your checks"
+    assert len(card.warning.toolTip().splitlines()) == 3
+    assert card.accept_button.text() == "Accept anyway"

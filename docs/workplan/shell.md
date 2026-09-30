@@ -229,6 +229,7 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 - After a transaction the Edit menu kept the previous undo label.
 - The app-test fixture re-applied the stylesheet per test (61 s → 11 s suite).
 - A dimension to a line from beyond the line's end drew two solid lines along the line past its end: the line carried on to the foot, and the dimension's own extension line, which lies along the line (a distance from a point to a line is square to it). A plate's edge seemed to run past the fillet at its corner (the stress plate's Ø0.2 hole, dimensioned to the top and right edges, 2 mm past their ends). Now the extension line isn't drawn where it lies along the line, and whatever is past the line's end is dashed (`DimensionDrawing.extensions`, `_past_ends`), for angle dimensions too (2026-09-30, `shared/dimension-extensions`).
+- A proposal that removed or broke many of your checks named each one in red, one per line, with no way to collapse them: clearing the stress plate listed 12 and pushed Accept down the card. Up to two of each are named; more are counted in one line ("Removes 12 of your checks"), with the list in its tooltip (2026-09-30, `shared/card-check-warnings`).
 
 ## Issue #9 (interior picking, drag-select, Zoom to Fit labels), 2026-09-15
 
