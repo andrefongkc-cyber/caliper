@@ -3,8 +3,13 @@ removed by the ordinary commands, undone like anything else, and saved with the 
 
 from pathlib import Path
 
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from caliper.contracts.commands import (
     Applied,
+    Command,
     CreateCheck,
     CreateCircle,
     CreateRectangle,
@@ -13,9 +18,21 @@ from caliper.contracts.commands import (
     MoveEntities,
     Rejected,
 )
-from caliper.contracts.document import EntityId, Expectation, Feature, Metric, Point2, Ref
+from caliper.contracts.document import (
+    Circle,
+    Document,
+    Entity,
+    EntityId,
+    Expectation,
+    Feature,
+    Metric,
+    Point2,
+    Rectangle,
+    Ref,
+)
 from caliper.contracts.errors import ErrorCode
 from caliper.engine.commands.bus import Bus
+from caliper.engine.constraints import sketch
 from caliper.engine.io import codec, snapshot
 
 
@@ -163,3 +180,191 @@ def test_a_check_command_round_trips_through_json() -> None:
         refs=command.refs,
         id=EntityId("e2"),
     )
+
+
+# --- Properties (N2) -----------------------------------------------------------------------
+
+Op = tuple[object, ...]
+
+_at = st.integers(min_value=-50, max_value=50)
+_size = st.integers(min_value=1, max_value=40)
+_pick = st.integers(min_value=0, max_value=1000)
+_nudge = st.integers(min_value=-3, max_value=3)
+
+OPS = st.lists(
+    st.one_of(
+        st.tuples(st.just("rectangle"), _at, _at, _size, _size),
+        st.tuples(st.just("circle"), _at, _at, _size),
+        st.tuples(
+            st.just("check"), _pick, _pick, st.sampled_from(["width", "height", "distance"]), _nudge
+        ),
+        st.tuples(st.just("edit_check"), _pick, _nudge),
+        st.tuples(st.just("delete"), _pick),
+        st.tuples(st.just("delete_check"), _pick),
+        st.tuples(st.just("move"), _pick, _nudge, _nudge),
+        st.just(("undo",)),
+        st.just(("redo",)),
+    ),
+    max_size=24,
+)
+
+
+def _shapes(document: Document) -> list[EntityId]:
+    return sorted(i for i, e in document.entities.items() if isinstance(e, Rectangle | Circle))
+
+
+def _checks(document: Document) -> dict[EntityId, Expectation]:
+    return {i: e for i, e in document.entities.items() if isinstance(e, Expectation)}
+
+
+def _named(check: Expectation) -> set[EntityId]:
+    return set(check.ids) | {ref.entity for ref in check.refs}
+
+
+def _command(op: Op, document: Document) -> Command | None:
+    """The command `op` stands for on `document`, or None when there's nothing to act on."""
+    shapes, checks = _shapes(document), sorted(_checks(document))
+    match op:
+        case ("rectangle", x, y, w, h):
+            return CreateRectangle(corner=Point2(x=x, y=y), width=w, height=h)  # type: ignore[arg-type]
+        case ("circle", x, y, r):
+            return CreateCircle(center=Point2(x=x, y=y), radius=r)  # type: ignore[arg-type]
+        case ("check", first, second, kind, nudge) if shapes:
+            a = shapes[first % len(shapes)]  # type: ignore[operator]
+            b = shapes[second % len(shapes)]  # type: ignore[operator]
+            measured = {"width": Metric.BBOX_WIDTH, "height": Metric.BBOX_HEIGHT}
+            if kind in measured:
+                metric, refs, ids = measured[kind], (), (a,)  # type: ignore[index]
+            else:
+                refs = (
+                    Ref(entity=a, feature=Feature.CENTER),
+                    Ref(entity=b, feature=Feature.CENTER),
+                )
+                metric, ids = Metric.DISTANCE, ()
+            return CreateCheck(
+                metric=metric,
+                expected=10.0 + nudge,
+                tolerance=0.5,
+                refs=refs,
+                ids=ids,  # type: ignore[operator]
+            )
+        case ("edit_check", which, nudge) if checks:
+            id = checks[which % len(checks)]  # type: ignore[operator]
+            expected = _checks(document)[id].expected + nudge  # type: ignore[operator]
+            return ModifyEntity(id=id, changes={"expected": expected})
+        case ("delete", which) if shapes:
+            return DeleteEntities(ids=(shapes[which % len(shapes)],))  # type: ignore[operator]
+        case ("delete_check", which) if checks:
+            return DeleteEntities(ids=(checks[which % len(checks)],))  # type: ignore[operator]
+        case ("move", which, dx, dy) if shapes:
+            id = shapes[which % len(shapes)]  # type: ignore[operator]
+            return MoveEntities(ids=(id,), dx=float(dx), dy=float(dy))  # type: ignore[arg-type]
+    return None
+
+
+def run_session(ops: list[Op]) -> None:
+    """Run `ops` on a bus, asserting after every step what stored checks must keep."""
+    bus = Bus(kernel=None)
+    states = [bus.document]
+    """The document after each recorded step, from the empty one: undo and redo walk it."""
+    made: list[Command] = []
+    """The resolved commands behind `states`, for replaying the session."""
+    position = 0
+    for op in ops:
+        before = bus.document
+        if op == ("undo",):
+            if bus.undo() is not None:
+                position -= 1
+                assert bus.document == states[position], "undo isn't exact"
+            continue
+        if op == ("redo",):
+            if bus.redo() is not None:
+                position += 1
+                assert bus.document == states[position], "redo isn't exact"
+            continue
+        command = _command(op, before)
+        if command is None:
+            continue
+        result = bus.execute(command)
+        if isinstance(result, Rejected):
+            assert bus.document is before, "a rejected command changed the document"
+            continue
+        assert isinstance(result, Applied)
+        after = bus.document
+        if not (result.delta.before or result.delta.after):
+            continue
+        if isinstance(command, DeleteEntities):
+            kept = set(_checks(before)) - set(command.ids)
+            assert kept <= set(_checks(after)), "a check didn't survive deleting what it measures"
+        assert bus.undo() is not None
+        assert bus.document == before, "undo isn't exact"
+        assert bus.redo() is not None
+        assert bus.document == after, "redo isn't exact"
+        states[position + 1 :] = [after]
+        made[position:] = [result.command]
+        position += 1
+        assert snapshot.loads(snapshot.dumps(after)) == after, "save and load changed it"
+        queries = bus.queries
+        for check in _checks(after).values():
+            outcome = queries.check(check)
+            if _named(check) <= after.entities.keys():
+                assert outcome.error is None, f"a check of live geometry can't measure: {outcome}"
+            else:
+                assert outcome.error is not None
+                assert outcome.error.code is ErrorCode.ENTITY_NOT_FOUND
+    replayed = Bus(kernel=None)
+    for command in made[:position]:
+        assert isinstance(replayed.execute(command), Applied)
+    assert snapshot.dumps(replayed.document) == snapshot.dumps(bus.document), "replay differs"
+
+
+@settings(max_examples=200, deadline=None)
+@given(ops=OPS)
+def test_stored_checks_survive_undo_redo_save_load_and_replay(ops: list[Op]) -> None:
+    run_session(ops)
+
+
+def test_the_properties_catch_a_delete_that_takes_checks_with_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The deliberate break: checks refer to what they measure, so deleting it deletes them,
+    # the way dimensions cascade. The property above must fail.
+    real = sketch.references
+
+    def cascading(entity: Entity) -> tuple[Ref, ...]:
+        if isinstance(entity, Expectation):
+            return entity.refs + tuple(Ref(entity=i, feature=Feature.CURVE) for i in entity.ids)
+        return real(entity)
+
+    sketch._REFERRERS.clear()
+    monkeypatch.setattr(sketch, "references", cascading)
+    try:
+        with pytest.raises(AssertionError, match="didn't survive"):
+            run_session([("rectangle", 0, 0, 10, 5), ("check", 0, 0, "width", 0), ("delete", 0)])
+    finally:
+        monkeypatch.undo()
+        sketch._REFERRERS.clear()
+    run_session([("rectangle", 0, 0, 10, 5), ("check", 0, 0, "width", 0), ("delete", 0)])
+
+
+def test_the_properties_catch_a_check_that_forgets_its_value_on_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A second break: a file that drops a check's tolerance on load.
+    real = codec.decode_entity
+
+    def forgetful(data: object, path: str) -> Entity:
+        entity = real(data, path)
+        if isinstance(entity, Expectation):
+            return Expectation(
+                metric=entity.metric,
+                expected=entity.expected,
+                tolerance=0.0,
+                refs=entity.refs,
+                ids=entity.ids,
+            )
+        return entity
+
+    monkeypatch.setattr(codec, "decode_entity", forgetful)
+    with pytest.raises(AssertionError, match="save and load"):
+        run_session([("rectangle", 0, 0, 10, 5), ("check", 0, 0, "width", 0)])
