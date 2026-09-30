@@ -40,6 +40,8 @@ class _UndoEntry:
     delta: Delta
     size: int
     """Approximate bytes: the delta's entities as compact JSON."""
+    source: str | None = None
+    """Who asked for the step, echoed when it's undone or redone."""
 
 
 class Bus:
@@ -78,17 +80,21 @@ class Bus:
     def queries(self) -> Queries:
         return DocumentQueries(self._document, self._kernel)
 
-    def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
+    def execute(
+        self, command: Command, *, merge_key: str | None = None, source: str | None = None
+    ) -> CommandResult:
         """Validate and apply. A command that changes nothing is Applied but not recorded."""
         outcome = handle(self._document, command)
         if isinstance(outcome, list):
             return Rejected(command=command, errors=tuple(outcome))
         delta = diff(self._document, outcome.document)
         if not is_empty(delta):
+            if source is None and self._open:
+                source = self._open[0].source  # the outermost transaction's
             before, self._document = self._document, outcome.document
             if not self._open:
-                self._record(before, outcome.label, merge_key, delta)
-            self._notify(ChangeReason.EXECUTE, delta, outcome.label)
+                self._record(before, outcome.label, merge_key, delta, source)
+            self._notify(ChangeReason.EXECUTE, delta, outcome.label, source)
         return Applied(
             command=outcome.command,
             delta=delta,
@@ -96,13 +102,16 @@ class Bus:
             created_ids=outcome.created_ids,
         )
 
-    def transaction(self, label: str, *, undoable: bool = True) -> "Transaction":
-        """Open with `with`. Nested transactions fold into the outermost, whose `undoable` wins.
+    def transaction(
+        self, label: str, *, undoable: bool = True, source: str | None = None
+    ) -> "Transaction":
+        """Open with `with`. Nested transactions fold into the outermost, whose `undoable`
+        and `source` win.
 
         `rollback()` reverts the transaction's changes at once, and leaving the block then
         reverts anything executed after it too: a rolled-back transaction never commits.
         """
-        return _Transaction(self, label, undoable=undoable)
+        return _Transaction(self, label, undoable=undoable, source=source)
 
     def undo(self) -> Change | None:
         self._refuse_inside_transaction("undo")
@@ -114,7 +123,7 @@ class Bus:
         inverse = entry.delta.inverted()
         self._document = apply(self._document, inverse)
         self._redo.append(entry)
-        return self._notify(ChangeReason.UNDO, inverse, entry.label)
+        return self._notify(ChangeReason.UNDO, inverse, entry.label, entry.source)
 
     def redo(self) -> Change | None:
         self._refuse_inside_transaction("redo")
@@ -124,7 +133,7 @@ class Bus:
         entry = self._redo.pop()
         self._document = apply(self._document, entry.delta)
         self._push(entry)
-        return self._notify(ChangeReason.REDO, entry.delta, entry.label)
+        return self._notify(ChangeReason.REDO, entry.delta, entry.label, entry.source)
 
     @property
     def undo_label(self) -> str | None:
@@ -145,7 +154,14 @@ class Bus:
 
     # --- Undo stack -----------------------------------------------------------------------
 
-    def _record(self, before: Document, label: str, merge_key: str | None, delta: Delta) -> None:
+    def _record(
+        self,
+        before: Document,
+        label: str,
+        merge_key: str | None,
+        delta: Delta,
+        source: str | None = None,
+    ) -> None:
         """Record the change from `before` to the current document, which is `delta`."""
         self._redo.clear()
         if merge_key is not None and merge_key == self._merge_key:
@@ -155,11 +171,11 @@ class Bus:
             net = diff(self._merge_base, self._document)
             self._merge_entry_on_top = not is_empty(net)
             if self._merge_entry_on_top:
-                self._push(_entry(label, net))
+                self._push(_entry(label, net, source))
             return
         self._merge_key, self._merge_base = merge_key, before
         self._merge_entry_on_top = merge_key is not None
-        self._push(_entry(label, delta))
+        self._push(_entry(label, delta, source))
 
     def _push(self, entry: _UndoEntry) -> None:
         self._undo.append(entry)
@@ -185,7 +201,7 @@ class Bus:
             raise RuntimeError("transactions must close in the reverse order they opened")
         self._open.pop()
         if revert:
-            self._revert_to(transaction.start, transaction.label)
+            self._revert_to(transaction.start, transaction.label, transaction.source)
             return
         if self._open:
             return  # nested: the outermost transaction commits everything
@@ -194,42 +210,50 @@ class Bus:
             return
         self._redo.clear()
         if transaction.undoable:
-            self._push(_entry(transaction.label, net))
+            self._push(_entry(transaction.label, net, transaction.source))
         else:
             self._undo.clear()
             self._undo_size = 0
         # The document was announced command by command; only the labels are news.
-        self._notify(ChangeReason.COMMIT, Delta.empty(self._document.next_id), transaction.label)
+        self._notify(
+            ChangeReason.COMMIT,
+            Delta.empty(self._document.next_id),
+            transaction.label,
+            transaction.source,
+        )
 
-    def _revert_to(self, document: Document, label: str) -> None:
+    def _revert_to(self, document: Document, label: str, source: str | None = None) -> None:
         delta = diff(self._document, document)
         if not is_empty(delta):
             self._document = document
-            self._notify(ChangeReason.ROLLBACK, delta, label)
+            self._notify(ChangeReason.ROLLBACK, delta, label, source)
 
     def _refuse_inside_transaction(self, action: str) -> None:
         if self._open:
             raise RuntimeError(f"can't {action} while a transaction is open")
 
-    def _notify(self, reason: ChangeReason, delta: Delta, label: str) -> Change:
-        change = Change(reason=reason, delta=delta, label=label)
+    def _notify(
+        self, reason: ChangeReason, delta: Delta, label: str, source: str | None = None
+    ) -> Change:
+        change = Change(reason=reason, delta=delta, label=label, source=source)
         for listener in list(self._listeners):
             listener(change)
         return change
 
 
 class _Transaction:
-    def __init__(self, bus: Bus, label: str, *, undoable: bool) -> None:
+    def __init__(self, bus: Bus, label: str, *, undoable: bool, source: str | None) -> None:
         self._bus = bus
         self.label = label
         self.undoable = undoable
+        self.source = source
         self.start = bus.document
         self._state = "new"
 
     def rollback(self) -> None:
         if self._state == "new" or self._state == "closed":
             raise RuntimeError("rollback() is only allowed inside the transaction's with block")
-        self._bus._revert_to(self.start, self.label)
+        self._bus._revert_to(self.start, self.label, self.source)
         self._state = "rolled_back"
 
     def __enter__(self) -> Self:
@@ -250,10 +274,13 @@ class _Transaction:
         self._bus._finish(self, revert=revert)
 
 
-def _entry(label: str, delta: Delta) -> _UndoEntry:
+def _entry(label: str, delta: Delta, source: str | None = None) -> _UndoEntry:
     entities = encode({"after": delta.after, "before": delta.before})
     return _UndoEntry(
-        label=label, delta=delta, size=len(json.dumps(entities, separators=(",", ":")))
+        label=label,
+        delta=delta,
+        size=len(json.dumps(entities, separators=(",", ":"))),
+        source=source,
     )
 
 

@@ -55,9 +55,11 @@ if HAVE_QT:
             super().__init__()
             self.sent: list[Command] = []
 
-        def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
+        def execute(
+            self, command: Command, *, merge_key: str | None = None, source: str | None = None
+        ) -> CommandResult:
             self.sent.append(command)
-            return super().execute(command, merge_key=merge_key)
+            return super().execute(command, merge_key=merge_key, source=source)
 
     Modifier = Qt.KeyboardModifier
     NO_MODIFIER = Qt.KeyboardModifier.NoModifier
