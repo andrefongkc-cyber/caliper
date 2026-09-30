@@ -239,3 +239,39 @@ def test_a_circle_curve_is_not_mistaken_for_a_straight_one(window) -> None:
     (id,) = window.session.execute(CreateCircle(center=P(x=0, y=0), radius=5)).created_ids
     ref = Ref(entity=id, feature=Feature.CURVE)
     assert references.straight(window.session.queries, ref) is None
+
+
+@pytest.mark.parametrize(
+    ("side", "carried_to"),
+    [(40.0, 60.0), (70.0, None)],
+    ids=["dimension line between the end and the point", "dimension line past the point"],
+)
+def test_a_line_carried_on_to_a_dimension_is_dashed_not_solid(
+    window, side: float, carried_to: float | None
+) -> None:
+    # A dimension from a point beyond a line's end to that line meets the line's extension.
+    # Drawn solid, the extension, and the dimension's own extension line along the line,
+    # looked like the line itself running on: a plate's edge poking out past the fillet at
+    # its corner, where a hole beyond the edge's end was dimensioned to the edge.
+    from caliper.app.viewport.annotations import drawing
+
+    s = window.session
+    line = _line(s.bus, P(x=0, y=40), P(x=20, y=40))
+    (point,) = _points(s.bus, P(x=60, y=30))
+    (dim,) = s.execute(
+        CreateDimension(refs=(point, line), placement=P(x=side, y=35), type=DimensionType.DISTANCE)
+    ).created_ids
+    plan = drawing(s, dim, window.canvas.view)
+    assert plan is not None
+    # Nothing solid along the line's own line, past its end.
+    assert not [seg for seg in plan.lines if seg[0].y == seg[1].y == 40]
+    ((start, end),) = plan.extensions
+    assert start == P(x=20, y=40)
+    assert end.y == 40
+    assert end.x == (carried_to if carried_to is not None else pytest.approx(side, abs=1))
+    background = _brightest_across(window, 30.5, 20)
+    real = [_brightest_across(window, x + 0.5, 40) for x in range(1, 19)]
+    carried = [_brightest_across(window, x + 0.5, 40) for x in range(22, 58)]
+    assert min(real) > background + 40  # the line itself is solid
+    assert max(carried) > background + 40  # the extension is drawn
+    assert min(carried) <= background + 5  # and broken by gaps
