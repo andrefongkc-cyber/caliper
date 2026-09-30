@@ -1,4 +1,4 @@
-Status: doing the shell side of C-1/C-3/C-4 on `contracts/checks-authors-labels` (checks read from the document, one label rule, History names a script's changes), next: review with Performance V2 (PR #47) and the stacked branches
+Status: a line carried on to a dimension beyond its end is drawn dashed, on `shared/dimension-extensions` (local, stacked on #51), next: review with #47 to #51
 
 # Shell workplan — Stream B
 
@@ -228,6 +228,7 @@ Built on a local integration branch, `integ/shell-on-engine` = `stream/shell` + 
 - `ChecksPanel.metric` shadowed `QWidget.metric()`, crashing any render of the panel.
 - After a transaction the Edit menu kept the previous undo label.
 - The app-test fixture re-applied the stylesheet per test (61 s → 11 s suite).
+- A dimension to a line from beyond the line's end drew two solid lines along the line past its end: the line carried on to the foot, and the dimension's own extension line, which lies along the line (a distance from a point to a line is square to it). A plate's edge seemed to run past the fillet at its corner (the stress plate's Ø0.2 hole, dimensioned to the top and right edges, 2 mm past their ends). Now the extension line isn't drawn where it lies along the line, and whatever is past the line's end is dashed (`DimensionDrawing.extensions`, `_past_ends`), for angle dimensions too (2026-09-30, `shared/dimension-extensions`).
 
 ## Issue #9 (interior picking, drag-select, Zoom to Fit labels), 2026-09-15
 
