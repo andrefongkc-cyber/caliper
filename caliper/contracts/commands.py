@@ -346,6 +346,12 @@ class Change:
     reason: ChangeReason
     delta: Delta
     label: str
+    source: str | None = None
+    """Who asked for the change, as the caller named itself to `execute` or `transaction`
+    (the app says "You" or "Agent"; a script, its own name), so a view can attribute changes
+    it didn't make. None when the caller didn't say. EXECUTE and COMMIT changes inside a
+    transaction carry the transaction's source unless the execute gave its own; UNDO and REDO
+    carry the source of the step they take back or put back."""
 
 
 Listener = Callable[[Change], None]
@@ -397,8 +403,10 @@ class CommandBus(Protocol):
         """Queries bound to the current snapshot."""
         ...
 
-    def execute(self, command: Command, *, merge_key: str | None = None) -> CommandResult:
-        """Validate and apply a command.
+    def execute(
+        self, command: Command, *, merge_key: str | None = None, source: str | None = None
+    ) -> CommandResult:
+        """Validate and apply a command. `source` names who asked, for `Change.source`.
 
         Consecutive executes with the same `merge_key` merge into one undo entry, e.g.
         "e3.width" while a value is being dragged. Ignored inside a transaction.
@@ -408,8 +416,10 @@ class CommandBus(Protocol):
         """
         ...
 
-    def transaction(self, label: str, *, undoable: bool = True) -> Transaction:
-        """Open a transaction.
+    def transaction(
+        self, label: str, *, undoable: bool = True, source: str | None = None
+    ) -> Transaction:
+        """Open a transaction. `source` names who asked, for `Change.source`.
 
         undoable=True: the commit becomes one undo entry named `label`, holding the net
         delta however many commands ran. undoable=False: nothing is recorded, and the

@@ -31,7 +31,8 @@ from caliper.engine.io import snapshot
 
 
 class Author(StrEnum):
-    """Who made a change. The contract's `Change` doesn't say, so the shell records it."""
+    """Who made a change in the app. The session names it to the bus as `Change.source`; a
+    change someone else made on the session's bus is recorded under the source it gave."""
 
     YOU = "You"
     AGENT = "Agent"
@@ -40,7 +41,8 @@ class Author(StrEnum):
 @dataclass(frozen=True, slots=True)
 class HistoryEntry:
     label: str
-    author: Author
+    author: str
+    """An `Author`, or the source another caller of the bus gave ("Unknown" without one)."""
     at: float
     """Seconds since the epoch."""
     commands: tuple[Command, ...] = ()
@@ -80,6 +82,8 @@ class DocumentSession(QObject):
         self._history: list[HistoryEntry] = []
         self._history_position = 0
         self._transaction_depth = 0
+        self._own = 0
+        """Executes the session itself is making: their changes are recorded by the session."""
         self._pending: list[Command] = []
         self._held = False
         """A change arrived inside the open transaction; views hear of it when it closes."""
@@ -107,7 +111,11 @@ class DocumentSession(QObject):
 
     def execute(self, command: Command, *, author: Author = Author.YOU) -> CommandResult:
         """Send a command. A rejection is also reported as a message."""
-        result = self._bus.execute(command)
+        self._own += 1
+        try:
+            result = self._bus.execute(command, source=author.value)
+        finally:
+            self._own -= 1
         if isinstance(result, Rejected):
             self.message.emit("; ".join(e.message for e in result.errors))
             named = frozenset(id for e in result.errors for id in e.ids)
@@ -131,7 +139,7 @@ class DocumentSession(QObject):
         self._transaction_depth += 1
         committed = False
         try:
-            with self._bus.transaction(label) as tx:
+            with self._bus.transaction(label, source=author.value) as tx:
                 yield tx
             committed = True
         finally:
@@ -170,7 +178,7 @@ class DocumentSession(QObject):
         """How many history entries are currently applied; later ones are undone."""
         return self._history_position
 
-    def _record(self, label: str, author: Author, commands: tuple[Command, ...] = ()) -> None:
+    def _record(self, label: str, author: str, commands: tuple[Command, ...] = ()) -> None:
         del self._history[self._history_position :]  # a new change discards the redo stack
         self._history.append(
             HistoryEntry(label=label, author=author, at=time.time(), commands=commands)
@@ -201,6 +209,9 @@ class DocumentSession(QObject):
         if self._transaction_depth:
             self._held = True  # announced once, when the transaction closes
             return
+        if not self._own and change.reason is ChangeReason.EXECUTE:
+            # Made on this bus by someone other than the session: a script, say (C-4).
+            self._record(change.label, change.source or "Unknown")
         self._announce(change)
 
     def _announce(self, change: Change) -> None:
