@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from caliper.app import icons
-from caliper.app.panels.checks import describe, options
+from caliper.app.panels.checks import ACTUAL_ROLE, describe, options
 from caliper.app.panels.describe import ICON
 from caliper.app.panels.history import POSITION_ROLE, ago
 from caliper.app.session import Author
@@ -18,6 +18,7 @@ from caliper.contracts.commands import (
     CreatePoint,
     CreateRadialDimension,
     CreateRectangle,
+    DeleteEntities,
     ModifyEntity,
 )
 from caliper.contracts.document import (
@@ -478,3 +479,67 @@ def test_a_constraint_offers_no_checks(window) -> None:
     ).created_ids
     s.set_selection(frozenset({h}))
     assert options(s) == []
+
+
+# --- Checks are in the document (C-1) -----------------------------------------------------
+
+
+def test_a_check_is_saved_with_the_part_and_back_after_reopening(window, sketch, tmp_path) -> None:
+    # C-1: checks lived in the session, so saving and reopening lost them.
+    plate, _ = sketch
+    window.session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,))
+    )
+    path = tmp_path / "plate.caliper"
+    window._save_to(path)
+    window.new_action.trigger()
+    assert window.session.checks == ()
+    assert window.load(path)
+    assert window.session.checks == (
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,)),
+    )
+    assert window.checks.summary.text() == "1 of 1 pass"
+
+
+def test_adding_and_removing_a_check_are_undone_like_any_change(window, qtbot, sketch) -> None:
+    plate, _ = sketch
+    window.session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,))
+    )
+    assert window.undo_action.text() == "Undo Create Check"
+    assert window.session.history[-1].label == "Create Check"
+    window.undo_action.trigger()
+    assert window.session.checks == ()
+    assert window.checks.summary.text() == "Checks"
+    window.redo_action.trigger()
+    panel = window.checks
+    panel.list.setCurrentRow(0)
+    qtbot.keyClick(panel.list, Qt.Key.Key_Delete)
+    assert window.session.checks == ()
+    window.undo_action.trigger()
+    assert len(window.session.checks) == 1
+
+
+def test_a_check_outlives_the_geometry_it_measures(window, sketch) -> None:
+    _, hole = sketch
+    window.session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=16, tolerance=0.01, ids=(hole,))
+    )
+    window.session.execute(DeleteEntities(ids=(hole,)))
+    assert len(window.session.checks) == 1  # still a requirement: it fails until put right
+    panel = window.checks
+    assert panel.summary.text() == "0 of 1 pass"
+    assert panel.list.item(0).data(ACTUAL_ROLE) == "can't measure"
+
+
+def test_checks_stay_out_of_the_browser_and_select_all(window, sketch) -> None:
+    plate, _ = sketch
+    (check,) = window.session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,))
+    ).created_ids
+    assert check not in window.browser.items
+    assert window.browser.groups["Geometry"].childCount() == 2
+    window.session.execute(ModifyEntity(id=check, changes={"expected": 121.0}))  # no row to fill
+    window.select_all()
+    assert check not in window.session.selection
+    assert plate in window.session.selection

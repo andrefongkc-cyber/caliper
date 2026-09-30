@@ -28,6 +28,7 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    Expectation,
     Feature,
     Geometry,
     Line,
@@ -112,6 +113,8 @@ def normalize(tp: object, value: object, field: str, errors: list[Error]) -> obj
         return normalize_ref(value, field, errors)
     if tp is EntityId:
         return normalize_id(value, field, errors)
+    if tp == tuple[EntityId, ...]:
+        return normalize_ids(value, field, errors)
     if isinstance(tp, type) and issubclass(tp, StrEnum):
         return normalize_enum(tp, value, field, errors)
     raise TypeError(f"no normalizer for field type {tp!r}")
@@ -168,6 +171,13 @@ def normalize_id(value: object, field: str, errors: list[Error]) -> EntityId:
         return EntityId(value)
     errors.append(_error(ErrorCode.ID_INVALID, field, f"{field} must match {ID_PATTERN}"))
     return EntityId("")
+
+
+def normalize_ids(value: object, field: str, errors: list[Error]) -> tuple[EntityId, ...]:
+    if not isinstance(value, tuple | list):
+        errors.append(_error(ErrorCode.VALUE_WRONG_TYPE, field, f"{field} must be a list of ids"))
+        return ()
+    return tuple(normalize_id(item, f"{field}[{i}]", errors) for i, item in enumerate(value))
 
 
 def normalize_ref(value: object, field: str, errors: list[Error]) -> Ref:
@@ -228,6 +238,10 @@ def domain_errors(entity: Entity) -> list[Error]:
             errors.append(
                 _error(ErrorCode.VALUE_NOT_POSITIVE, "value", "value must be greater than 0")
             )
+        case Expectation(tolerance=tolerance) if tolerance < 0:
+            errors.append(
+                _error(ErrorCode.VALUE_OUT_OF_RANGE, "tolerance", "tolerance must be 0 or more")
+            )
         case AngleDimension(value=float(v)) if not 0 < v < 180:
             errors.append(
                 _error(
@@ -241,7 +255,10 @@ def domain_errors(entity: Entity) -> list[Error]:
 
 
 def reference_errors(entity: Entity, document: Document) -> list[Error]:
-    """Rules about what a dimension or constraint refers to."""
+    """Rules about what a dimension or constraint refers to.
+
+    None for a check: what it measures may be gone, and it fails until put right (C-1).
+    Whether a new or edited check can be evaluated is up to the command (`CreateCheck`)."""
     match entity:
         case DistanceDimension(a=a, b=b, orientation=orientation):
             errors = feature_errors(a, "a", document, curves=True)

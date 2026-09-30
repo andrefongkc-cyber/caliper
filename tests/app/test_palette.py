@@ -50,6 +50,7 @@ def test_every_command_type_is_listed_or_deliberately_left_out() -> None:
         "CreateDimension",  # a selection and a placement: the Dimension tool, via infer_dimension
         "CreateConstraint",  # offered per selection from queries.applicable_constraints
         "ModifyEntity",  # the properties panel and on-canvas editing
+        "CreateCheck",  # the Checks panel, from the selection or the last measurement
     }
 
 

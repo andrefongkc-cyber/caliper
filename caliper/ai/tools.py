@@ -3,10 +3,12 @@
 There is one tool per `Command` kind, generated from the contract, so the tools follow the
 contract as it grows. A call's arguments are the command's fields in the JSON form command
 scripts use, decoded by the same codec replay uses and validated by the bus, which rejects
-bad input with its usual structured errors. Three tools repeat geometry, mirror and linear and
-circular pattern (`caliper.ai.patterns`): each is several of those same commands in one call,
-kept or undone together. A few query tools let the model look before and after it acts: the
-document, single entities, distances, checks, and solve status.
+bad input with its usual structured errors. The one exception is `CreateCheck`: `run_check`
+measures a check and stores it with that command, and `remove_check` deletes one. Three
+tools repeat geometry, mirror and linear and circular pattern (`caliper.ai.patterns`): each is
+several of those same commands in one call, kept or undone together. A few query tools let the
+model look before and after it acts: the document, single entities, distances, and solve
+status.
 
 Everything runs in a `Workspace`: a scratch bus on a copy of the document. The user's
 document is untouched until they accept what the workspace did, which is its `commands`: the
@@ -23,23 +25,32 @@ from typing import Union, get_args, get_origin, get_type_hints
 from caliper.ai import construct, patterns
 from caliper.ai.context import describe
 from caliper.ai.model import ToolCall, ToolOutcome, ToolSpec
-from caliper.contracts.commands import Applied, Command, Delta, Rejected
+from caliper.contracts.commands import (
+    Applied,
+    Command,
+    CreateCheck,
+    DeleteEntities,
+    Delta,
+    ModifyEntity,
+    Rejected,
+)
 from caliper.contracts.document import (
     POINT_FEATURES,
     AngleDimension,
-    Constraint,
     DistanceDimension,
     Document,
     EntityId,
+    Expectation,
     Feature,
+    Metric,
     Point2,
     RadialDimension,
     Ref,
 )
 from caliper.contracts.errors import Error
-from caliper.contracts.queries import Expectation, Metric
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.handlers import Executed
+from caliper.engine.commands.validation import GEOMETRY
 from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import COMMAND_KINDS, DecodeError, decode_command, encode
 
@@ -228,9 +239,11 @@ QUERY_TOOLS = (
         name="run_check",
         description=(
             "Check a measurement against what the request asked for. Passes when "
-            "|actual - expected| <= tolerance. Checks you run are shown to the user with your "
-            "changes, so run one for each measurement the request states. Running a check of "
-            "the same measurement again replaces the earlier one. Metrics: "
+            "|actual - expected| <= tolerance. The check is stored in the sketch as one of "
+            "your changes: the user sees it with them, and keeps it once they accept, so run "
+            "one for each measurement the request states. Running a check of a measurement the "
+            "sketch already checks replaces that check's expected value and tolerance. A check "
+            "that can't be measured (an error) isn't stored. Metrics: "
             + "; ".join(f"{metric.value}: {meaning}" for metric, meaning in METRICS.items())
             + "."
         ),
@@ -250,8 +263,9 @@ QUERY_TOOLS = (
     ToolSpec(
         name="remove_check",
         description=(
-            "Take a check you ran off your pending changes: the one of this metric, refs, and "
-            "ids, whatever value it expected. To correct a check's value, run it again instead."
+            "Remove the sketch's check of this metric, refs, and ids, whatever value it "
+            "expects: one you ran by mistake, or one the request says to drop. It's one of "
+            "your changes, so undo puts it back. To correct a check's value, run it again."
         ),
         input_schema={
             "type": "object",
@@ -292,8 +306,14 @@ QUERY_TOOLS = (
 REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN, patterns.CIRCULAR)
 DRAWING_TOOLS = (construct.ARC_THROUGH, construct.OUTLINE)
 
+COMMAND_TOOLS: Mapping[str, type[Command]] = {
+    kind: cls for kind, cls in COMMAND_KINDS.items() if cls is not CreateCheck
+}
+"""A tool for each command but `CreateCheck`: `run_check` measures a check before it stores it,
+and a check that can't be measured isn't stored, so the model has one way to check, not two."""
+
 TOOLS: tuple[ToolSpec, ...] = (
-    *(_command_spec(kind, cls) for kind, cls in COMMAND_KINDS.items()),
+    *(_command_spec(kind, cls) for kind, cls in COMMAND_TOOLS.items()),
     *DRAWING_TOOLS,
     *REPEAT_TOOLS,
     *QUERY_TOOLS,
@@ -324,7 +344,6 @@ class Workspace:
         self._calls: list[tuple[int, str]] = []
         """Each call that changed something: how many of `_applied` it made, and its label.
         Undo takes back a whole call, so a mirror or pattern goes in one step."""
-        self._checks: list[Expectation] = []
         self._handlers: Mapping[str, Callable[[Mapping[str, object]], JSON]] = {
             patterns.MIRROR.name: lambda arguments: self._repeat(patterns.mirror, arguments),
             patterns.PATTERN.name: lambda arguments: self._repeat(
@@ -361,22 +380,26 @@ class Workspace:
         return tuple(applied.label for applied in self._applied)
 
     @property
+    def label(self) -> str:
+        """For the undo menu: the single change's own label, or one for several. A check goes
+        with what it checks, so checks count only when there's nothing else: a rectangle and
+        its check is "Create Rectangle"."""
+        shapes = [a.label for a in self._applied if not _about_checks(a.delta)]
+        labels = shapes or list(self.labels)
+        return labels[0] if len(labels) == 1 else "Assistant Changes"
+
+    @property
     def executed(self) -> Executed:
         """How `commands` took `base` to `document`: accepting them commits these outcomes
         instead of solving every command again (`already`)."""
         return Executed(base=self.base, steps=tuple(self._applied), result=self._bus.document)
-
-    @property
-    def checks(self) -> tuple[Expectation, ...]:
-        """Each distinct check the model ran, in the order it first ran it."""
-        return tuple(self._checks)
 
     def call(self, call: ToolCall) -> ToolOutcome:
         arguments: object = call.arguments  # a model can send anything
         if not isinstance(arguments, Mapping):
             return ToolOutcome(call, {"error": "arguments must be an object"}, is_error=True)
         try:
-            if call.name in COMMAND_KINDS:
+            if call.name in COMMAND_TOOLS:
                 return ToolOutcome(call, self._command(call.name, arguments))
             handler = self._handlers.get(call.name)
             if handler is None:
@@ -392,14 +415,9 @@ class Workspace:
             command = decode_command({**arguments, "kind": kind}, kind)
         except (DecodeError, TypeError, ValueError) as e:
             raise _ToolError({"error": str(e)}) from e
-        result = self._bus.execute(command)
-        if isinstance(result, Rejected):
-            raise _ToolError({"rejected": [_error(e) for e in result.errors]})
-        assert isinstance(result, Applied)
-        if not (result.delta.before or result.delta.after):
+        result = self._execute(command)
+        if result is None:
             return {"applied": True, "changed": "nothing: the document already was that way"}
-        self._applied.append(result)
-        self._calls.append((1, result.label))
         # No echo of the command: what it created and changed, in stored form, says all the
         # resolved command would (ids, inferred kinds, canonical order), in half the tokens.
         return {
@@ -408,6 +426,19 @@ class Workspace:
             "created": [str(id) for id in result.created_ids],
             "changed": _changes(result.delta),
         }
+
+    def _execute(self, command: Command) -> Applied | None:
+        """Run one command as a call of its own, which undo takes back; None if it changed
+        nothing."""
+        result = self._bus.execute(command)
+        if isinstance(result, Rejected):
+            raise _ToolError({"rejected": [_error(e) for e in result.errors]})
+        assert isinstance(result, Applied)
+        if not (result.delta.before or result.delta.after):
+            return None
+        self._applied.append(result)
+        self._calls.append((1, result.label))
+        return result
 
     def _repeat(
         self,
@@ -490,7 +521,12 @@ class Workspace:
             if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
                 measured = queries.dimension_value(id)
                 data["measured"] = None if isinstance(measured, Error) else measured
-            elif not isinstance(entity, Constraint):
+            elif isinstance(entity, Expectation):
+                result = queries.check(entity)
+                data["passed"], data["actual"] = result.passed, result.actual
+                if result.error is not None:
+                    data["error"] = _error(result.error)
+            elif isinstance(entity, GEOMETRY):
                 points: dict[str, JSON] = {}
                 for feature in sorted(POINT_FEATURES[type(entity)]):
                     at = queries.feature_point(Ref(entity=id, feature=feature))
@@ -520,32 +556,36 @@ class Workspace:
             ids=_ids(arguments.get("ids", []), "ids"),
         )
         result = self._bus.queries.check(expectation)
+        if result.error is not None:
+            return {"passed": False, "actual": None, "error": _error(result.error)}
+        expected, tolerance = float(expectation.expected), float(expectation.tolerance)
+        # The same measurement again replaces the check's value: a check run with the wrong
+        # value is put right, not left on the proposal, failing (AI-2).
+        found = self._stored(Metric(expectation.metric), expectation.refs, expectation.ids)
         replaced: Expectation | None = None
-        if result.error is None:
-            normalized = Expectation(
-                metric=Metric(expectation.metric),
-                expected=float(expectation.expected),
-                tolerance=float(expectation.tolerance),
-                refs=expectation.refs,
-                ids=expectation.ids,
+        if found is None:
+            created = self._execute(
+                CreateCheck(
+                    metric=Metric(expectation.metric),
+                    expected=expected,
+                    tolerance=tolerance,
+                    refs=expectation.refs,
+                    ids=expectation.ids,
+                )
             )
-            # The same measurement again replaces the earlier check: a check run with the
-            # wrong value can be put right instead of staying on the proposal, failing (AI-2).
-            for n, earlier in enumerate(self._checks):
-                if (earlier.metric, earlier.refs, earlier.ids) == (
-                    normalized.metric,
-                    normalized.refs,
-                    normalized.ids,
-                ):
-                    if earlier != normalized:
-                        replaced, self._checks[n] = earlier, normalized
-                    break
-            else:
-                self._checks.append(normalized)
+            assert created is not None
+            id = created.created_ids[0]
+        else:
+            id, earlier = found
+            if (earlier.expected, earlier.tolerance) != (expected, tolerance):
+                changes = {"expected": expected, "tolerance": tolerance}
+                self._execute(ModifyEntity(id=id, changes=changes))
+                replaced = earlier
         return {
+            "check": id,
             "passed": result.passed,
             "actual": result.actual,
-            "error": None if result.error is None else _error(result.error),
+            "error": None,
             **(
                 {}
                 if replaced is None
@@ -554,24 +594,37 @@ class Workspace:
         }
 
     def _remove_check(self, arguments: Mapping[str, object]) -> JSON:
-        """Take back a check (AI-2): matched by what it measures, not the value it expected."""
+        """Remove a check (AI-2): matched by what it measures, not the value it expects."""
         refs = arguments.get("refs", [])
         if not isinstance(refs, list):
             raise _ToolError({"error": "refs must be a list of references"})
         name = arguments.get("metric")
         if name not in {m.value for m in Metric}:
             raise _ToolError({"error": f"no metric {name!r}"})
-        metric = Metric(str(name))
-        measurement = (
-            metric,
+        found = self._stored(
+            Metric(str(name)),
             tuple(_ref(r, f"refs[{i}]") for i, r in enumerate(refs)),
             _ids(arguments.get("ids", []), "ids"),
         )
-        for n, check in enumerate(self._checks):
-            if (check.metric, check.refs, check.ids) == measurement:
-                del self._checks[n]
-                return {"removed": {"expected": check.expected, "tolerance": check.tolerance}}
-        raise _ToolError({"error": "you ran no check of that measurement"})
+        if found is None:
+            raise _ToolError({"error": "the sketch has no check of that measurement"})
+        id, check = found
+        self._execute(DeleteEntities(ids=(id,)))
+        return {"removed": {"check": id, "expected": check.expected, "tolerance": check.tolerance}}
+
+    def _stored(
+        self, metric: Metric, refs: tuple[Ref, ...], ids: tuple[EntityId, ...]
+    ) -> tuple[EntityId, Expectation] | None:
+        """The sketch's check of this measurement, if it has one."""
+        for id in sorted(self.document.entities):
+            entity = self.document.entities[id]
+            if isinstance(entity, Expectation) and (entity.metric, entity.refs, entity.ids) == (
+                metric,
+                refs,
+                ids,
+            ):
+                return id, entity
+        return None
 
     def _solve_status(self, arguments: Mapping[str, object]) -> JSON:
         status = self._bus.queries.solve_status()
@@ -628,6 +681,11 @@ def _changes(delta: Delta, added: Callable[[EntityId], bool] = lambda id: True) 
     if len(modified) > MODIFIED_SHOWN:
         changes["also_modified"] = [str(id) for id in modified[MODIFIED_SHOWN:]]
     return changes
+
+
+def _about_checks(delta: Delta) -> bool:
+    """Whether a change touched nothing but checks."""
+    return all(isinstance(e, Expectation) for e in (*delta.before.values(), *delta.after.values()))
 
 
 def _merged(deltas: list[Delta]) -> Delta:

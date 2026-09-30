@@ -17,7 +17,14 @@ from mcp.types import CallToolResult, TextContent
 from caliper.ai.bridge import NOT_RUNNING, SOCKET_ENV, BridgeError, Request, Response, ask
 from caliper.ai.draft import Ended
 from caliper.ai.mcp_server import INSTRUCTIONS, MCP_TOOLS, PROGRESS, READ_ONLY, build
-from caliper.ai.tools import CONVENTIONS, DRAWING_TOOLS, QUERY_TOOLS, REPEAT_TOOLS, TOOLS
+from caliper.ai.tools import (
+    COMMAND_TOOLS,
+    CONVENTIONS,
+    DRAWING_TOOLS,
+    QUERY_TOOLS,
+    REPEAT_TOOLS,
+    TOOLS,
+)
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 from caliper.engine.io.codec import COMMAND_KINDS
@@ -70,14 +77,15 @@ def test_it_offers_the_tools_the_in_app_assistant_uses_and_report_progress() -> 
 def test_it_exposes_caliper_and_nothing_else() -> None:
     names = {spec.name for spec in MCP_TOOLS}
     extra = {spec.name for spec in (*REPEAT_TOOLS, *DRAWING_TOOLS)}
-    assert names == set(COMMAND_KINDS) | extra | {spec.name for spec in QUERY_TOOLS} | {
+    assert names == set(COMMAND_TOOLS) | extra | {spec.name for spec in QUERY_TOOLS} | {
         PROGRESS.name
     }
-    assert len(names) == 28
+    assert len(names) == 28  # create_check isn't one: run_check stores a check (C-1)
     for word in ("shell", "exec", "file", "python", "eval", "http", "fetch", "system", "terminal"):
         assert not [name for name in names if word in name], word
     assert names >= READ_ONLY
     assert not READ_ONLY & COMMAND_KINDS.keys()
+    assert not READ_ONLY & {"run_check", "remove_check"}  # they change the proposal
 
 
 def test_an_unknown_tool_is_refused_without_reaching_caliper(caliper, socket_file: Path) -> None:
@@ -100,12 +108,11 @@ def test_a_change_runs_through_caliper_and_waits_for_the_user(caliper, socket_fi
         assert len(result.content) == 1
         assert data(result)["created"] == ["e1"]  # type: ignore[index]
         check = await client.call_tool("run_check", WIDTH_CHECK)
-        assert data(check) == {"passed": True, "actual": 100.0, "error": None}
+        assert data(check) == {"check": "e2", "passed": True, "actual": 100.0, "error": None}
 
     run(body, partial(ask, path=socket_file))
     assert dict(caliper.bus.document.entities) == {}  # untouched until accepted
-    assert len(caliper.draft.commands) == 1
-    assert len(caliper.draft.checks) == 1
+    assert [c.kind for c in caliper.draft.commands] == ["create_rectangle", "create_check"]
     assert caliper.requests[0] == Request(
         client="mcp", tool="create_rectangle", arguments=RECTANGLE
     )

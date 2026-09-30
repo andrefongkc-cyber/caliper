@@ -142,9 +142,6 @@ class McpHost(QObject):
         self.stepped.emit(request.client, answer.outcome)
         if answer.changed:
             self._show()
-        for expectation in answer.checked:  # nothing pending to carry it: straight to Checks
-            if expectation not in self.session.checks:
-                self.session.add_check(expectation)
         outcome = answer.outcome
         response = Response(outcome.content, outcome.is_error, answer.note)
         return encode_response(response), answer.changed
@@ -201,8 +198,7 @@ class McpHost(QObject):
                 draft.label,
                 f"Changes from {self._client} over MCP. Accept to apply them as one step.",
                 draft.commands,
-                draft.checks,
-                draft.executed,
+                executed=draft.executed,
             )
             assert draft.base is not None
             self._shown = self.controller.propose(plan, draft.base, result=draft.workspace.document)

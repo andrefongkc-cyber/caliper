@@ -19,7 +19,7 @@ from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import DecodeError, decode_command, decode_document, encode
 
 FORMAT = "caliper.document"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 UNITS: Mapping[str, str] = MappingProxyType({"angle": "deg", "length": "mm"})
 
 type Migration = Callable[[dict[str, object]], dict[str, object]]
@@ -49,7 +49,17 @@ def _v1_to_v2(data: dict[str, object]) -> dict[str, object]:
     return data | {"document": document | {"entities": entities}}
 
 
-MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2}
+def _v2_to_v3(data: dict[str, object]) -> dict[str, object]:
+    """Checks are stored in the document (C-1, ADR 0010): a new entity kind, `check`.
+
+    A schema-2 file has none, and everything in it keeps its meaning, so nothing changes.
+    The version moves so that a Caliper too old to know checks says to update, rather than
+    failing on an unknown kind.
+    """
+    return data
+
+
+MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2, 2: _v2_to_v3}
 """MIGRATIONS[n] upgrades the data of a schema-n file to schema n+1.
 
 Each migration is a pure function over raw JSON data and needs a fixture test: an old file

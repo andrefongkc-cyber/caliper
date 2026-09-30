@@ -18,7 +18,8 @@ Conventions:
 Frozen as of V1: a new entity kind or field needs a joint `contracts/` PR, and a file
 format change on top of that (ADR 0005). V1.5 (`contracts/sketch-constraints`) added
 `Point`, the `construction` flag, curve features, `Constraint`, driving dimension values,
-and `AngleDimension` (file schema 2).
+and `AngleDimension` (file schema 2). C-1 (`contracts/checks-authors-labels`) moved
+`Expectation` here from the queries: a check is stored in the document (file schema 3).
 """
 
 from collections.abc import Mapping
@@ -324,7 +325,56 @@ class Constraint:
     refs: tuple[Ref, ...]
 
 
-Entity = Geometry | Annotation | Constraint
+# --- Checks -----------------------------------------------------------------------------
+# A check is a requirement the user or the AI wrote down: a numeric claim about the sketch,
+# checked headlessly by `Queries.check`. It is stored like any other entity, so it is saved
+# with the project and added, edited, removed, and undone by commands (ADR 0010). It never
+# moves geometry, and nothing refers to it. It refers to what it measures, but deleting that
+# leaves the check in place, failing, rather than deleting the requirement with it.
+
+
+class Metric(StrEnum):
+    """What an Expectation measures, and which inputs it reads."""
+
+    DISTANCE = "distance"
+    """refs=(a, b)"""
+    DISTANCE_X = "distance_x"
+    """refs=(a, b); absolute horizontal distance"""
+    DISTANCE_Y = "distance_y"
+    """refs=(a, b); absolute vertical distance"""
+    POSITION_X = "position_x"
+    """refs=(point,); the point feature's x coordinate, signed, from the origin"""
+    POSITION_Y = "position_y"
+    """refs=(point,); the point feature's y coordinate, signed, from the origin"""
+    BBOX_WIDTH = "bbox_width"
+    """ids; empty means the whole document"""
+    BBOX_HEIGHT = "bbox_height"
+    """ids; empty means the whole document"""
+    AREA = "area"
+    """ids forming one closed profile"""
+    DIMENSION_VALUE = "dimension_value"
+    """ids=(dimension,)"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Expectation:
+    """A numeric claim about the document that can be checked headlessly: a check.
+
+    Plain data, so bench cases, tests, and the AI loop can all write them. Stored in the
+    document as a "check" entity (`CreateCheck`); one that isn't stored is just as valid an
+    argument to `Queries.check`.
+    """
+
+    kind: ClassVar[str] = "check"
+    metric: Metric
+    expected: float
+    tolerance: float
+    """Passes when |actual - expected| <= tolerance. 0 or more."""
+    refs: tuple[Ref, ...] = ()
+    ids: tuple[EntityId, ...] = ()
+
+
+Entity = Geometry | Annotation | Constraint | Expectation
 
 
 # --- Document ---------------------------------------------------------------------------
