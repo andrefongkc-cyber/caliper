@@ -1124,11 +1124,7 @@ def _redundancy(
     equations = system.equations(order, values)
     _, gradients, owners = _evaluate(equations, system.frame(values, everything))
     rows = _dense(gradients, columns)
-    basis = _extended(
-        tuple(system.params[i] for i in canonical),
-        rows,
-        existing=len(rows) - sum(owner in new for owner in owners),
-    )
+    basis = _extended(tuple(system.params[i] for i in canonical), rows)
     if local:
         # A kept row's last entry in `lower` is what was left of it after the rows before it.
         close = tolerance.DECIDED * tolerance.INDEPENDENT
@@ -1190,51 +1186,49 @@ class _Factored:
 
 
 _FACTORED = threading.local()
-"""Each thread's last redundancy check: its factorization after the rows that were there
-before, and after all of them."""
+"""Each thread's last redundancy check's factorization (`_extended`)."""
 
 
-def _extended(columns: tuple[Param, ...], rows: list[list[float]], existing: int) -> RowBasis:
-    """`rows` factorized, the first `existing` of them there before the command. Carries on
-    from the last check's factorization where this check starts with the same columns and
-    rows, to the bit: then what it did for them is exactly what doing them again would do,
-    since each row's part of a factorization depends only on the rows before it. New columns
-    are new geometry, last in the order and zero in those rows. The reference solver works
-    everything out afresh."""
+def _extended(columns: tuple[Param, ...], rows: list[list[float]]) -> RowBasis:
+    """`rows` factorized, carrying on from the last check's factorization for as many rows as
+    this check starts with, to the bit, in the same columns. A factorization only ever
+    appends: each row's part depends only on the rows before it, so the last one's state after
+    its first k rows is exactly what factorizing those k rows again would give, and it's kept
+    whole inside it. A command adding to a cluster reuses every row; an edit that moves some
+    geometry reuses the rows before the first it changed. New columns are new geometry, last
+    in the order and zero in the old rows. The reference solver works everything out afresh."""
     width = len(columns)
     entries = tuple(tuple((c, x) for c, x in enumerate(row) if x != 0.0) for row in rows)
     fresh = _REFERENCE.get()
-    matching = [
-        kept
-        for kept in (() if fresh else getattr(_FACTORED, "last", ()))
-        if len(kept.rows) <= len(entries)
-        and columns[: len(kept.columns)] == kept.columns
-        and entries[: len(kept.rows)] == kept.rows
-    ]
-    best = max(matching, key=lambda kept: len(kept.rows), default=None)
-    start = 0 if best is None else len(best.rows)
-    basis = RowBasis(width) if best is None else _widened(best.basis, width)
-    saved = [kept for kept in matching if len(kept.rows) == existing]
+    last: _Factored | None = None if fresh else getattr(_FACTORED, "last", None)
+    start = 0
+    if last is not None and columns[: len(last.columns)] == last.columns:
+        for kept, now in zip(last.rows, entries, strict=False):
+            if kept != now:
+                break
+            start += 1
+    basis = RowBasis(width) if last is None or not start else _truncated(last.basis, start, width)
     for i in range(start, len(rows)):
-        if i == existing and not saved:
-            saved.append(_Factored(columns, entries[:i], _widened(basis, width)))
         basis.add(i, rows[i])
     if not fresh:
-        _FACTORED.last = [*saved, _Factored(columns, entries, _widened(basis, width))]
+        _FACTORED.last = _Factored(columns, entries, basis)
     return basis
 
 
-def _widened(basis: RowBasis, width: int) -> RowBasis:
-    """A copy of `basis` over `width` columns, the new ones zero in every row."""
+def _truncated(basis: RowBasis, rows: int, width: int) -> RowBasis:
+    """A copy of `basis` as it was after its first `rows` rows, over `width` columns (the new
+    ones zero in every row)."""
     grow = [0.0] * (width - basis.width)
+    kept = [i for i in basis.kept if i < rows]
+    n = len(kept)
     return RowBasis(
         width,
-        q=[[*row, *grow] for row in basis.q],
-        lower=[row[:] for row in basis.lower],
-        kept=basis.kept[:],
-        dependent={i: row[:] for i, row in basis.dependent.items()},
-        supports=basis.supports[:],
-        masks=basis.masks[:],
+        q=[[*row, *grow] for row in basis.q[:n]],
+        lower=[row[:] for row in basis.lower[:n]],
+        kept=kept,
+        dependent={i: row[:] for i, row in basis.dependent.items() if i < rows},
+        supports=basis.supports[:n],
+        masks=basis.masks[:n],
     )
 
 
