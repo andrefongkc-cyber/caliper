@@ -6,10 +6,9 @@ from PySide6.QtWidgets import QApplication
 
 from caliper.app.agent.proposal import Plan, prepare
 from caliper.app.agent.scripted import EXAMPLES, understand
-from caliper.app.session import Author
+from caliper.app.session import Author, check_command
 from caliper.contracts.commands import CreateCircle, CreateRectangle, ModifyEntity
-from caliper.contracts.document import Circle, Point2
-from caliper.contracts.queries import Expectation, Metric
+from caliper.contracts.document import Circle, Expectation, Metric, Point2
 from caliper.engine.commands.bus import Bus
 
 
@@ -30,16 +29,17 @@ def test_every_advertised_example_is_understood(plate_bus, request_text: str) ->
     bus, plate = plate_bus
     understood = understand(request_text, bus.document, frozenset({plate}))
     assert understood.plan is not None, understood.message
-    assert prepare(understood.plan, bus.document, ()).acceptable
+    assert prepare(understood.plan, bus.document).acceptable
 
 
 def test_corner_holes_are_verified_by_the_engine(plate_bus) -> None:
     bus, plate = plate_bus
     plan = understand("4 holes diameter 6 inset 10", bus.document, frozenset({plate})).plan
     assert plan is not None
-    proposal = prepare(plan, bus.document, ())
-    assert len(plan.commands) == 4
+    proposal = prepare(plan, bus.document)
+    assert len(plan.commands) == 4 + 9  # the holes, then their checks (stored: C-1)
     assert len(proposal.checks) == 9
+    assert all(c.agent for c in proposal.checks)
     assert all(c.after.passed for c in proposal.checks)
     assert all(c.after.actual == pytest.approx(10) for c in proposal.checks[:8])
     holes = [e for e in proposal.result.entities.values() if isinstance(e, Circle)]
@@ -51,7 +51,7 @@ def test_proposal_never_touches_the_real_document(plate_bus) -> None:
     before = bus.document
     plan = understand("make it 140 wide", bus.document, frozenset({plate})).plan
     assert plan is not None
-    prepare(plan, bus.document, ())
+    prepare(plan, bus.document)
     assert bus.document is before
     assert bus.undo_label == "Create Rectangle"
 
@@ -59,11 +59,13 @@ def test_proposal_never_touches_the_real_document(plate_bus) -> None:
 def test_user_checks_that_would_break_are_flagged(plate_bus) -> None:
     bus, plate = plate_bus
     mine = Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,))
+    bus.execute(check_command(mine))
     plan = understand("make it 140 wide", bus.document, frozenset({plate})).plan
     assert plan is not None
-    proposal = prepare(plan, bus.document, (mine,))
+    proposal = prepare(plan, bus.document)
     (broken,) = proposal.broken_checks
     assert broken.expectation == mine
+    assert not broken.agent
     assert broken.before.passed
     assert broken.after.actual == 140
 
@@ -71,7 +73,7 @@ def test_user_checks_that_would_break_are_flagged(plate_bus) -> None:
 def test_rejected_commands_make_the_proposal_unacceptable(plate_bus) -> None:
     bus, _ = plate_bus
     plan = Plan("Bad", "A negative radius.", (CreateCircle(center=Point2(x=0, y=0), radius=-1),))
-    proposal = prepare(plan, bus.document, ())
+    proposal = prepare(plan, bus.document)
     assert not proposal.acceptable
     assert proposal.errors[0].field == "radius"
 
@@ -126,7 +128,7 @@ def test_accept_applies_one_undo_step_credited_to_the_agent(window, plate) -> No
     ask(window, "4 holes diameter 6 inset 10")
     window.proposal_card.accept_button.click()
     session = window.session
-    assert len(session.document.entities) == 5
+    assert len(session.document.entities) == 5 + 9  # the plate, four holes, and nine checks
     assert session.history[-1].label == "Add Corner Holes"
     assert session.history[-1].author is Author.AGENT
     assert window.undo_action.text() == "Undo Add Corner Holes"

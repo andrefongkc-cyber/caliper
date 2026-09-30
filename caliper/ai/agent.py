@@ -4,8 +4,9 @@ One `ask` is one turn. The request goes to the model with a summary of the docum
 model calls tools; each call runs in a fresh `Workspace` on a copy of the document and its
 outcome goes back to the model, until the model answers without calling a tool. The turn
 ends with the commands the model ran (already resolved and replayable on the document it
-started from), the checks it ran, and what it said. Nothing here changes the user's document:
-the caller shows the turn for review and applies its commands as one undoable step.
+started from; the checks it ran are among them) and what it said. Nothing here changes the
+user's document: the caller shows the turn for review and applies its commands as one
+undoable step.
 
 The conversation carries over between turns, so a follow-up can say "make it wider", for the
 last `KEEP_TURNS` turns.
@@ -30,7 +31,6 @@ from caliper.ai.model import (
 from caliper.ai.tools import CONVENTIONS, TOOLS, Workspace
 from caliper.contracts.commands import Command
 from caliper.contracts.document import Document, EntityId
-from caliper.contracts.queries import Expectation
 from caliper.engine.commands.handlers import Executed
 
 SYSTEM = f"""\
@@ -70,16 +70,12 @@ class Turn:
     commands: tuple[Command, ...]
     """Resolved commands, in order: applied to `base`, they give `result`."""
     labels: tuple[str, ...]
-    checks: tuple[Expectation, ...]
     error: str | None = None
     executed: Executed | None = None
     """How the commands took `base` to `result`, for accepting them without solving each one
     again."""
-
-    @property
-    def label(self) -> str:
-        """For the undo menu: the single change's own label, or one for several."""
-        return self.labels[0] if len(self.labels) == 1 else "Assistant Changes"
+    label: str = "Assistant Changes"
+    """For the undo menu: see `Workspace.label`."""
 
 
 class Assistant:
@@ -125,7 +121,7 @@ class Assistant:
             if stop is not None and stop():
                 del self.conversation[start:]
                 self._last_seen = seen
-                return Turn(request, document, document, tuple(steps), "", (), (), (), STOPPED)
+                return Turn(request, document, document, tuple(steps), "", (), (), STOPPED)
             try:
                 reply = self.model.reply(SYSTEM, self.conversation, TOOLS)
             except ModelError as e:
@@ -157,9 +153,9 @@ class Assistant:
             reply=reply_text,
             commands=workspace.commands,
             labels=workspace.labels,
-            checks=workspace.checks,
             error=error,
             executed=workspace.executed,
+            label=workspace.label,
         )
 
     def _forget_old_turns(self) -> None:

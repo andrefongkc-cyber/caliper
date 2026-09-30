@@ -10,19 +10,23 @@ from caliper.ai.model import ToolCall
 from caliper.ai.tools import CONVENTIONS, METRICS, TOOLS, Workspace
 from caliper.contracts.commands import (
     Command,
+    CreateCheck,
     CreateConstraint,
     CreateRectangle,
+    DeleteEntities,
+    ModifyEntity,
 )
 from caliper.contracts.document import (
     ConstraintType,
     Document,
     EntityId,
+    Expectation,
     Feature,
+    Metric,
     Point2,
     Rectangle,
     Ref,
 )
-from caliper.contracts.queries import Expectation, Metric
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.handlers import already
@@ -41,12 +45,26 @@ def plate() -> Document:
     return bus.document
 
 
+def stored(workspace: Workspace) -> list[Expectation]:
+    """The checks in the workspace's sketch, in the order they were made."""
+    entities = workspace.document.entities
+    return [
+        e
+        for _, e in sorted(
+            (int(id[1:]), e) for id, e in entities.items() if isinstance(e, Expectation)
+        )
+    ]
+
+
 # --- The tool list follows the contract -------------------------------------------------
 
 
 def test_every_command_is_a_tool_with_a_schema_for_its_fields() -> None:
     tools = {t.name: t for t in TOOLS}
+    assert "create_check" not in tools  # run_check measures a check, then stores it (C-1)
     for command in get_args(Command):
+        if command is CreateCheck:
+            continue
         tool = tools[command.kind]
         names = {f.name for f in dataclasses.fields(command)}
         schema = tool.input_schema
@@ -267,10 +285,17 @@ def test_a_check_is_measured_and_remembered_for_review() -> None:
         call("run_check", metric="bbox_width", expected=120, tolerance=0.001, ids=["e1"])
     )
     assert again.content["passed"] is True  # type: ignore[index]
-    assert workspace.checks == (
+    assert again.content["check"] == passed.content["check"]  # type: ignore[index]
+    # Stored in the sketch as the user's own would be (C-1), the one that can't be measured
+    # not at all, and the same check again changing nothing.
+    assert stored(workspace) == [
         Expectation(metric=Metric.BBOX_WIDTH, expected=120.0, tolerance=0.001, ids=(E1,)),
         Expectation(metric=Metric.BBOX_HEIGHT, expected=60.0, tolerance=0.001, ids=(E1,)),
-    )
+    ]
+    assert [type(c) for c in workspace.commands] == [CreateCheck, CreateCheck]
+    assert workspace.labels == ("Create Check", "Create Check")
+    workspace.call(call("undo"))
+    assert len(stored(workspace)) == 1
 
 
 def test_a_check_of_the_same_measurement_again_replaces_the_earlier_one() -> None:
@@ -287,9 +312,26 @@ def test_a_check_of_the_same_measurement_again_replaces_the_earlier_one() -> Non
     workspace.call(
         call("run_check", metric="bbox_width", expected=120, tolerance=0.001, ids=["e1"])
     )
-    assert workspace.checks == (
+    assert stored(workspace) == [
         Expectation(metric=Metric.BBOX_HEIGHT, expected=50.0, tolerance=0.001, ids=(E1,)),
         Expectation(metric=Metric.BBOX_WIDTH, expected=120.0, tolerance=0.001, ids=(E1,)),
+    ]
+    assert [type(c) for c in workspace.commands] == [CreateCheck, ModifyEntity, CreateCheck]
+
+
+def test_a_check_the_sketch_already_has_is_corrected_not_repeated() -> None:
+    # A check the user made, or one accepted earlier, is the sketch's: the same measurement
+    # again corrects it, as a change the user reviews.
+    bus = Bus(plate())
+    bus.execute(CreateCheck(metric=Metric.BBOX_WIDTH, expected=100.0, tolerance=0.01, ids=(E1,)))
+    workspace = Workspace(bus.document)
+    fixed = workspace.call(
+        call("run_check", metric="bbox_width", expected=120, tolerance=0.01, ids=["e1"])
+    )
+    assert fixed.content["check"] == "e2"  # type: ignore[index]
+    assert fixed.content["replaced"] == {"expected": 100.0, "tolerance": 0.01}  # type: ignore[index]
+    assert workspace.commands == (
+        ModifyEntity(id=EntityId("e2"), changes={"expected": 120.0, "tolerance": 0.01}),
     )
 
 
@@ -303,10 +345,11 @@ def test_a_check_that_shouldn_t_be_there_can_be_taken_back() -> None:
         call("run_check", metric="bbox_height", expected=60, tolerance=0.001, ids=["e1"])
     )
     removed = workspace.call(call("remove_check", metric="bbox_height", ids=["e1"]))
-    assert removed.content == {"removed": {"expected": 60.0, "tolerance": 0.001}}
-    assert workspace.checks == (
+    assert removed.content == {"removed": {"check": "e3", "expected": 60.0, "tolerance": 0.001}}
+    assert stored(workspace) == [
         Expectation(metric=Metric.BBOX_WIDTH, expected=120.0, tolerance=0.001, ids=(E1,)),
-    )
+    ]
+    assert workspace.commands[-1] == DeleteEntities(ids=(EntityId("e3"),))
     again = workspace.call(call("remove_check", metric="bbox_height", ids=["e1"]))
     assert again.is_error
     assert "no check of that measurement" in again.content["error"]  # type: ignore[index]

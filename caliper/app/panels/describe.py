@@ -33,6 +33,7 @@ ICON: dict[str, str] = {
     "angle_dimension": "angle",
     "point": "point",
     "constraint": "constraint",
+    "check": "measure",  # listed in the Checks panel, not the browser
 }
 """An icon for every entity kind; `test_every_kind_has_an_icon` keeps it complete."""
 

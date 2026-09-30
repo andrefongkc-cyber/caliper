@@ -29,7 +29,7 @@
     "next_id": 3
   },
   "format": "caliper.document",
-  "schema_version": 2,
+  "schema_version": 3,
   "units": {
     "angle": "deg",
     "length": "mm"

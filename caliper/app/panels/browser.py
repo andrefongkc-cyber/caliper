@@ -29,6 +29,7 @@ from caliper.contracts.document import (
     DistanceDimension,
     Entity,
     EntityId,
+    Expectation,
     RadialDimension,
 )
 from caliper.contracts.queries import Queries
@@ -114,7 +115,7 @@ class SketchBrowser(QTreeWidget):
             self._insert(id)
         queries = self.session.queries
         changed = delta.modified | delta.removed
-        for id in delta.modified & document.entities.keys():
+        for id in delta.modified & self.items.keys():
             self._fill(self.items[id], id, queries)
         if changed:
             for id, entity in document.entities.items():
@@ -126,6 +127,8 @@ class SketchBrowser(QTreeWidget):
 
     def _insert(self, id: EntityId) -> None:
         entity = self.session.document.entities[id]
+        if isinstance(entity, Expectation):
+            return  # checks are listed in the Checks panel
         group = self.groups[_group(entity)]
         item = QTreeWidgetItem()
         item.setData(0, ID_ROLE, id)
