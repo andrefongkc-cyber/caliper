@@ -1,0 +1,121 @@
+{
+  "expectations": [
+    {
+      "expected": 6.0,
+      "ids": [
+        "e2"
+      ],
+      "metric": "dimension_value",
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 30.0,
+      "metric": "distance_x",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "center"
+        },
+        {
+          "entity": "e3",
+          "feature": "center"
+        }
+      ],
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 30.0,
+      "metric": "distance_y",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "center"
+        },
+        {
+          "entity": "e31",
+          "feature": "center"
+        }
+      ],
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 126.0,
+      "ids": [
+        "e1",
+        "e10",
+        "e101",
+        "e108",
+        "e115",
+        "e122",
+        "e129",
+        "e17",
+        "e24",
+        "e3",
+        "e31",
+        "e38",
+        "e45",
+        "e52",
+        "e59",
+        "e66",
+        "e73",
+        "e80",
+        "e87",
+        "e94"
+      ],
+      "metric": "bbox_width",
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 96.0,
+      "ids": [
+        "e1",
+        "e10",
+        "e101",
+        "e108",
+        "e115",
+        "e122",
+        "e129",
+        "e17",
+        "e24",
+        "e3",
+        "e31",
+        "e38",
+        "e45",
+        "e52",
+        "e59",
+        "e66",
+        "e73",
+        "e80",
+        "e87",
+        "e94"
+      ],
+      "metric": "bbox_height",
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 60.0,
+      "metric": "position_x",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "center"
+        }
+      ],
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 25.0,
+      "metric": "position_y",
+      "refs": [
+        {
+          "entity": "e1",
+          "feature": "center"
+        }
+      ],
+      "tolerance": 1e-09
+    }
+  ],
+  "format": "caliper.bench_case",
+  "prompt": "A 5 x 4 grid of 6 mm holes, 30 mm apart both ways, the bottom-left hole centred at (60, 25). Dimension one hole, then repeat it with one pattern, so one diameter and one spacing each way drive the grid.",
+  "schema_version": 1
+}

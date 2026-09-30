@@ -1,0 +1,23 @@
+{
+  "expectations": [
+    {
+      "expected": 120.0,
+      "ids": [
+        "e1"
+      ],
+      "metric": "bbox_width",
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 50.0,
+      "ids": [
+        "e1"
+      ],
+      "metric": "bbox_height",
+      "tolerance": 1e-09
+    }
+  ],
+  "format": "caliper.bench_case",
+  "prompt": "Draw a 120 x 50 mm plate with its bottom-left corner at the origin, and add a check that it's 120 mm wide. The check is saved in the file with the part.",
+  "schema_version": 1
+}

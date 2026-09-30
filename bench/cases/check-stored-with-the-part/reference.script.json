@@ -1,0 +1,28 @@
+{
+  "commands": [
+    {
+      "construction": false,
+      "corner": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "height": 50.0,
+      "id": "e1",
+      "kind": "create_rectangle",
+      "width": 120.0
+    },
+    {
+      "expected": 120.0,
+      "id": "e2",
+      "ids": [
+        "e1"
+      ],
+      "kind": "create_check",
+      "metric": "bbox_width",
+      "refs": [],
+      "tolerance": 0.001
+    }
+  ],
+  "format": "caliper.script",
+  "schema_version": 1
+}

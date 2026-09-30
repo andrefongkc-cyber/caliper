@@ -26,11 +26,13 @@ def test_all_cases_pass() -> None:
         "move-right-30",
         "delete-circle-with-dimension",
         "fillet-corner-10mm",
+        "check-stored-with-the-part",  # a check saved in the file (C-1)
+        "hole-grid-pattern",  # linear_pattern's commands, replayed
     ):
         assert re.search(rf"^{case}\s+pass\s+match\s+\d+ passed, 0 failed$", result.stdout, re.M), (
             case
         )
-    assert "7 case(s): 7 passed, 0 failed" in result.stdout
+    assert "9 case(s): 9 passed, 0 failed" in result.stdout
 
 
 def test_a_failed_expectation_fails(tmp_path: Path) -> None:
