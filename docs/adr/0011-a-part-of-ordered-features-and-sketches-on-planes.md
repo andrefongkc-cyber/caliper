@@ -132,6 +132,15 @@ id `e0` gets `e{next_id}` instead, with `next_id` moved past it. Files from sche
 go through every migration in turn. Golden files are rewritten at schema 4. The schema-3
 originals are kept as migration fixtures.
 
+**The AI tools** follow the same rules:
+
+- **Drawing:** the create tools, `create_outline`, and `create_arc_through_points` take an
+  optional `sketch`.
+- **Repeats:** a mirror or pattern draws its copies and layout geometry in its originals'
+  sketch. Originals from two sketches are refused.
+- **The summary:** `inspect_document` lists the part's features, and shows an entity's
+  sketch only when the part has more than one.
+
 **Not exposed yet.** `CreateSketch` isn't an AI tool. The palette can't show it either: it
 has no form for a plane. Both wait until the app can show a sketch on its plane and has an
 active sketch to draw in (F6). With one sketch, the app and the AI behave exactly as in V1.
@@ -195,3 +204,29 @@ sketch mode (F6), and the contract supports any answer:
    `Queries.sketch_of` for where an entity is. A view that follows deltas gets
    `Delta.features_before` and `Delta.features_after`.
 7. **The 3D viewport's mesh** (F5) belongs to the kernel contract (F2), not this one.
+
+## How to review it
+
+What changed, in the order to read it:
+
+1. **The contract:**
+   - `caliper/contracts/document.py`: `Plane`, `Sketch`, `Document.features`, and geometry's
+     `sketch`.
+   - `commands.py`: `CreateSketch`, `sketch` on the create commands, and `Delta`'s features.
+   - `queries.py`: `sketch_of`.
+   - `errors.py`: the two new codes.
+2. **The rules:** `caliper/engine/part.py`, and where they're used in
+   `engine/commands/validation.py` and `handlers.py`.
+3. **The file:** `engine/io/snapshot.py`, migration 3 → 4. Every schema-3 golden file is kept
+   in `tests/engine/fixtures/v3/`.
+4. **The tests that hold it:**
+   - `tests/engine/test_part.py`: every rule here, every command on a two-sketch part, and a
+     property test.
+   - `tests/engine/io/test_snapshot.py`: the migration, byte for byte.
+   - `tests/engine/test_replay.py`: a two-sketch replay.
+   - `tests/engine/constraints/test_numerics.py`: N1's digests of `main`'s own files, with the
+     part taken out again.
+   - `tests/ai/test_sketches.py`: the AI tools.
+
+Accept it by changing **Status** to Accepted, with the date and who reviewed it. To change
+something, say what. The contract isn't frozen until then.
