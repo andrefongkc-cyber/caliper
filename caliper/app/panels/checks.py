@@ -5,6 +5,10 @@ case or an AI agent makes. Add one from the current selection (a width, a height
 a dimension's value) or from the last Measure. Checks are stored in the document (C-1, ADR
 0010): adding or deleting one is a change like any other, undone with ⌘Z and saved with the
 part. A check whose geometry was deleted stays, and can't be measured until it's put right.
+
+Return (or F2, or a double-click) on a check edits it in the same form: its expected value and
+tolerance, or something else from the selection to measure instead. Saving is one undoable
+"Edit Check"; Escape cancels; Delete removes the check (N7).
 """
 
 from dataclasses import dataclass
@@ -33,6 +37,7 @@ from caliper.app.panels.describe import n
 from caliper.app.properties import format_number, parse_number, ref_text
 from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
+from caliper.contracts.commands import ModifyEntity, ParamValue, Rejected
 from caliper.contracts.document import (
     AngleDimension,
     Circle,
@@ -192,6 +197,7 @@ class ChecksPanel(QWidget):
         self.list.setItemDelegate(_Row(self.list))
         self.list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.list.installEventFilter(self)
+        self.list.itemDoubleClicked.connect(lambda item: self.edit(self.list.row(item)))
         layout.addWidget(self.list, 1)
 
         self.empty = QLabel(
@@ -206,6 +212,11 @@ class ChecksPanel(QWidget):
         self.form.setObjectName("check-form")
         form_layout = QFormLayout(self.form)
         form_layout.setContentsMargins(0, SPACE.xs, 0, 0)
+        self.note = QLabel()
+        """When editing a check that can't be measured: why, and what to do."""
+        self.note.setWordWrap(True)
+        self.note.setProperty("role", "section")
+        form_layout.addRow(self.note)
         self.metric_box = QComboBox()
         self.metric_box.currentIndexChanged.connect(self._fill_expected)
         self.expected = QLineEdit()
@@ -230,9 +241,13 @@ class ChecksPanel(QWidget):
         form_layout.addRow(self.error)
         self.expected.returnPressed.connect(self.submit)
         self.tolerance.returnPressed.connect(self.submit)
+        for field in (self.expected, self.tolerance, self.metric_box):
+            field.installEventFilter(self)  # Escape cancels
         layout.addWidget(self.form)
         self.form.hide()
         self._options: list[Option] = []
+        self._editing: EntityId | None = None
+        """The check the form edits, or None when it adds one."""
 
         session.document_changed.connect(self.refresh)
         session.checks_changed.connect(self.refresh)
@@ -257,26 +272,59 @@ class ChecksPanel(QWidget):
     # --- Adding ---------------------------------------------------------------------------
 
     def open_form(self) -> None:
-        self._options = options(self.session)
-        self.metric_box.blockSignals(True)
-        self.metric_box.clear()
-        self.metric_box.addItems([o.label for o in self._options])
-        self.metric_box.blockSignals(False)
-        self.error.clear()
+        self._editing = None
+        self._show_options(options(self.session))
         self.tolerance.setText(format_number(DEFAULT_TOLERANCE))
         self._fill_expected()
+        self._open("Add", "")
+
+    def edit(self, row: int) -> None:
+        """Open the form on the check in `row`: its value and tolerance, or something else from
+        the selection to measure instead. Saved as one undoable edit."""
+        ids, checks = self.session.check_ids, self.session.checks
+        if not 0 <= row < len(ids):
+            return
+        self._editing, check = ids[row], checks[row]
+        result = self.session.queries.check(check)
+        keep = Option(
+            f"This check: {describe(check).split(' = ')[0]}", check.metric, check.ids, check.refs
+        )
+        self._show_options(([] if result.error else [keep]) + options(self.session))
+        self.expected.setText(format_number(check.expected))
+        self.tolerance.setText(format_number(check.tolerance))
+        note = (
+            ""
+            if result.error is None
+            else f"It can't be measured: {result.error.message}. Pick something to measure "
+            "instead, or press Delete in the list to remove it."
+        )
+        self._open("Save", note)
+
+    def close_form(self) -> None:
+        self._editing = None
+        self.form.hide()
+        self.refresh()
+
+    def _show_options(self, offered: list[Option]) -> None:
+        self._options = offered
+        self.metric_box.blockSignals(True)
+        self.metric_box.clear()
+        self.metric_box.addItems([o.label for o in offered])
+        self.metric_box.blockSignals(False)
+
+    def _open(self, action: str, note: str) -> None:
+        self.error.clear()
+        self.note.setText(note)
+        self.note.setVisible(bool(note))
+        self.confirm.setText(action)
         self.form.show()
         self.empty.hide()
         self.expected.setFocus()
         self.expected.selectAll()
 
-    def close_form(self) -> None:
-        self.form.hide()
-        self.refresh()
-
     def _fill_expected(self) -> None:
         option = self._current()
-        if option is None:
+        if option is None or self._editing is not None:  # an edit keeps the requirement
             return
         probe = self.session.queries.check(_expectation(option, 0.0, 0.0))
         self.expected.setText("" if probe.actual is None else format_number(round(probe.actual, 6)))
@@ -290,7 +338,25 @@ class ChecksPanel(QWidget):
         if option is None or expected is None or tolerance is None or tolerance < 0:
             self.error.setText("Enter a number for the expected value and a tolerance of 0 or more")
             return
-        self.session.add_check(_expectation(option, expected, tolerance))
+        wanted = _expectation(option, expected, tolerance)
+        if self._editing is None:
+            self.session.add_check(wanted)
+            self.close_form()
+            return
+        check = self.session.document.entities.get(self._editing)
+        if not isinstance(check, Expectation):  # undone or deleted meanwhile
+            self.close_form()
+            return
+        changes: dict[str, ParamValue] = {
+            name: getattr(wanted, name)
+            for name in ("metric", "expected", "tolerance", "refs", "ids")
+            if getattr(wanted, name) != getattr(check, name)
+        }
+        if changes:
+            result = self.session.execute(ModifyEntity(id=self._editing, changes=changes))
+            if isinstance(result, Rejected):
+                self.error.setText("; ".join(e.message for e in result.errors))
+                return
         self.close_form()
 
     def _current(self) -> Option | None:
@@ -298,14 +364,19 @@ class ChecksPanel(QWidget):
         return self._options[index] if 0 <= index < len(self._options) else None
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
-        if (
-            watched is self.list
-            and isinstance(event, QKeyEvent)
-            and event.type() == QEvent.Type.KeyPress
-            and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace)
-            and self.list.currentRow() >= 0
-        ):
-            self.session.remove_check(self.list.currentRow())
+        if not (isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress):
+            return False
+        key = event.key()
+        if watched is self.list and self.list.currentRow() >= 0:
+            if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                self.session.remove_check(self.list.currentRow())
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_F2):
+                self.edit(self.list.currentRow())
+                return True
+        if watched is not self.list and key == Qt.Key.Key_Escape and self.form.isVisible():
+            self.close_form()
+            self.list.setFocus()
             return True
         return False
 
