@@ -560,3 +560,98 @@ def test_a_selected_outline_offers_its_area(qtbot) -> None:
     assert "Area of the selection" in [o.label for o in options(s)]
     s.set_selection(frozenset(made[:3]))  # open
     assert "Area of the selection" not in [o.label for o in options(s)]
+
+
+# --- Editing a check (N7) ---------------------------------------------------------------------
+
+
+def edit_first_check(window, qtbot):
+    panel = window.checks
+    panel.list.setCurrentRow(0)
+    panel.list.setFocus()
+    qtbot.keyClick(panel.list, Qt.Key.Key_Return)
+    assert not panel.form.isHidden()
+    return panel
+
+
+def test_return_edits_a_check_as_one_undoable_step(window, qtbot, sketch) -> None:
+    plate, _ = sketch
+    session = window.session
+    session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,))
+    )
+    entries = len(session.history)
+    panel = edit_first_check(window, qtbot)
+    assert panel.confirm.text() == "Save"
+    assert panel.metric_box.currentText() == "This check: Width of e1"
+    assert (panel.expected.text(), panel.tolerance.text()) == ("120", "0.01")
+    qtbot.keyClicks(panel.expected, "125")  # the value is selected: typing replaces it
+    qtbot.keyClick(panel.expected, Qt.Key.Key_Tab)
+    assert QApplication.focusWidget() is panel.tolerance
+    panel.tolerance.selectAll()
+    qtbot.keyClicks(panel.tolerance, "0.5")
+    qtbot.keyClick(panel.tolerance, Qt.Key.Key_Return)
+    assert panel.form.isHidden()
+    (check,) = session.checks
+    assert (check.expected, check.tolerance) == (125.0, 0.5)
+    assert len(session.history) == entries + 1
+    assert session.history[-1].label == "Edit Check"
+    assert session.history[-1].author is Author.YOU
+    assert panel.summary.text() == "0 of 1 pass"  # still 120 wide
+    window.undo_action.trigger()
+    (check,) = session.checks
+    assert (check.expected, check.tolerance) == (120.0, 0.01)
+
+
+def test_escape_cancels_an_edit_and_an_unchanged_save_records_nothing(
+    window, qtbot, sketch
+) -> None:
+    plate, _ = sketch
+    session = window.session
+    session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=120, tolerance=0.01, ids=(plate,))
+    )
+    before, entries = session.document, len(session.history)
+    panel = edit_first_check(window, qtbot)
+    qtbot.keyClicks(panel.expected, "99")
+    qtbot.keyClick(panel.expected, Qt.Key.Key_Escape)
+    assert panel.form.isHidden()
+    assert session.document is before
+    panel = edit_first_check(window, qtbot)
+    qtbot.keyClick(panel.expected, Qt.Key.Key_Return)  # nothing changed
+    assert session.document is before
+    assert len(session.history) == entries
+
+
+def test_a_double_click_edits_a_check(window, qtbot, sketch) -> None:
+    plate, _ = sketch
+    window.session.add_check(
+        Expectation(metric=Metric.BBOX_HEIGHT, expected=50, tolerance=0.01, ids=(plate,))
+    )
+    panel = window.checks
+    panel.list.itemDoubleClicked.emit(panel.list.item(0))
+    assert not panel.form.isHidden()
+    assert panel.metric_box.currentText() == "This check: Height of e1"
+
+
+def test_a_check_whose_geometry_is_gone_is_pointed_at_something_else(window, qtbot, sketch) -> None:
+    _, hole = sketch
+    session = window.session
+    session.add_check(
+        Expectation(metric=Metric.BBOX_WIDTH, expected=16, tolerance=0.01, ids=(hole,))
+    )
+    session.execute(DeleteEntities(ids=(hole,)))
+    (replacement,) = session.execute(CreateCircle(center=Point2(x=90, y=25), radius=8)).created_ids
+    session.set_selection(frozenset({replacement}))
+    panel = edit_first_check(window, qtbot)
+    assert "can't be measured" in panel.note.text()
+    assert not panel.note.isHidden()
+    labels = [panel.metric_box.itemText(i) for i in range(panel.metric_box.count())]
+    assert not [label for label in labels if label.startswith("This check")]  # it can't stay
+    assert panel.metric_box.currentText() == f"Width of {replacement}"
+    assert panel.expected.text() == "16"  # the requirement is kept
+    qtbot.keyClick(panel.expected, Qt.Key.Key_Return)
+    (check,) = session.checks
+    assert check.ids == (replacement,)
+    assert session.history[-1].label == "Edit Check"
+    assert panel.summary.text() == "1 of 1 pass"
