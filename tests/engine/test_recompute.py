@@ -15,6 +15,7 @@ from caliper.contracts.commands import (
     Applied,
     Command,
     CommandResult,
+    CreateCheck,
     CreateCircle,
     CreateDistanceDimension,
     CreateExtrude,
@@ -26,7 +27,9 @@ from caliper.contracts.document import (
     FIRST_SKETCH,
     DistanceOrientation,
     EntityId,
+    ExtrudeOperation,
     Feature,
+    Metric,
     Plane,
     Point2,
     Ref,
@@ -172,6 +175,34 @@ def test_what_a_change_reaches_is_its_dependents_in_turn() -> None:
     assert graph.order(document) == (E0, extrude)
 
 
+def test_a_cut_reads_the_solid_before_it_and_a_check_what_it_measures() -> None:
+    """The graph's other edges (F8): a second extrude reads its sketch, its profile, and the
+    extrude it builds on; a check reads what it measures. A change reaches the cut by two
+    paths, and is looked at once."""
+    bus = Bus(kernel=FakeKernel())
+    (plate,) = bus.execute(  # type: ignore[union-attr]
+        CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0)
+    ).created_ids
+    (hole,) = bus.execute(  # type: ignore[union-attr]
+        CreateCircle(center=Point2(x=60.0, y=25.0), radius=5.0)
+    ).created_ids
+    (boss,) = bus.execute(CreateExtrude(depth=10.0, ids=(plate,))).created_ids  # type: ignore[union-attr]
+    (cut,) = bus.execute(  # type: ignore[union-attr]
+        CreateExtrude(depth=10.0, ids=(hole,), operation=ExtrudeOperation.REMOVE)
+    ).created_ids
+    measured = CreateCheck(metric=Metric.BBOX_WIDTH, expected=120.0, tolerance=1e-6, ids=(plate,))
+    (check,) = bus.execute(measured).created_ids  # type: ignore[union-attr]
+    document = bus.document
+    assert graph.inputs(document, boss) == {E0, plate}
+    assert graph.inputs(document, cut) == {E0, hole, boss}
+    assert graph.inputs(document, check) == {plate}
+    assert graph.inputs(document, EntityId("e99")) == frozenset()
+    assert graph.dependents(document)[plate] >= {E0, boss, check}
+    assert graph.affected(document, [plate]) == {plate, E0, boss, cut, check}
+    assert graph.affected(document, [hole]) == {hole, E0, boss, cut}  # the sketch reads it
+    assert graph.order(document) == (E0, boss, cut)
+
+
 # --- The 2D layer is the solver's own -----------------------------------------------------
 
 
@@ -190,3 +221,17 @@ def test_the_graph_names_the_solvers_references_and_referrers(
         # only other dependent of geometry is the sketch it's drawn in.
         extra = index.get(id, frozenset()) - referrers.get(id, frozenset())
         assert extra <= {E0}
+
+
+def test_the_caches_keep_only_their_last_few_entries() -> None:
+    """Recompute keeps prisms, solids, and meshes by the objects they came from, but only the
+    last few: a long session's edits mustn't hold every solid ever built (F8)."""
+    cache: features._ByIdentity[int] = features._ByIdentity(2)
+    a, b, c = object(), object(), object()
+    cache.put((a,), 1)
+    cache.put((b,), 2)
+    assert cache.get((a,)) == 1  # used: now the most recent
+    cache.put((c,), 3)
+    assert cache.get((b,)) is None  # the least recently used went
+    assert (cache.get((a,)), cache.get((c,))) == (1, 3)
+    assert cache.get((object(),)) is None
