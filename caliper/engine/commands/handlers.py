@@ -385,8 +385,8 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
             id=entity_id, changes=MappingProxyType({name: getattr(built, name) for name in changed})
         ),
         label=f"Change {_title(changed[0])}"
-        if len(changed) == 1
-        else f"Edit {_title(current.kind)}",
+        if len(changed) == 1 and not isinstance(current, Expectation)
+        else f"Edit {_title(current.kind)}",  # a check's fields read badly alone ("Expected")
         created_ids=(),
         solve=_edit_solve(after, entity_id, current, built, set(changed)),
     )
