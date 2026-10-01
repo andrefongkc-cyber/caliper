@@ -8,7 +8,7 @@ import math
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from caliper.contracts.document import (
     AngleDimension,
@@ -43,7 +43,7 @@ from caliper.contracts.queries import (
     SolveStatus,
     Suggestion,
 )
-from caliper.engine import profiles
+from caliper.engine import part, profiles
 from caliper.engine.commands.validation import (
     constraint_errors,
     feature_errors,
@@ -99,9 +99,13 @@ class DocumentQueries:
                 return found
             selected = found
         else:
-            selected = [e for e in self._document.entities.values() if isinstance(e, _GEOMETRY)]
-            if not selected:
+            every = [id for id, e in self._document.entities.items() if isinstance(e, _GEOMETRY)]
+            if not every:
                 return Error(code=ErrorCode.SELECTION_EMPTY, message="the document has no geometry")
+            what = "all the geometry, with no ids given,"
+            if mixed := part.one_sketch(self._document, every, field="ids", what=what):
+                return mixed
+            selected = [cast(Geometry, self._document.entities[id]) for id in every]
         boxes = [_bounds(entity) for entity in selected]
         return BoundingBox(
             x_min=min(b.x_min for b in boxes),
@@ -241,6 +245,8 @@ class DocumentQueries:
         for i, ref in enumerate(normalized):
             if not errors:
                 errors += feature_errors(ref, f"refs[{i}]", self._document, curves=True)
+        if not errors and (mixed := self._one_sketch(normalized)):
+            errors.append(mixed)
         options: list[ConstraintOption] = []
         for type_ in ConstraintType:
             problems = errors or constraint_errors(type_, normalized, self._document)
@@ -271,6 +277,8 @@ class DocumentQueries:
             return errors[0]
         if len(set(normalized)) != len(normalized):
             return _repeated()
+        if mixed := self._one_sketch(normalized):
+            return mixed
         inferred = dimensions.infer(self._document, normalized, at)
         return inferred if isinstance(inferred, Error) else inferred[0]
 
@@ -278,6 +286,13 @@ class DocumentQueries:
         self, ids: Sequence[EntityId] = (), *, tolerance: float, angle_tolerance: float = 1.0
     ) -> tuple[Suggestion, ...]:
         return suggest(self._document, tuple(ids), tolerance, angle_tolerance)
+
+    def sketch_of(self, id: EntityId) -> EntityId | None:
+        return part.sketch_of(self._document, id)
+
+    def _one_sketch(self, refs: Sequence[Ref]) -> Error | None:
+        what = "the references"
+        return part.one_sketch(self._document, (r.entity for r in refs), field="refs", what=what)
 
     def constraints_on(self, ids: Sequence[EntityId]) -> tuple[EntityId, ...]:
         index = sketch.referrers(self._document)
@@ -371,6 +386,9 @@ class DocumentQueries:
         end = self._point(b, fields[1])
         if isinstance(end, Error):
             return end
+        ids, what = (a.entity, b.entity), "the two ends of a distance"
+        if mixed := part.one_sketch(self._document, ids, field=fields[1], what=what):
+            return mixed
         dx, dy = end.x - start.x, end.y - start.y
         return Distance(value=math.hypot(dx, dy), dx=dx, dy=dy)
 
@@ -393,6 +411,9 @@ class DocumentQueries:
                     field="ids",
                 )
             selected.append(entity)
+        what = "the geometry measured"
+        if mixed := part.one_sketch(self._document, ids, field="ids", what=what):
+            return mixed
         return selected
 
     def _evaluate(self, expectation: Expectation) -> float | Error:

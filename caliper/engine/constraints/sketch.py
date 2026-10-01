@@ -35,7 +35,7 @@ import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import permutations
 from types import MappingProxyType
 
@@ -759,7 +759,7 @@ def _settle(
         solved.update(entities)
     if not solved:
         return after
-    return Document(entities=MappingProxyType({**after.entities, **solved}), next_id=after.next_id)
+    return replace(after, entities=MappingProxyType({**after.entities, **solved}))
 
 
 def _split_safe(before: Document, after: Document, fixed: frozenset[EntityId]) -> bool:
@@ -1321,9 +1321,7 @@ def implied(
             geometry.update(joined.geometry)
             fixed.update(joined.fixed)
             relations.update(joined.relations)
-    with_it = Document(
-        entities=_Adding(document.entities, id, constraint), next_id=document.next_id
-    )
+    with_it = replace(document, entities=_Adding(document.entities, id, constraint))
     joined = Cluster(
         tuple(sorted(geometry)), tuple(sorted(relations)), tuple(sorted(fixed - geometry))
     )

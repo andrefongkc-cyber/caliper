@@ -8,6 +8,7 @@
           "y": 1.4665046196671347
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 0.7472367131854544,
           "y": 1.4665046196671347
@@ -88,7 +89,8 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 10.0
+        "radius": 10.0,
+        "sketch": "e0"
       },
       "e17": {
         "construction": true,
@@ -97,6 +99,7 @@
           "y": 55.0
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 50.0,
           "y": -5.0
@@ -130,6 +133,7 @@
           "y": 51.466504619667134
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 120.74723671318546,
           "y": 1.4665046196671347
@@ -142,6 +146,7 @@
           "y": 51.466504619667134
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 120.74723671318546,
           "y": 51.466504619667134
@@ -154,6 +159,7 @@
           "y": 1.4665046196671347
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 0.7472367131854544,
           "y": 51.466504619667134
@@ -226,10 +232,17 @@
         "type": "horizontal"
       }
     },
+    "features": [
+      {
+        "id": "e0",
+        "kind": "sketch",
+        "plane": "xy"
+      }
+    ],
     "next_id": 20
   },
   "format": "caliper.document",
-  "schema_version": 3,
+  "schema_version": 4,
   "units": {
     "angle": "deg",
     "length": "mm"

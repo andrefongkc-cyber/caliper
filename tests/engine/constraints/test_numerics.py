@@ -51,7 +51,7 @@ from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.handlers import Executed, already
 from caliper.engine.constraints import equivalence, sketch, tolerance
-from caliper.engine.io import snapshot
+from caliper.engine.io import canonical, snapshot
 from caliper.engine.io.codec import COMMAND_KINDS, decode_command
 from tests.engine.constraints.test_constraint_properties import PROPERTIES, sessions
 from tests.engine.constraints.test_split_clusters import holding
@@ -121,11 +121,26 @@ def test_the_tolerances_keep_their_order_and_meaning() -> None:
 )
 def test_the_reference_writes_the_files_main_wrote(name: str, digest: str) -> None:
     """The hashes are of `main`'s own files (a394639), so the oracle is the old solver.
-    Those were written at schema 2; only the version line has changed since (C-1)."""
+    Those were written at schema 2; since then only the version line has changed (C-1), and
+    the part around the one sketch was added (ADR 0011), which `one_sketch_as_before` takes
+    out again."""
     with sketch.reference():
-        text = snapshot.dumps(replay(name).document)
+        text = one_sketch_as_before(snapshot.dumps(replay(name).document))
     text = text.replace(f'"schema_version": {snapshot.SCHEMA_VERSION},', '"schema_version": 2,')
     assert hashlib.sha256(text.encode()).hexdigest() == digest
+
+
+def one_sketch_as_before(text: str) -> str:
+    """A schema-4 file of a part that is one sketch on XY, as schema 3 wrote it: migration
+    3 → 4 undone (ADR 0011). Only the part's one sketch and each geometry's `"sketch": "e0"`
+    come out; every other byte stays, so a hash of this is a hash of the old file."""
+    data = json.loads(text)
+    document = data["document"]
+    assert document.pop("features") == [{"id": "e0", "kind": "sketch", "plane": "xy"}]
+    for entity in document["entities"].values():
+        if "sketch" in entity:
+            assert entity.pop("sketch") == "e0"
+    return canonical.dumps(data)
 
 
 STRESS_PLATE = "32ac2f9bca38b994b51b2f4b6722a4ba42f80cad818710e12020ae1cf843356d"
@@ -142,7 +157,7 @@ def test_the_reference_replays_the_stress_plate_to_the_same_bytes() -> None:
     draw the same plate: no stored value differs by more than two solutions may."""
     with sketch.reference():
         reference = replay("stress-plate-build").document
-    text = snapshot.dumps(reference)
+    text = one_sketch_as_before(snapshot.dumps(reference))
     text = text.replace(f'"schema_version": {snapshot.SCHEMA_VERSION},', '"schema_version": _,')
     assert hashlib.sha256(text.encode()).hexdigest() == STRESS_PLATE
     fast = replay("stress-plate-build").document

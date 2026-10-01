@@ -37,8 +37,10 @@ from caliper.contracts.document import (
     RadialDimension,
     Rectangle,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
+from caliper.engine import part
 from caliper.engine.constraints.relations import Match, RefKind, match, ref_kind
 
 GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
@@ -255,10 +257,34 @@ def domain_errors(entity: Entity) -> list[Error]:
 
 
 def reference_errors(entity: Entity, document: Document) -> list[Error]:
-    """Rules about what a dimension or constraint refers to.
+    """Rules about what an entity refers to: the sketch geometry is in, and what a dimension
+    or constraint relates, all in one sketch (ADR 0011).
 
     None for a check: what it measures may be gone, and it fails until put right (C-1).
     Whether a new or edited check can be evaluated is up to the command (`CreateCheck`)."""
+    if isinstance(entity, GEOMETRY):
+        return _sketch_errors(entity.sketch, document)
+    errors = _relation_errors(entity, document)  # a constraint's sketch is checked in there
+    if errors or not isinstance(entity, DistanceDimension | AngleDimension):
+        return errors
+    ids = (entity.a.entity, entity.b.entity)
+    mixed = part.one_sketch(document, ids, field="b", what="a dimension's references")
+    return [mixed] if mixed else []
+
+
+def _sketch_errors(sketch: EntityId, document: Document) -> list[Error]:
+    """Whether `sketch` names one of the part's sketches."""
+    found = part.feature(document, sketch)
+    if isinstance(found, Sketch):
+        return []
+    if found is None and sketch in document.entities:
+        kind = document.entities[sketch].kind
+        message = f"{sketch!r} is a {kind}; geometry goes in a sketch"
+        return [_error(ErrorCode.ENTITY_WRONG_KIND, "sketch", message)]
+    return [_error(ErrorCode.ENTITY_NOT_FOUND, "sketch", f"no sketch {sketch!r}")]
+
+
+def _relation_errors(entity: Entity, document: Document) -> list[Error]:
     match entity:
         case DistanceDimension(a=a, b=b, orientation=orientation):
             errors = feature_errors(a, "a", document, curves=True)
@@ -321,7 +347,7 @@ def reference_errors(entity: Entity, document: Document) -> list[Error]:
 def constraint_errors(
     type_: ConstraintType, refs: tuple[Ref, ...], document: Document
 ) -> list[Error]:
-    """Whether `refs` are real features that a `type_` constraint can relate."""
+    """Whether `refs` are real features, in one sketch, that a `type_` constraint can relate."""
     errors: list[Error] = []
     for i, ref in enumerate(refs):
         errors += feature_errors(ref, f"refs[{i}]", document, curves=True)
@@ -329,6 +355,9 @@ def constraint_errors(
         return errors
     if len(set(refs)) != len(refs):
         return [_error(ErrorCode.REFERENCE_DEGENERATE, "refs", "a reference is repeated")]
+    what = "a constraint's references"
+    if mixed := part.one_sketch(document, (r.entity for r in refs), field="refs", what=what):
+        return [mixed]
     found = match(document, type_, refs)
     if isinstance(found, str):
         code = (

@@ -56,6 +56,13 @@ class ErrorCode(StrEnum):
     """A new constraint adds nothing: the ones in `Error.ids` already imply it."""
     SOLVER_NO_CONVERGENCE = "solver.no_convergence"
     """The solver ran out of iterations without either solving or proving a conflict."""
+    SKETCH_REQUIRED = "sketch.required"
+    """Geometry was created without saying which sketch, and the part doesn't have exactly
+    one (ADR 0011). Name it in the command's `sketch`."""
+    SKETCH_MIXED = "sketch.mixed"
+    """What was given is in more than one sketch, where one is needed: a dimension's or
+    constraint's references, a fillet's lines, geometry moved together, or what a
+    measurement or check reads. `Error.ids` names the sketches."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

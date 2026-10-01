@@ -17,7 +17,15 @@ from caliper.ai.model import (
 )
 from caliper.ai.tools import TOOLS
 from caliper.contracts.commands import CreateCheck, CreateRectangle, ModifyEntity
-from caliper.contracts.document import Document, EntityId, Expectation, Metric, Point2, Rectangle
+from caliper.contracts.document import (
+    FIRST_SKETCH,
+    Document,
+    EntityId,
+    Expectation,
+    Metric,
+    Point2,
+    Rectangle,
+)
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 
@@ -52,7 +60,9 @@ def test_a_request_becomes_a_command_the_model_verifies_then_explains(scripted: 
     assert turn.error is None
     assert turn.reply.startswith("Added a 100 x 50 rectangle")
     assert turn.commands == (
-        CreateRectangle(corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0, id=E1),
+        CreateRectangle(
+            corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0, sketch=FIRST_SKETCH, id=E1
+        ),
         CreateCheck(
             metric=Metric.BBOX_WIDTH,
             expected=100.0,

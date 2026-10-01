@@ -14,7 +14,7 @@ from caliper.ai.model import Message, ModelError, Reply, Stop, ToolCall, ToolOut
 from caliper.app.panels.assistant import step_text
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateRectangle
-from caliper.contracts.document import EntityId, Point2, Rectangle
+from caliper.contracts.document import FIRST_SKETCH, EntityId, Point2, Rectangle
 
 E1 = EntityId("e1")
 
@@ -87,7 +87,7 @@ def test_a_request_creates_real_geometry_once_accepted_and_undoes_normally(windo
     )
     assert session.history[-1].author is Author.AGENT
     assert session.history[-1].commands[0] == CreateRectangle(
-        corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0, id=E1
+        corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0, sketch=FIRST_SKETCH, id=E1
     )
     assert [c.kind for c in session.history[-1].commands] == ["create_rectangle", "create_check"]
     assert len(session.checks) == 1

@@ -10,7 +10,9 @@ constraint queries (`solve_status`, `applicable_constraints`, `infer_dimension`,
 `dimension_type`, `suggest_constraints`, `constraints_on`) and `reference_at_point`. The
 post-V1 fixes added the position metrics (`Metric.POSITION_X`, `Metric.POSITION_Y`), and
 C-1 moved `Metric` and `Expectation` to the document contract, since checks are stored now;
-they are still importable from here.
+they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and measurements
+read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
+sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -174,12 +176,14 @@ class Queries(Protocol):
     def measure_distance(self, a: Ref, b: Ref) -> Distance | Error:
         """Distance from `a` to `b`, with the signed dx and dy. `a` and `b` may be equal.
 
-        A bad reference is reported as in `feature_point`, with `a.` or `b.` as the field.
+        A bad reference is reported as in `feature_point`, with `a.` or `b.` as the field;
+        references in two sketches as `sketch.mixed`.
         """
         ...
 
     def bounding_box(self, ids: Sequence[EntityId] = ()) -> BoundingBox | Error:
-        """Tight bounds of geometry entities. Empty `ids` means the whole document.
+        """Tight bounds of geometry entities, in their sketch's plane. Empty `ids` means all
+        the geometry, which must then be in one sketch (`sketch.mixed` otherwise).
 
         Annotations are never included, even when named: what a dimension measures is the
         geometry, and where its label sits depends on rendered text size. A view that must
@@ -296,6 +300,12 @@ class Queries(Protocol):
         `tolerance` mm or `angle_tolerance` degrees. Skips what existing constraints
         already say or imply. Sorted by deviation, then type, then references.
         """
+        ...
+
+    def sketch_of(self, id: EntityId) -> EntityId | None:
+        """The sketch an entity is in: geometry's own `sketch`, and a dimension's or
+        constraint's, the sketch of the geometry it refers to. None for a check (it belongs
+        to the part), a feature, or an id the document doesn't have."""
         ...
 
     def constraints_on(self, ids: Sequence[EntityId]) -> tuple[EntityId, ...]:
