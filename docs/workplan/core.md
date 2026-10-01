@@ -1,11 +1,11 @@
-Status: the N phase (finish and harden 2D) done on `shared/n-phase` (local, not pushed): N1–N5 and N10 complete, the stress plate's reference pinned (Linux CI confirms on first push), profiles from lines and arcs, OCCT run locally; next: Andre's and Lucas's review of N1–N11, then V2 (F1) only after it
+Status: the N phase (finish and harden 2D) done on `shared/n-phase` (PR #54): N1–N5 and N10 complete, the stress plate's reference pinned (Linux CI confirms on PR #54), profiles from lines and arcs, OCCT run locally; next: Andre's and Lucas's review of N1–N11, then V2 (F1) only after it
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-## The N phase: finish and harden 2D (branch `shared/n-phase`, 2026-09-30; local, not pushed)
+## The N phase: finish and harden 2D (branch `shared/n-phase`, 2026-09-30; PR #54)
 
 Andre (2026-09-30): complete N1–N11 from the Caliper Engine Plan before any V2 (F1–F8) work. All of #47–#53 were on `main` (7d4f681) when it started. Engine and testing items here; N6–N8 in [shell.md](shell.md#the-n-phase-app-side-branch-sharedn-phase-2026-09-30), N9 and N11 in [ai.md](ai.md#the-n-phase-ai-side-branch-sharedn-phase-2026-09-30).
 

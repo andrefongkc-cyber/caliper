@@ -63,7 +63,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 
 ## Recently fixed
 
-On `shared/n-phase` (the N phase, not pushed):
+On `shared/n-phase` (the N phase, PR #54):
 
 - Area checks of lines and arcs: an area was one rectangle or circle, so an area check of a
   traced outline, such as the stress plate's, was refused whatever it made. A closed profile is
