@@ -5,6 +5,18 @@ Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+## V2, F4: a persistent-naming spike (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+[ADR 0014](../adr/0014-persistent-naming-by-history.md) (Proposed). Done when an ADR records which naming works and what it can't handle: **met**.
+
+- [x] **The spike:** `tests/engine/geometry/test_naming_spike.py`, 13 tests against OCCT. It names the faces of an extruded plate in two ways and rebuilds it after each change V2 makes: width, height, depth, a hole added or removed, the outline drawn from another corner, the same feature rebuilt, and booleans (a boss apart, a hole through, a boss sharing a side, a slot cut across the top).
+- [x] **By position** (OCCT's face order) moves when a hole is added or the outline starts elsewhere. Rejected.
+- [x] **By history** is stable through every rebuild tried, edges included (named by the faces they join). The names are a feature's `start` and `end` caps and the `side <entity>` each sketch edge sweeps, carried through booleans by `Modified` and `IsDeleted`.
+  - The limit: a cut across a face splits one name into two faces. It will be refused as ambiguous, never guessed.
+  - The gotcha: OCCT copies edges into wires, so history is asked about the face's own wire edges.
+- [x] **What V2 can and can't refer to** is in the ADR.
+- [ ] **No naming code in `caliper/` yet.** The first feature that refers to a face or edge (a sketch on a face, a fillet) adds the kernel method, the contract's reference type, and the two failures (lost and ambiguous), with tests on both kernels.
+
 ## V2, F3: extrude as the first feature, recomputed only when needed (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 
 [ADR 0013](../adr/0013-solids-extrude-and-recomputing-only-what-changed.md) (Proposed). Done when the milestone runs headlessly, and a bench case shows that changing the width recomputes only the sketch and the extrude: **met**.
@@ -259,7 +271,7 @@ Andre (2026-09-28): an overnight audit of the 2D foundation (constraints, editin
 - [x] 1. Name the 2D graph: `inputs` and `dependents` in one engine module, with tests against today's functions over random sessions. Done in F3 (`caliper/engine/graph.py`). `references` and `referrers` are named there, not moved (ADR 0013)
 - [x] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. F1 gave the part more than one sketch (ADR 0011); F3 made the sketch a node (its inputs are its geometry)
 - [x] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s. Done in F3 (`caliper/engine/features.py`, ADR 0013)
-- [ ] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology
+- [~] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology. The spike and the ADR are done (F4, ADR 0014: by history, never position; splits refused as ambiguous); the references wait for the first feature that needs one
 - [ ] 5. Invalid propagation: a failed feature marks its dependents invalid without recomputing them, keeps its last good result for display, and says why
 - [ ] 6. Benchmarks: a 3D chain in `bench/perf.py`; editing an early sketch's dimension must recompute only it and what's downstream, measured against recomputing everything
 - [ ] 7. `docs/architecture.md`: "Doing each thing once" becomes the graph's description once item 1 lands
