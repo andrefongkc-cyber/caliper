@@ -914,14 +914,20 @@ class Canvas(QWidget):
             return
         before, after = proposal.base.entities, proposal.result.entities
         dashed = Qt.PenStyle.DashLine
+        sketch = self.session.active_sketch
+
+        def here(entity: object) -> bool:
+            """Geometry in the sketch being edited: another sketch's is on another plane."""
+            return isinstance(entity, _GEOMETRY) and sketch in (None, entity.sketch)
+
         for id, entity in before.items():
-            if isinstance(entity, _GEOMETRY) and after.get(id) != entity:
+            if here(entity) and after.get(id) != entity:
                 colour = theme.TEXT_DIM if id in after else theme.ERROR
                 painter.set_pen(cosmetic_pen(colour, theme.GUIDE_WIDTH, dashed))
                 painter.geometry(entity)
         painter.set_pen(cosmetic_pen(theme.AGENT, theme.HIGHLIGHT_WIDTH))
         for id, entity in after.items():
-            if isinstance(entity, _GEOMETRY) and before.get(id) != entity:
+            if here(entity) and before.get(id) != entity:
                 painter.geometry(entity)
 
     def _paint_snap(self, painter: ModelPainter) -> None:
