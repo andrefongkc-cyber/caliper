@@ -43,6 +43,9 @@ class ErrorCode(StrEnum):
     SELECTION_EMPTY = "selection.empty"
     PROFILE_NOT_CLOSED = "profile.not_closed"
     KERNEL_UNAVAILABLE = "kernel.unavailable"
+    KERNEL_UNSUPPORTED = "kernel.unsupported"
+    """The geometry kernel in use can't do this exactly, though another could: the analytic
+    kernel combines solids only where they don't overlap or one simply contains the other."""
     PROFILE_CONSTRUCTION = "profile.construction"
     """Construction geometry was offered as a profile."""
     CONSTRAINT_NOT_APPLICABLE = "constraint.not_applicable"

@@ -79,6 +79,43 @@ class AreaProperties:
     """Product of inertia about the centroid, mm⁴."""
 
 
+# --- 3D (V2) ----------------------------------------------------------------------------
+# Solids are derived: worked out by a geometry kernel from the part's features and never stored
+# (ADR 0005). These are what queries give back about them.
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Point3:
+    """A point or a direction in the part's 3D space, in mm, Z up from the XY plane."""
+
+    x: float
+    y: float
+    z: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BoundingBox3:
+    x_min: float
+    y_min: float
+    z_min: float
+    x_max: float
+    y_max: float
+    z_max: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Mesh:
+    """Triangles approximating a solid's surface, for drawing it. Never stored.
+
+    Each triangle is three indexes into `vertices`, counter-clockwise seen from outside the
+    solid, so its normal (b - a) x (c - a) points out. Faces don't share vertices, so each
+    face can be lit flat or smooth on its own.
+    """
+
+    vertices: tuple[Point3, ...]
+    triangles: tuple[tuple[int, int, int], ...]
+
+
 # --- Assertions -------------------------------------------------------------------------
 
 

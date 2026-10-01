@@ -6,6 +6,10 @@ or Circle), less any holes. Consecutive edges share one vertex, toleranced to th
 joining distance, so a loop closes even where its ends differ in the last bits. It is held to
 the same conformance suite as FakeKernel (tests/engine/geometry/test_kernel_conformance.py).
 
+Solids (V2's F2): a face is moved onto its sketch's frame and swept along the normal
+(BRepPrimAPI_MakePrism), solids combine with OCCT's booleans, and a mesh comes from its
+incremental mesher, each triangle turned to face out.
+
 OCP ships without type information, so its names are Any here and every value leaving this
 module is converted to a plain float first.
 """
@@ -18,20 +22,26 @@ from typing import TYPE_CHECKING, Any
 from OCP import (  # type: ignore[import-not-found, import-untyped, unused-ignore]
     Bnd,
     BRep,
+    BRepAlgoAPI,
     BRepBndLib,
     BRepBuilderAPI,
     BRepCheck,
     BRepGProp,
+    BRepMesh,
+    BRepPrimAPI,
     GProp,
     ShapeFix,
+    TopAbs,
+    TopExp,
+    TopLoc,
     TopoDS,
     gp,
 )
 
 from caliper.contracts.document import Point2
 from caliper.contracts.errors import ErrorCode
-from caliper.contracts.kernel import KernelError, Loop, Shape
-from caliper.contracts.queries import AreaProperties, BoundingBox
+from caliper.contracts.kernel import Frame, KernelError, Loop, Shape
+from caliper.contracts.queries import AreaProperties, BoundingBox, BoundingBox3, Mesh, Point3
 from caliper.engine import profiles
 
 if TYPE_CHECKING:
@@ -46,6 +56,13 @@ class OCCTFace:
     """An OCCT TopoDS_Face, wrapped so other kernels' shapes are refused."""
 
     face: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class OCCTSolid:
+    """An OCCT shape holding solids: one, several, or none (a cut that left nothing)."""
+
+    shape: Any
 
 
 class OCCTKernel:
@@ -92,9 +109,97 @@ class OCCTKernel:
         )
 
     def is_valid(self, shape: Shape) -> bool:
-        return isinstance(shape, OCCTFace) and bool(
-            BRepCheck.BRepCheck_Analyzer(shape.face).IsValid()
+        if isinstance(shape, OCCTFace):
+            return bool(BRepCheck.BRepCheck_Analyzer(shape.face).IsValid())
+        return isinstance(shape, OCCTSolid) and bool(
+            BRepCheck.BRepCheck_Analyzer(shape.shape).IsValid()
         )
+
+    # --- Solids -------------------------------------------------------------------------
+
+    def extrude(self, face: Shape, frame: Frame, depth: float) -> Shape:
+        if not depth > 0:
+            raise KernelError(ErrorCode.VALUE_NOT_POSITIVE, "depth must be greater than 0")
+        placed = BRepBuilderAPI.BRepBuilderAPI_Transform(_own(face).face, _placing(frame), True)
+        n = _normal(frame)
+        prism = BRepPrimAPI.BRepPrimAPI_MakePrism(
+            placed.Shape(), gp.gp_Vec(n.x * depth, n.y * depth, n.z * depth)
+        )
+        if not prism.IsDone():
+            raise KernelError(ErrorCode.GEOMETRY_DEGENERATE, "OCCT could not extrude the face")
+        return OCCTSolid(shape=prism.Shape())
+
+    def union(self, a: Shape, b: Shape) -> Shape:
+        return _boolean(BRepAlgoAPI.BRepAlgoAPI_Fuse(_solid(a).shape, _solid(b).shape), "join")
+
+    def cut(self, a: Shape, b: Shape) -> Shape:
+        return _boolean(BRepAlgoAPI.BRepAlgoAPI_Cut(_solid(a).shape, _solid(b).shape), "cut")
+
+    def volume(self, solid: Shape) -> float:
+        props = GProp.GProp_GProps()
+        BRepGProp.BRepGProp.VolumeProperties_s(_solid(solid).shape, props)
+        return float(props.Mass())
+
+    def bounding_box_3d(self, solid: Shape) -> BoundingBox3:
+        box = Bnd.Bnd_Box()
+        BRepBndLib.BRepBndLib.AddOptimal_s(_solid(solid).shape, box, False, False)
+        if box.IsVoid():
+            raise KernelError(ErrorCode.SELECTION_EMPTY, "the solid is nothing: it has no bounds")
+        low, high = box.CornerMin(), box.CornerMax()
+        return BoundingBox3(
+            x_min=float(low.X()),
+            y_min=float(low.Y()),
+            z_min=float(low.Z()),
+            x_max=float(high.X()),
+            y_max=float(high.Y()),
+            z_max=float(high.Z()),
+        )
+
+    def mesh(self, solid: Shape, tolerance: float) -> Mesh:
+        shape = _solid(solid).shape
+        BRepMesh.BRepMesh_IncrementalMesh(shape, tolerance, False, 0.5, True)
+        vertices: list[Point3] = []
+        triangles: list[tuple[int, int, int]] = []
+        faces = TopExp.TopExp_Explorer(shape, TopAbs.TopAbs_FACE)
+        while faces.More():
+            face = TopoDS.TopoDS.Face(faces.Current())
+            location = TopLoc.TopLoc_Location()
+            made = BRep.BRep_Tool.Triangulation_s(face, location)
+            if made is not None:
+                placing = location.Transformation()
+                start = len(vertices)
+                for i in range(1, made.NbNodes() + 1):
+                    p = made.Node(i).Transformed(placing)
+                    vertices.append(Point3(x=float(p.X()), y=float(p.Y()), z=float(p.Z())))
+                # A face used the other way round has its triangles the other way round too.
+                flip = face.Orientation() == TopAbs.TopAbs_REVERSED
+                for i in range(1, made.NbTriangles() + 1):
+                    a, b, c = made.Triangle(i).Get()
+                    if flip:
+                        b, c = c, b
+                    triangles.append((start + a - 1, start + b - 1, start + c - 1))
+            faces.Next()
+        return Mesh(vertices=tuple(vertices), triangles=tuple(triangles))
+
+
+def _boolean(made: Any, what: str) -> OCCTSolid:
+    if not made.IsDone():
+        raise KernelError(ErrorCode.GEOMETRY_DEGENERATE, f"OCCT could not {what} the solids")
+    return OCCTSolid(shape=made.Shape())
+
+
+def _normal(frame: Frame) -> Point3:
+    x, y = frame.x, frame.y
+    return Point3(x=x.y * y.z - x.z * y.y, y=x.z * y.x - x.x * y.z, z=x.x * y.y - x.y * y.x)
+
+
+def _placing(frame: Frame) -> Any:
+    """The move from the XY plane, where faces are built, onto `frame`."""
+    o, x, n = frame.origin, frame.x, _normal(frame)
+    target = gp.gp_Ax3(gp.gp_Pnt(o.x, o.y, o.z), gp.gp_Dir(n.x, n.y, n.z), gp.gp_Dir(x.x, x.y, x.z))
+    move = gp.gp_Trsf()
+    move.SetTransformation(target, gp.gp_Ax3())
+    return move
 
 
 def _wire(loop: Loop, join: float) -> Any:
@@ -142,7 +247,13 @@ def _vertex(at: Point2, tolerance: float) -> Any:
 
 def _own(shape: Shape) -> OCCTFace:
     if not isinstance(shape, OCCTFace):
-        raise TypeError(f"shape {shape!r} was not made by OCCTKernel")
+        raise TypeError(f"shape {shape!r} isn't a face made by OCCTKernel")
+    return shape
+
+
+def _solid(shape: Shape) -> OCCTSolid:
+    if not isinstance(shape, OCCTSolid):
+        raise TypeError(f"shape {shape!r} isn't a solid made by OCCTKernel")
     return shape
 
 

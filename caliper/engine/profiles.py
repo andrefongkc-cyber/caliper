@@ -461,6 +461,44 @@ def _sample(walked: list[Edge]) -> Point2:
     return _at(e.center, e.radius, e.t0 + e.sweep / 2)
 
 
+# --- Regions against each other (the analytic kernel's solids) -----------------------------
+
+
+def within(loop: Loop, region: Profile) -> bool:
+    """Whether the region inside `loop` lies wholly in `region`: inside its outer loop, clear of
+    every hole, with no boundaries crossing or touching. Exact, as `find` is."""
+    walked = traversed(loop)
+    loops = [
+        (region.outer, traversed(region.outer)),
+        *((hole, traversed(hole)) for hole in region.holes),
+        (loop, walked),
+    ]
+    join = joining([e for each, _ in loops for e in each.edges])
+    if _crossing(loops, join) is not None:
+        return False
+    point = _sample(walked)
+    if not _inside(point, loops[0][1]):
+        return False
+    return not any(
+        _inside(point, hole) or _inside(_sample(hole), walked) for _, hole in loops[1:-1]
+    )
+
+
+def polygon(loop: Loop, tolerance: float) -> list[Point2]:
+    """The loop's corners in the order it runs, each arc replaced by chords no further than
+    `tolerance` from it. For drawing (meshes), never for measuring."""
+    corners: list[Point2] = []
+    for e in traversed(loop):
+        if e.center is None:
+            corners.append(e.a)
+            continue
+        ratio = max(-1.0, min(1.0, 1.0 - tolerance / e.radius))
+        step = max(2 * math.acos(ratio), 1e-3)
+        count = max(3 if abs(e.sweep) >= TAU else 1, math.ceil(abs(e.sweep) / step))
+        corners += [_at(e.center, e.radius, e.t0 + e.sweep * k / count) for k in range(count)]
+    return corners
+
+
 # --- Area properties and bounds ----------------------------------------------------------
 
 
