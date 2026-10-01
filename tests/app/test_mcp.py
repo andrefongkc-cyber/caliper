@@ -38,9 +38,11 @@ from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.panels.timing import time_left
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle, CreateRectangle
-from caliper.contracts.document import Circle, EntityId, Plane, Point2, Rectangle
+from caliper.contracts.document import Circle, EntityId, Extrude, Plane, Point2, Rectangle
+from caliper.engine import features, geometry
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
+from caliper.engine.geometry.fake_kernel import FakeKernel
 from caliper.engine.io import snapshot
 
 E1 = EntityId("e1")
@@ -177,6 +179,31 @@ def test_claude_desktop_draws_into_the_sketch_the_user_is_editing(served, qtbot)
     window.proposal_card.accept_button.click()
     circle = command.id
     assert session.queries.sketch_of(circle) == second
+
+
+def test_an_extrude_from_claude_desktop_is_proposed_accepted_and_undone_as_one_step(
+    served, qtbot, monkeypatch
+) -> None:
+    """An extrude changes the part's features, not its entities: the card still shows it,
+    Accept adds it, its volume check runs on the proposed solid, and Undo takes it back."""
+    monkeypatch.setattr(geometry, "default_kernel", FakeKernel)
+    features.forget()
+    window, session = served, served.session
+    session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    response = call(window, qtbot, "create_extrude", {"depth": 10})
+    assert not response.is_error, response.content
+    volume = {"metric": "volume", "expected": 60000, "tolerance": 0.001}
+    assert not call(window, qtbot, "run_check", volume).is_error
+    assert window.proposal_card.title.text() == "Extrude"
+    (check,) = window.agent.proposal.checks
+    assert check.after.passed
+    assert len(session.document.features) == 1  # nothing yet: it's a proposal
+    window.proposal_card.accept_button.click()
+    assert isinstance(session.document.features[1], Extrude)
+    assert session.queries.solid_properties().volume == pytest.approx(60_000.0)
+    window.undo_action.trigger()
+    assert len(session.document.features) == 1
+    assert not session.checks
 
 
 # --- When the user acts meanwhile -------------------------------------------------------

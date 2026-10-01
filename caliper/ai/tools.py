@@ -720,7 +720,10 @@ def _changes(delta: Delta, added: Callable[[EntityId], bool] = lambda id: True) 
 
 
 def _about_checks(delta: Delta) -> bool:
-    """Whether a change touched nothing but checks."""
+    """Whether a change touched nothing but checks. One to the part's features (an extrude, a
+    sketch) is not, though it changes no entity."""
+    if delta.features_after is not None:
+        return False
     return all(isinstance(e, Expectation) for e in (*delta.before.values(), *delta.after.values()))
 
 
