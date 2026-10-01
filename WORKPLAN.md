@@ -1,17 +1,24 @@
-Status: the client-side known issues are fixed on `contracts/checks-authors-labels` (checks saved in the file, C-1; one label rule, C-3; authors in History, C-4; more of C-6), stacked locally on `shared/known-issue-fixes` and the audit, next: Andre's review of the stack and #47 and #48, then a live Claude Desktop run; planned: the dependency and recomputation graph
+Status: the N phase (finish and harden 2D, N1–N11) done on `shared/n-phase` (local, not pushed) except what needs another machine or a key (N9 in part, N11 blocked), next: Andre's and Lucas's review of it; V2 (F1–F8) starts only after that
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-- **Current phase (2026-09-28):** V1 and V1.5 on `main` (PRs #26–#31), contract frozen. The AI layer is on `main` too: the in-app assistant (#32), Claude Desktop over MCP with its stress-test fixes (#34, #35), and the follow-ups through #46: MCP run timing and the Timing panel, test-run records, opening files, collapsible browser groups, the selection-hang fix, and the CAD practices for AI ([docs/workplan/ai.md](docs/workplan/ai.md), setup in [docs/mcp.md](docs/mcp.md)). In flight:
-  - [x] `shared/performance-v2`, PR #47 (rebased onto `main` 2026-09-28): Performance V2 and Solver V2.1, done and in review. The stress plate's Caliper time went from 45 s to 0.8 s (Accept 25 s → 0.02 s). One decision is open: stored values in sketches with fixed geometry can differ from `main` in the last digits ([docs/workplan/core.md](docs/workplan/core.md))
-  - [x] `shared/mirror-pattern-time-left`, PR #48 (stacked on #47): `mirror_entities`, `linear_pattern`, and `circular_pattern`, each one call of Caliper's own commands; the Timing panel's time left, priced by kind of call and smoothed, and a timer that stops by itself; test records in `test-runs-andre/`. Test 003, the stress plate on these tools from Claude Code: 4m 40s and 162 calls, against 9m 17s and 281 ([docs/workplan/ai.md](docs/workplan/ai.md))
-  - [x] `shared/2d-v1-audit` (local, not pushed, stacked on #48): the 2D V1 audit. Fixed, each with a test that fails without it: C-2 (tangency at a rectangle's corner or through points), rejections that say "partly implied" and don't blame themselves, AI-2 in part, AI-4, AI-5, C-11. Newly tested: editing a constrained part after it's built, repeats after Accept. Benchmarks for the repeat tools. Known limitations and future work: [docs/workplan/core.md](docs/workplan/core.md#2d-v1-audit-and-hardening-branch-shared2d-v1-audit-2026-09-29-local-not-pushed)
-  - [x] `shared/known-issue-fixes` (local, not pushed, stacked on the audit): C-12 refused, a factorization carried between a call's commands (C-6: the circular star 2.3 s to 0.34 s), `create_arc_through_points` and `create_outline` (AI-9, AI-10), arcs in patterns (AI-11), `remove_check` (AI-2), the assistant keeping four turns (AI-7), C-8, C-9, and the Claude Desktop setup's own environment (AI-3) ([docs/known-issues.md](docs/known-issues.md#recently-fixed))
-  - [x] `contracts/checks-authors-labels` (local, not pushed, stacked on the known-issue fixes): checks stored in the document and saved with the part ([ADR 0010](docs/adr/0010-checks-in-the-document.md), proposed; C-1, #16), one dimension label rule (C-3), who made each change (C-4), and a factorization carried to the first changed row (C-6, further). A joint contract change: file schema 3 ([docs/workplan/core.md](docs/workplan/core.md))
-  - [ ] A live run from Claude Desktop on these branches: does it use the tools, the practices, and `report_progress` unprompted?
+- **Current phase (2026-09-30):** V1, V1.5, the AI layer, Performance V2 and Solver V2.1 (#47), the repeat tools and the time left (#48), the 2D V1 audit (#49), the known-issue fixes (#50), checks saved with the part, one label rule, and authors on every change (#51, ADR 0010 proposed), and the dashed carry-on (#52) are on `main` (7d4f681), landed by #53. The plan for what comes next: the Caliper Engine Plan (N1–N11 to finish 2D, then F1–F8 for V2).
+  - **The N phase** (`shared/n-phase`, local, not pushed; details in [core.md](docs/workplan/core.md#the-n-phase-finish-and-harden-2d-branch-sharedn-phase-2026-09-30-local-not-pushed), [shell.md](docs/workplan/shell.md#the-n-phase-app-side-branch-sharedn-phase-2026-09-30), [ai.md](docs/workplan/ai.md#the-n-phase-ai-side-branch-sharedn-phase-2026-09-30)):
+    - [x] N1, the stress plate's reference output pinned by digest. Pinned on macOS; Linux CI confirms it on the first push
+    - [x] N2, property tests for stored checks, with two deliberate breaks they catch
+    - [x] N3, bench cases for a saved check and a pattern: 9 of 9 cases pass
+    - [x] N4, closed profiles from lines and arcs, with holes, on both kernels; the stress plate's area to 1e-9. A slot drawn as a rectangle and arcs isn't one profile (C-13)
+    - [x] N5, the full suite with OCCT locally: 1544 passed, 0 skipped
+    - [x] N6, #51 and #52 reviewed from the app side: three issues fixed (the card's check list, changes held back while the assistant works, the check edit's History label)
+    - [x] N7, checks edited from the Checks panel by keyboard, one undoable "Edit Check"
+    - [x] N8, a pixel baseline of the stress plate's corner that fails if the carry-on is drawn solid
+    - [~] N9, the stress plate live over MCP on `main`, recorded as test 004: done from Claude Code, not Claude Desktop; timing, Save and reopen in the window, and Lucas's run not done
+    - [x] N10, the saved-check workflow automated through the real window, and an older build's refusal checked against the real older build; not a manual pass
+    - [ ] N11, a live in-app assistant request: blocked, no API key in this environment (AI-6 unverified)
+    - Found and fixed on the way: a check refused on a machine without a geometry kernel
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)

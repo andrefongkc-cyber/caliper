@@ -1,10 +1,24 @@
-Status: a line carried on to a dimension beyond its end is drawn dashed, on `shared/dimension-extensions` (local, stacked on #51), next: review with #47 to #51
+Status: the N phase's app side done on `shared/n-phase` (local, not pushed): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: Lucas's review
 
 # Shell workplan — Stream B
 
 Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contracts` and the in-memory engine; never imports a kernel.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+
+## The N phase, app side (branch `shared/n-phase`, 2026-09-30)
+
+Lucas hadn't started N6–N8 (nothing on `stream/shell` or in this file), so they were done here; the engine side is in [core.md](core.md#the-n-phase-finish-and-harden-2d-branch-sharedn-phase-2026-09-30-local-not-pushed).
+
+- [x] **N6, a review of the app changes in #51 and #52** (checks from the document, proposal checks, the card, Select All, the Sketch browser, the dashed carry-on). Fixed, each with a test that fails without it:
+  - The card listed every check a proposal removed, one red line each, and nothing collapsed them: clearing the stress plate listed 12 and pushed Accept off the card. Two of each kind are named; more are counted in one line, the list in its tooltip
+  - Changes from Claude Desktop were refused while the in-app assistant worked only for command tools; `run_check`, `remove_check`, `undo`, and the repeat and drawing tools went through. One list (`caliper.ai.tools.CHANGES`) now decides, and a test keeps it and the MCP read-only list covering every tool
+  - History called an edit to a check "Change Expected"; it says "Edit Check"
+  - Checked and found sound: the session reads checks from the document in the order they were made; a proposal's agent checks are the ones it adds or edits, the user's the ones it leaves; the browser skips checks when inserting and refilling rows; Select All leaves checks out, so Delete after it leaves them (failing) rather than removing them; nothing else selects a check; a dimension's extension line along the measured line is dropped and what's past the line's end is dashed, for angle dimensions too
+- [x] **N7, editing a check** (`caliper/app/panels/checks.py`): Return, F2, or a double-click on a check opens the form on it, with its expected value and tolerance, and the selection's measurements to point it at instead. Save is one `ModifyEntity`, one undo step, "Edit Check" in History; Escape cancels; an unchanged save records nothing. A check that can't be measured (its geometry deleted) can't stay as it is: the form says why and offers the selection, keeping the requirement's value, or Delete. Tests: keyboard edit and Tab to the tolerance, undo as one step, Escape and an unchanged save, double-click, re-pointing a broken check
+- [x] **N8, the plate corner's pixel baseline** (`tests/app/baselines/canvas_plate_corner.png`): the top edge ending at the R12 fillet, 2 mm short of the Ø0.2 hole dimensioned to it, at 200 px/mm in its own fixed view, the dimension's text off the canvas. Drawn solid again, the carry-on changes 0.16% of the canvas against the harness's 0.1% allowance, and 21% of the strip it lies in against 2%: a test draws it solid and checks both fail. The harness now draws afresh for each render, so a cached layer can't hide a change
+- [x] **N10, the app side**: the saved-check workflow test (core.md, N10)
 
 ## Performance V2, the shell side (branch `shared/performance-v2`, 2026-09-27)
 

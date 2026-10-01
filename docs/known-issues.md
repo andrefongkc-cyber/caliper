@@ -1,8 +1,8 @@
 # Known issues
 
-What breaks in Caliper today, on `main` at `418c657` (2026-09-26), updated for the branches in
-review (2026-09-29). Each entry was checked
-against the code or found in a test run. It's sorted by side:
+What breaks in Caliper today, on `main` at `7d4f681` (2026-09-30), updated for
+`shared/n-phase` (2026-09-30). Each entry was checked against the code or found in a test run.
+It's sorted by side:
 
 - **AI side**: `caliper/ai`, the `caliper-mcp` server, the in-app assistant, and Claude Desktop
   setup.
@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | | C-6 | |
+| Client side | C-13 (limited) | C-6 | |
 
 ---
 
@@ -25,7 +25,9 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   The request shape, including the `server-side-fallback-2026-07-01` beta, hasn't been
   confirmed against a live API.
 - **Where:** `caliper/ai/claude.py`.
-- **Next:** one live run with `CALIPER_ASSISTANT=claude` and a key in your shell.
+- **Next:** one live run with `CALIPER_ASSISTANT=claude` and a key in your shell. Still not
+  done on 2026-09-30 (N11): no API key in the environment the N phase ran in, so nothing was
+  sent; the adapter wasn't changed.
 
 ### AI-8. MCP needs macOS or Linux
 - **What happens:** the bridge uses a Unix socket, so on Windows the window can't serve
@@ -35,6 +37,15 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 ---
 
 ## Client side
+
+### C-13. A slot drawn as a rectangle and two end arcs has no area
+- **What happens:** an area check, or the Checks panel's area, refuses a slot built the way
+  the stress-plate prompt asks for it, a rectangle with semicircle ends: "the profile isn't
+  closed". The arcs end at the rectangle's corners, which aren't edge ends, so the slot isn't
+  one loop; its outline would need the rectangle's short sides left out, which is a union.
+- **Where:** `caliper/engine/profiles.py`, `find`.
+- **Workaround:** draw the slot as one outline of two lines and two arcs (`create_outline`, or
+  lines and arcs joined end to end): it's a loop, and has an area.
 
 ### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the
@@ -51,6 +62,22 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 ---
 
 ## Recently fixed
+
+On `shared/n-phase` (the N phase, not pushed):
+
+- Area checks of lines and arcs: an area was one rectangle or circle, so an area check of a
+  traced outline, such as the stress plate's, was refused whatever it made. A closed profile is
+  now lines and arcs joined end to end, with holes; what isn't one is refused with the reason
+  (N4). The slot built from a rectangle and arcs still isn't one (C-13, above).
+- A check was refused when the machine had no geometry kernel: without the `occt` extra every
+  area check was "install the occt extra", even of a valid profile. It's stored, and measured
+  wherever a kernel is.
+- Changes from Claude Desktop were held back while the in-app assistant worked only for command
+  tools; checks, undo, and the repeat and drawing tools went through. Every change waits now.
+- The proposal card named every check a proposal removed, one red line each: clearing the
+  stress plate pushed Accept off the card. More than two are counted in one line.
+- History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
+  edited from the Checks panel by keyboard (N7).
 
 On `contracts/checks-authors-labels` (stacked on the known-issue fixes, not pushed):
 

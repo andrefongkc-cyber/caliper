@@ -1,4 +1,4 @@
-Status: checks are changes now (stored in the sketch, C-1): `run_check` and `remove_check` add to the proposal, on `contracts/checks-authors-labels` (local, stacked on `shared/known-issue-fixes`), next: a live Claude Desktop run on the stacked branches, then review of #47, #48, and the local branches
+Status: the N phase's AI side on `shared/n-phase` (local, not pushed): test 004 recorded over MCP from Claude Code (N9, in part), the live in-app assistant run blocked with no API key here (N11, AI-6 unverified); next: a Claude Desktop run on `main` and one live API request when a key is set
 
 # AI workplan
 
@@ -7,6 +7,13 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## The N phase, AI side (branch `shared/n-phase`, 2026-09-30)
+
+- [~] **N9, the stress plate live on `main`**: run from Claude Code over MCP, not Claude Desktop, and recorded as [test 004](../../test-runs-andre/004-stress-plate-main/) (prompt, output, results). 0 DOF, nothing rejected, 12 of 12 checks, about 101 calls (one mirror, one linear and one circular pattern), `report_progress` at both ends (98, then 0). Its checks came back with ids, so they were stored with the proposal, and after Accept the sketch held them (12 checks among 402 entities). Not covered, so not claimed: Claude Desktop's own behaviour (does it call `report_progress` and the repeat tools unprompted?), the time left as shown on screen, and Save and reopen in the window (automated instead: N10). The folder lacks `003-timing.md`, the drawing, and `005-my-results.md`, which Caliper and Andre write. The MCP connection in that session listed the older tool set (no `create_outline`, `create_arc_through_points`, or `remove_check`), so it was started from older code than the app's
+- [ ] **N11, one live request through the Claude adapter**: blocked. No `ANTHROPIC_API_KEY` in this environment (checked without printing it), no `.env`, and the `ai` extra isn't installed; nothing was installed or faked. AI-6 stays unverified
+- [x] Changes wait while the in-app assistant works: `caliper.ai.tools.CHANGES` names every tool that can change the sketch (commands, repeats, drawing tools, `run_check`, `remove_check`, `undo`); the MCP host refuses those while the assistant is busy, where it refused only command tools (N6)
+- [x] `run_check`'s `area` metric says what it reads: one closed profile, its outline (a circle, a rectangle, or lines and arcs joined end to end, in any order) and any holes inside it (N4)
 
 ## Checks are changes (branch `contracts/checks-authors-labels`, 2026-09-29; local)
 
