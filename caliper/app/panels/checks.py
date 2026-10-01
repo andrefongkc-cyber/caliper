@@ -45,10 +45,12 @@ from caliper.contracts.document import (
     DistanceDimension,
     EntityId,
     Expectation,
+    Geometry,
     Metric,
     RadialDimension,
     Rectangle,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import ErrorCode
 from caliper.contracts.queries import CheckResult
@@ -136,10 +138,17 @@ def options(session: DocumentSession) -> list[Option]:
         if session.queries.check(_expectation(area, 0.0, 0.0)).error is None:
             found.append(area)
     else:
-        found += [
-            Option("Sketch width", Metric.BBOX_WIDTH),
-            Option("Sketch height", Metric.BBOX_HEIGHT),
-        ]
+        # The sketch being edited: with several sketches, all the geometry spans planes, so
+        # the sketch's own geometry is named (with one, no ids means the same thing), and a
+        # sketch with nothing drawn yet has no size to check.
+        many = sum(isinstance(f, Sketch) for f in session.document.features) > 1
+        drawn = session.sketch_view.entities
+        mine = tuple(sorted(i for i, e in drawn.items() if isinstance(e, Geometry))) if many else ()
+        if mine or not many:
+            found += [
+                Option("Sketch width", Metric.BBOX_WIDTH, ids=mine),
+                Option("Sketch height", Metric.BBOX_HEIGHT, ids=mine),
+            ]
         volume = Option("Volume of the part", Metric.VOLUME)
         if _solid(session, volume):
             found.append(volume)

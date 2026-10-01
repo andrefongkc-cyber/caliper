@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from caliper.app.main_window import MainWindow
+from caliper.app.panels.checks import options
 from caliper.contracts.commands import (
     CreateCircle,
     CreateExtrude,
@@ -18,7 +19,15 @@ from caliper.contracts.commands import (
     DeleteEntities,
     ModifyEntity,
 )
-from caliper.contracts.document import FIRST_SKETCH, EntityId, Extrude, Plane, Point2, Sketch
+from caliper.contracts.document import (
+    FIRST_SKETCH,
+    EntityId,
+    Expectation,
+    Extrude,
+    Plane,
+    Point2,
+    Sketch,
+)
 from caliper.engine import features, geometry
 from caliper.engine.geometry.fake_kernel import FakeKernel
 
@@ -223,3 +232,32 @@ def test_the_extrude_panel_takes_return_and_escape(window: MainWindow, qtbot) ->
     extrude = window.session.document.features[1]
     assert isinstance(extrude, Extrude)
     assert extrude.depth == 12.5
+
+
+# --- The rest of the window, with several sketches (F7) -------------------------------------
+
+
+def test_the_sketch_size_checks_measure_the_sketch_being_edited(window: MainWindow) -> None:
+    """With two sketches, "all the geometry" spans planes and has no one size: the Checks
+    panel's Sketch width names the edited sketch's own geometry."""
+    window.session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    window.new_sketch_actions[Plane.XZ].trigger()
+    labels = [o.label for o in options(window.session)]
+    assert "Sketch width" not in labels  # nothing drawn here yet: no size to check
+    (circle,) = window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5)).created_ids  # type: ignore[union-attr]
+    width = next(o for o in options(window.session) if o.label == "Sketch width")
+    assert width.ids == (circle,)
+    result = window.session.queries.check(
+        Expectation(metric=width.metric, expected=10.0, tolerance=1e-6, ids=width.ids)
+    )
+    assert result.error is None
+    assert result.passed
+    window.edit_sketch(FIRST_SKETCH)
+    width = next(o for o in options(window.session) if o.label == "Sketch width")
+    assert width.ids == (EntityId("e1"),)
+
+
+def test_with_one_sketch_the_size_checks_name_no_ids(window: MainWindow) -> None:
+    window.session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    width = next(o for o in options(window.session) if o.label == "Sketch width")
+    assert width.ids == ()  # the whole sketch, as a V1 file's check always said
