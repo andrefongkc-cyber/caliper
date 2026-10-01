@@ -120,6 +120,10 @@ def options(session: DocumentSession) -> list[Option]:
             Option("Width of the selection", Metric.BBOX_WIDTH, ids=ids),
             Option("Height of the selection", Metric.BBOX_HEIGHT, ids=ids),
         ]
+        # An outline of lines and arcs, with any holes, has an area (N4).
+        area = Option("Area of the selection", Metric.AREA, ids=ids)
+        if session.queries.check(_expectation(area, 0.0, 0.0)).error is None:
+            found.append(area)
     else:
         found += [
             Option("Sketch width", Metric.BBOX_WIDTH),

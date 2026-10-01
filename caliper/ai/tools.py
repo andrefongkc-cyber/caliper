@@ -191,7 +191,10 @@ METRICS = {
     Metric.POSITION_Y: "refs [point]: its y from the origin, signed",
     Metric.BBOX_WIDTH: "ids: the width of their bounding box (no ids: the whole sketch)",
     Metric.BBOX_HEIGHT: "ids: the height of their bounding box (no ids: the whole sketch)",
-    Metric.AREA: "ids: the area inside one closed profile",
+    Metric.AREA: (
+        "ids: the area inside one closed profile: its outline (a circle, a rectangle, or lines "
+        "and arcs joined end to end, in any order) and any holes inside it"
+    ),
     Metric.DIMENSION_VALUE: "ids [dimension]: what the dimension measures",
 }
 """What each check metric measures and reads, for the model (AI-5): the contract's names alone

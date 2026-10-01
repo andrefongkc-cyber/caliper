@@ -32,6 +32,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.queries import AreaProperties, BoundingBox, Expectation, Metric
 from caliper.engine.commands.bus import Bus
+from caliper.engine.geometry.fake_kernel import FakeKernel
 from tests.app.conftest import make_window
 
 
@@ -302,8 +303,8 @@ def test_measurement_becomes_a_check(window, driver, sketch) -> None:
 class AreaKernel:
     """Just enough of the contract's `Kernel` for a circle's area to be measurable."""
 
-    def make_face(self, boundary: object) -> object:
-        return boundary
+    def make_face(self, outer: object, holes: object = ()) -> object:
+        return outer
 
     def area_properties(self, face: object) -> AreaProperties:
         return AreaProperties(area=1.0, centroid=Point2(x=0, y=0), ixx=0.0, iyy=0.0, ixy=0.0)
@@ -543,3 +544,19 @@ def test_checks_stay_out_of_the_browser_and_select_all(window, sketch) -> None:
     window.select_all()
     assert check not in window.session.selection
     assert plate in window.session.selection
+
+
+def test_a_selected_outline_offers_its_area(qtbot) -> None:
+    # N4: lines and arcs joined end to end have an area; a selection that isn't one profile
+    # isn't offered one.
+    window = make_window(qtbot, Bus(kernel=FakeKernel()))
+    s = window.session
+    corners = [Point2(x=0, y=0), Point2(x=30, y=0), Point2(x=30, y=20), Point2(x=0, y=20)]
+    made = [
+        s.execute(CreateLine(start=a, end=b)).created_ids[0]
+        for a, b in zip(corners, [*corners[1:], corners[0]], strict=True)
+    ]
+    s.set_selection(frozenset(made))
+    assert "Area of the selection" in [o.label for o in options(s)]
+    s.set_selection(frozenset(made[:3]))  # open
+    assert "Area of the selection" not in [o.label for o in options(s)]

@@ -43,6 +43,7 @@ from caliper.contracts.queries import (
     SolveStatus,
     Suggestion,
 )
+from caliper.engine import profiles
 from caliper.engine.commands.validation import (
     constraint_errors,
     feature_errors,
@@ -199,6 +200,10 @@ class DocumentQueries:
                 message="construction geometry isn't part of a profile",
                 field="ids",
             )
+        # The loops, in order, checked to be one outline and the holes inside it (N4).
+        profile = profiles.find(list(zip(ids, found, strict=True)))
+        if isinstance(profile, Error):
+            return profile
         kernel = self._kernel_source() if callable(self._kernel_source) else self._kernel_source
         if kernel is None:
             return Error(
@@ -206,7 +211,7 @@ class DocumentQueries:
                 message="area properties need a geometry kernel: install the occt extra",
             )
         try:
-            return kernel.area_properties(kernel.make_face(found))
+            return kernel.area_properties(kernel.make_face(profile.outer, profile.holes))
         except KernelError as e:
             return Error(code=e.code, message=str(e), field="ids")
 
