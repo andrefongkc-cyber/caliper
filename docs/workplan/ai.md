@@ -8,6 +8,11 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
 
+## V2, F3: extrude and volume, from the AI side (branch `shared/v2-milestone`, 2026-10-01)
+
+- [x] `create_extrude` is a tool, since the app gets an Extrude tool (F6) and the model has what the UI has. `run_check` measures `volume`: the part's solid, or as it stood after one feature. The MCP server offers 29 tools
+- [ ] Later: the part's solid in `inspect_document` (its volume and any failing feature)
+
 ## V2, F1: the part, from the AI side (branch `shared/v2-f1-document`, 2026-09-30)
 
 - [x] The tools follow the contract: `create_point`, `create_line`, `create_circle`, `create_arc`, and `create_rectangle` take an optional `sketch`, described as "leave it out while the part has one sketch". Results report the resolved command, which records the sketch (`e0` for every V1-shaped part)

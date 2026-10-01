@@ -8,7 +8,7 @@ queries.
 import json
 from collections import deque
 from dataclasses import dataclass
-from types import TracebackType
+from types import EllipsisType, TracebackType
 from typing import TYPE_CHECKING, Self
 
 from caliper.contracts.commands import (
@@ -26,7 +26,6 @@ from caliper.contracts.document import Document
 from caliper.contracts.queries import Queries
 from caliper.engine.commands.handlers import handle
 from caliper.engine.document.delta import apply, diff, is_empty
-from caliper.engine.geometry import default_kernel
 from caliper.engine.io.codec import encode
 from caliper.engine.queries import DocumentQueries, KernelSource
 
@@ -51,7 +50,7 @@ class Bus:
         *,
         undo_limit: int = 1000,
         undo_bytes: int = 64 * 1024 * 1024,
-        kernel: KernelSource = default_kernel,
+        kernel: KernelSource | EllipsisType = ...,
     ) -> None:
         """`undo_limit` caps undo entries and `undo_bytes` their total approximate size; the
         newest entry is always kept, however large.

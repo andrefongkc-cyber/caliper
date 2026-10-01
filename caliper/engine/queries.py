@@ -8,6 +8,7 @@ import math
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from types import EllipsisType
 from typing import TYPE_CHECKING, cast
 
 from caliper.contracts.document import (
@@ -20,6 +21,7 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    Extrude,
     Feature,
     Geometry,
     Line,
@@ -30,7 +32,7 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.contracts.kernel import Kernel, KernelError
+from caliper.contracts.kernel import Kernel, KernelError, Shape
 from caliper.contracts.queries import (
     AreaProperties,
     BoundingBox,
@@ -39,24 +41,26 @@ from caliper.contracts.queries import (
     DimensionType,
     Distance,
     Expectation,
+    Mesh,
     Metric,
+    SolidProperties,
     SolveStatus,
     Suggestion,
 )
-from caliper.engine import part, profiles
+from caliper.engine import features, geometry, part, profiles
 from caliper.engine.commands.validation import (
     constraint_errors,
     feature_errors,
     normalize_enum,
     normalize_float,
     normalize_id,
+    normalize_ids,
     normalize_point,
     normalize_ref,
     normalize_refs,
 )
 from caliper.engine.constraints import dimensions, sketch
 from caliper.engine.constraints.suggest import suggest
-from caliper.engine.geometry import default_kernel
 from caliper.engine.spatial import grid
 
 if TYPE_CHECKING:
@@ -83,14 +87,18 @@ CHECK_CACHE = 4096
 
 
 class DocumentQueries:
-    def __init__(self, document: Document, kernel: KernelSource = default_kernel) -> None:
+    def __init__(self, document: Document, kernel: KernelSource | EllipsisType = ...) -> None:
         """`kernel` is a Kernel, None, or a function returning one, called only when needed.
 
-        The default picks OCCTKernel when the `occt` extra is installed. Without a kernel,
-        `area_properties` reports KERNEL_UNAVAILABLE.
+        The default, `caliper.engine.geometry.default_kernel` as it is when the queries are
+        made, picks OCCTKernel when the `occt` extra is installed. Without a kernel, areas
+        and solids report KERNEL_UNAVAILABLE.
         """
         self._document = document
-        self._kernel_source = kernel
+        self._kernel_source = geometry.default_kernel if kernel is ... else kernel
+
+    def _kernel(self) -> Kernel | None:
+        return self._kernel_source() if callable(self._kernel_source) else self._kernel_source
 
     def bounding_box(self, ids: Sequence[EntityId] = ()) -> BoundingBox | Error:
         if ids:
@@ -208,7 +216,7 @@ class DocumentQueries:
         profile = profiles.find(list(zip(ids, found, strict=True)))
         if isinstance(profile, Error):
             return profile
-        kernel = self._kernel_source() if callable(self._kernel_source) else self._kernel_source
+        kernel = self._kernel()
         if kernel is None:
             return Error(
                 code=ErrorCode.KERNEL_UNAVAILABLE,
@@ -287,6 +295,74 @@ class DocumentQueries:
     ) -> tuple[Suggestion, ...]:
         return suggest(self._document, tuple(ids), tolerance, angle_tolerance)
 
+    def solid_properties(self, ids: Sequence[EntityId] = ()) -> SolidProperties | Error:
+        found = self._solid(ids)
+        if isinstance(found, Error):
+            return found
+        kernel, solid = found
+        try:
+            volume = kernel.volume(solid)
+            try:
+                box = kernel.bounding_box_3d(solid)
+            except KernelError as e:
+                if e.code is not ErrorCode.SELECTION_EMPTY:
+                    raise
+                box = None
+        except KernelError as e:
+            return Error(code=e.code, message=str(e), field="ids")
+        return SolidProperties(volume=volume, bounding_box=box)
+
+    def mesh(self, ids: Sequence[EntityId] = (), tolerance: float = 0.05) -> Mesh | Error:
+        errors: list[Error] = []
+        tolerance = normalize_float(tolerance, "tolerance", errors)
+        if not errors and not tolerance > 0:
+            errors.append(
+                Error(
+                    code=ErrorCode.VALUE_NOT_POSITIVE,
+                    message="tolerance must be greater than 0",
+                    field="tolerance",
+                )
+            )
+        if errors:
+            return errors[0]
+        found = self._solid(ids)
+        if isinstance(found, Error):
+            return found
+        kernel, solid = found
+        try:
+            return features.mesh(kernel, solid, tolerance)
+        except KernelError as e:
+            return Error(code=e.code, message=str(e), field="ids")
+
+    def feature_error(self, id: EntityId) -> Error | None:
+        if part.feature(self._document, id) is None:
+            return None
+        kernel = self._kernel()
+        if kernel is None:
+            return None  # nothing is wrong with the feature; there's nothing to build it with
+        return features.solids(self._document, kernel)[id].error
+
+    def _solid(self, ids: Sequence[EntityId]) -> tuple[Kernel, Shape] | Error:
+        errors: list[Error] = []
+        normalized = normalize_ids(ids, "ids", errors)
+        if errors:
+            return errors[0]
+        if not any(isinstance(f, Extrude) for f in self._document.features):
+            # No feature makes a solid: that needs no kernel to say.
+            return Error(
+                code=ErrorCode.SELECTION_EMPTY,
+                message="the part has no solid yet: extrude a sketch",
+                field="ids",
+            )
+        kernel = self._kernel()
+        if kernel is None:
+            return Error(
+                code=ErrorCode.KERNEL_UNAVAILABLE,
+                message="solids need a geometry kernel: install the occt extra",
+            )
+        found = features.solid(self._document, kernel, normalized)
+        return found if isinstance(found, Error) else (kernel, found)
+
     def sketch_of(self, id: EntityId) -> EntityId | None:
         return part.sketch_of(self._document, id)
 
@@ -337,6 +413,8 @@ class DocumentQueries:
         """The entities a check reads, or None when it may read more than it names (a
         bounding box of the whole sketch) or can't be looked at safely."""
         try:
+            if expectation.metric == Metric.VOLUME:
+                return None  # reads the part's features, not only the entities it names
             named = [*expectation.ids, *(ref.entity for ref in expectation.refs)]
             if not named:
                 return None
@@ -476,6 +554,9 @@ class DocumentQueries:
                 if isinstance(value, Error) and value.field == "id":
                     return Error(code=value.code, message=value.message, field="ids")
                 return value
+            case Metric.VOLUME:
+                solid = self.solid_properties(expectation.ids)
+                return solid if isinstance(solid, Error) else solid.volume
 
 
 def _same(a: tuple[object, ...], b: tuple[object, ...]) -> bool:

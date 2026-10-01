@@ -1,0 +1,61 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "construction": false,
+        "corner": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "height": 50.0,
+        "kind": "rectangle",
+        "sketch": "e0",
+        "width": 120.0
+      },
+      "e2": {
+        "a": {
+          "entity": "e1",
+          "feature": "bottom_left"
+        },
+        "b": {
+          "entity": "e1",
+          "feature": "bottom_right"
+        },
+        "kind": "distance_dimension",
+        "offset": -10.0,
+        "orientation": "horizontal",
+        "value": 120.0
+      },
+      "e4": {
+        "expected": 60000.0,
+        "ids": [],
+        "kind": "check",
+        "metric": "volume",
+        "refs": [],
+        "tolerance": 1e-06
+      }
+    },
+    "features": [
+      {
+        "id": "e0",
+        "kind": "sketch",
+        "plane": "xy"
+      },
+      {
+        "depth": 10.0,
+        "id": "e3",
+        "ids": [],
+        "kind": "extrude",
+        "operation": "add",
+        "sketch": "e0"
+      }
+    ],
+    "next_id": 5
+  },
+  "format": "caliper.document",
+  "schema_version": 4,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}

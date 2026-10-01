@@ -62,6 +62,12 @@ class ErrorCode(StrEnum):
     SKETCH_REQUIRED = "sketch.required"
     """Geometry was created without saying which sketch, and the part doesn't have exactly
     one (ADR 0011). Name it in the command's `sketch`."""
+    DEPENDENCY_CYCLE = "dependency.cycle"
+    """A feature refers to itself or to a feature after it: features read only what comes
+    before them, which keeps the part from depending on itself (ADR 0013)."""
+    FEATURE_FAILED = "feature.failed"
+    """An earlier feature failed, so this one wasn't recomputed. `Error.ids` names the one
+    that failed; its own error says why."""
     SKETCH_MIXED = "sketch.mixed"
     """What was given is in more than one sketch, where one is needed: a dimension's or
     constraint's references, a fillet's lines, geometry moved together, or what a

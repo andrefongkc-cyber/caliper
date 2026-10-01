@@ -123,7 +123,7 @@ def mutated(change: str) -> str:
         case "features-not-a-list":
             data["document"]["features"] = {"e0": "xy"}
         case "unknown-feature-kind":
-            data["document"]["features"][0]["kind"] = "extrude"
+            data["document"]["features"][0]["kind"] = "revolve"
         case "bad-plane":
             data["document"]["features"][0]["plane"] = "xw"
         case "feature-id-twice":
@@ -155,7 +155,7 @@ def mutated(change: str) -> str:
         (mutated("bad-next-id"), "next_id: must be a positive integer"),
         (mutated("no-features"), "document: missing field(s): features"),
         (mutated("features-not-a-list"), "document.features: expected a list"),
-        (mutated("unknown-feature-kind"), "document.features[0]: unknown kind 'extrude'"),
+        (mutated("unknown-feature-kind"), "document.features[0]: unknown kind 'revolve'"),
         (mutated("bad-plane"), "document.features[0].plane: plane must be one of: xy, xz, yz"),
         (mutated("feature-id-twice"), "document.features[1].id: id 'e0' is used twice"),
         (mutated("feature-id-of-an-entity"), "document.features[1].id: id 'e1' is used twice"),
@@ -278,7 +278,11 @@ def golden(old: Path) -> Path:
 SCHEMA_3 = sorted(V3.glob("*.caliper")) + sorted((V3 / "bench").glob("*.caliper"))
 
 
-BORN_AT_SCHEMA_4 = {FIXTURES / "two-sketches.caliper"}
+BORN_AT_SCHEMA_4 = {
+    FIXTURES / "two-sketches.caliper",
+    FIXTURES / "extruded-plate.caliper",
+    ROOT / "bench" / "cases" / "extruded-plate-milestone" / "expected.caliper",
+}
 """Goldens first written at schema 4, which have no older version."""
 
 

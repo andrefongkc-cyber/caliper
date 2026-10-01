@@ -21,7 +21,8 @@ format change on top of that (ADR 0005). V1.5 (`contracts/sketch-constraints`) a
 and `AngleDimension` (file schema 2). C-1 (`contracts/checks-authors-labels`) moved
 `Expectation` here from the queries: a check is stored in the document (file schema 3).
 V2's F1 (ADR 0011) made the document a part: `Document.features` in order, `Sketch` on a
-`Plane`, and each geometry entity's `sketch` (file schema 4).
+`Plane`, and each geometry entity's `sketch` (file schema 4). V2's F3 (ADR 0013) added the
+second feature, `Extrude`, and `Metric.VOLUME`.
 """
 
 from collections.abc import Mapping
@@ -85,8 +86,40 @@ class Sketch:
     plane: Plane
 
 
-PartFeature = Sketch
-"""Every kind of part feature. V2's F3 adds `Extrude`."""
+class ExtrudeOperation(StrEnum):
+    """What an extrude does to the part's solid."""
+
+    ADD = "add"
+    """Join it on. The part's first extrude makes the solid."""
+    REMOVE = "remove"
+    """Cut it away, as a pocket or a hole through."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Extrude:
+    """A profile drawn in `sketch`, swept `depth` mm along the sketch plane's normal, and added
+    to or cut from the part's solid (ADR 0013).
+
+    The profile is the geometry in `ids`, or with none given, every geometry entity in the
+    sketch that isn't construction geometry. It must be one closed profile with any holes
+    (`caliper.engine.profiles`) when the extrude is made. A later edit to the sketch that
+    breaks it makes the extrude fail, with the reason, rather than being refused; what the
+    extrude made is never stored, only recomputed (ADR 0005). `sketch` must come before the
+    extrude in the part's features.
+    """
+
+    kind: ClassVar[str] = "extrude"
+    id: EntityId
+    sketch: EntityId
+    depth: float
+    """Greater than 0, in mm, along the normal of the sketch's plane."""
+    operation: ExtrudeOperation = ExtrudeOperation.ADD
+    ids: tuple[EntityId, ...] = ()
+    """The profile's geometry; empty means all of the sketch's non-construction geometry."""
+
+
+PartFeature = Sketch | Extrude
+"""Every kind of part feature, in `Document.features`."""
 
 
 # --- Geometry ---------------------------------------------------------------------------
@@ -406,6 +439,9 @@ class Metric(StrEnum):
     """ids forming one closed profile"""
     DIMENSION_VALUE = "dimension_value"
     """ids=(dimension,)"""
+    VOLUME = "volume"
+    """mm³ of the part's solid: ids empty for the whole part, or one feature's id for the part
+    as it stands after that feature (V2)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

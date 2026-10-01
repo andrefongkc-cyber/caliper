@@ -284,7 +284,7 @@ def test_a_check_is_measured_and_remembered_for_review() -> None:
     failed = workspace.call(
         call("run_check", metric="bbox_height", expected=60, tolerance=0.001, ids=["e1"])
     )
-    broken = workspace.call(call("run_check", metric="volume", expected=1, tolerance=0))
+    broken = workspace.call(call("run_check", metric="mass", expected=1, tolerance=0))
     assert (passed.content["passed"], passed.content["actual"]) == (True, 120.0)  # type: ignore[index]
     assert (failed.content["passed"], failed.content["actual"]) == (False, 50.0)  # type: ignore[index]
     assert broken.content["error"]["code"] == "value.out_of_range"  # type: ignore[index]
@@ -360,7 +360,7 @@ def test_a_check_that_shouldn_t_be_there_can_be_taken_back() -> None:
     again = workspace.call(call("remove_check", metric="bbox_height", ids=["e1"]))
     assert again.is_error
     assert "no check of that measurement" in again.content["error"]  # type: ignore[index]
-    bad = workspace.call(call("remove_check", metric="volume"))
+    bad = workspace.call(call("remove_check", metric="mass"))
     assert bad.is_error
 
 

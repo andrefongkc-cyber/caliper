@@ -24,7 +24,8 @@ Frozen as of V1: a new command type, or a change to an existing one, needs a joi
 `contracts/` PR. ADR 0002 has the reasoning. The post-V1 fixes added `ChangeReason.COMMIT`,
 so committing a transaction is announced like every other change to the undo stack. C-1
 added `CreateCheck` (ADR 0010), and C-4 `Change.source`. V2's F1 (ADR 0011) added
-`CreateSketch`, the `sketch` a create command draws in, and the feature list in a `Delta`.
+`CreateSketch`, the `sketch` a create command draws in, and the feature list in a `Delta`;
+V2's F3 (ADR 0013) added `CreateExtrude`.
 
 Geometry goes in a sketch. A command that creates geometry names it in `sketch`; left as
 None, it is the part's only sketch, and a part with none or several refuses the command
@@ -43,6 +44,7 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    ExtrudeOperation,
     Metric,
     PartFeature,
     Plane,
@@ -66,6 +68,26 @@ class CreateSketch:
 
     kind: ClassVar[str] = "create_sketch"
     plane: Plane
+    id: EntityId | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CreateExtrude:
+    """Add an extrude at the end of the part's features (ADR 0013): the profile in `sketch`
+    swept `depth` mm along its plane's normal, joined to or cut from the part's solid.
+
+    `sketch` left as None is the part's only sketch, as for geometry. `ids` names the
+    profile's geometry; empty is every non-construction geometry entity in the sketch. Refused
+    unless that is one closed profile now (`profile.not_closed`, with the reason), and an
+    extrude that removes needs one that adds before it. The solid itself is worked out when
+    asked for (`Queries.solid_properties`), never stored.
+    """
+
+    kind: ClassVar[str] = "create_extrude"
+    depth: float
+    sketch: EntityId | None = None
+    operation: ExtrudeOperation = ExtrudeOperation.ADD
+    ids: tuple[EntityId, ...] = ()
     id: EntityId | None = None
 
 
@@ -269,6 +291,7 @@ ParamValue = (
     | ConstraintType
     | Metric
     | Plane
+    | ExtrudeOperation
     | None
 )
 """Any value an entity or feature field can hold. None only where the field allows it
@@ -295,6 +318,7 @@ class ModifyEntity:
 
 Command = (
     CreateSketch
+    | CreateExtrude
     | CreatePoint
     | CreateLine
     | CreateCircle

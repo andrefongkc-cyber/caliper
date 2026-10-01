@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-14 (not yet) | C-6 | |
+| Client side | C-13 (limited), C-14 (not yet), C-15 (needs OCCT) | C-6 | |
 
 ---
 
@@ -60,6 +60,17 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   decide".
 - **Next:** sketch mode (V2's F6, Lucas): an active sketch passed in every create command,
   and the canvas showing one sketch, or each on its plane.
+
+### C-15. Without the `occt` extra, the app has no solids or volumes
+- **What happens:** a part's solid is worked out by a geometry kernel (ADR 0013). The app uses
+  OCCT, so without the `occt` extra, `solid_properties`, `mesh`, and volume checks answer
+  `kernel.unavailable`. Volume checks are still stored, and measured wherever a kernel is,
+  as area checks are. Engine tests and the bench use the analytic kernel instead, which builds
+  extrusions exactly but can't combine solids that overlap.
+- **Where:** `caliper/engine/geometry/__init__.py` (`default_kernel`).
+- **Fix, if it matters:** `uv sync --extra occt`. Or fall back to the analytic kernel in the
+  app for the parts it can build, a decision for ADR 0001's successor rather than a quiet
+  default.
 
 ### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the

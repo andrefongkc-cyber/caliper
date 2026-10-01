@@ -81,7 +81,9 @@ def test_it_exposes_caliper_and_nothing_else() -> None:
     assert names == set(COMMAND_TOOLS) | extra | {spec.name for spec in QUERY_TOOLS} | {
         PROGRESS.name
     }
-    assert len(names) == 28  # create_check isn't one: run_check stores a check (C-1)
+    # create_check isn't one (run_check stores a check, C-1), nor create_sketch until the app
+    # has sketch mode; create_extrude is (V2's F3).
+    assert len(names) == 29
     for word in ("shell", "exec", "file", "python", "eval", "http", "fetch", "system", "terminal"):
         assert not [name for name in names if word in name], word
     assert names >= READ_ONLY

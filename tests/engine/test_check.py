@@ -159,7 +159,7 @@ def test_a_circle_area_passes_within_tolerance() -> None:
 @pytest.mark.parametrize(
     ("bus", "fields", "code", "field"),
     [
-        (milestone, {"metric": "volume"}, ErrorCode.VALUE_OUT_OF_RANGE, "metric"),
+        (milestone, {"metric": "mass"}, ErrorCode.VALUE_OUT_OF_RANGE, "metric"),
         (
             milestone,
             {"metric": Metric.BBOX_WIDTH, "expected": math.nan},

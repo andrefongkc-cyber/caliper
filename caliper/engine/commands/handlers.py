@@ -24,6 +24,7 @@ from caliper.contracts.commands import (
     CreateConstraint,
     CreateDimension,
     CreateDistanceDimension,
+    CreateExtrude,
     CreateLine,
     CreatePoint,
     CreateRadialDimension,
@@ -45,11 +46,12 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     Expectation,
+    Extrude,
+    ExtrudeOperation,
     Feature,
     Geometry,
     Line,
     PartFeature,
-    Plane,
     Point,
     Point2,
     RadialDimension,
@@ -59,10 +61,11 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import DimensionType
-from caliper.engine import part
+from caliper.engine import features, graph, part
 from caliper.engine.commands.validation import (
     GEOMETRY,
     build_entity,
+    build_feature,
     feature_errors,
     field_types,
     normalize_enum,
@@ -70,6 +73,7 @@ from caliper.engine.commands.validation import (
     normalize_id,
     normalize_point,
     normalize_refs,
+    with_article,
 )
 from caliper.engine.constraints import dimensions
 from caliper.engine.constraints.model import PARAMS
@@ -212,6 +216,8 @@ def _apply(document: Document, command: Command) -> Handled | list[Error]:
     match command:
         case CreateSketch():
             return _create_sketch(document, command)
+        case CreateExtrude():
+            return _create_extrude(document, command)
         case (
             CreatePoint()
             | CreateLine()
@@ -242,17 +248,75 @@ def _apply(document: Document, command: Command) -> Handled | list[Error]:
 def _create_sketch(document: Document, command: CreateSketch) -> Handled | list[Error]:
     """Add a sketch at the end of the part's features. Nothing is drawn in it yet."""
     errors: list[Error] = []
-    plane = normalize_enum(Plane, command.plane, "plane", errors)
     sketch_id, next_id = _resolve_id(document, command.id, errors)
     if errors:
         return errors
-    added = Sketch(id=sketch_id, plane=plane)
+    values = {"id": sketch_id, "plane": command.plane}
+    added = build_feature(Sketch, values, document, position=len(document.features))
+    if isinstance(added, list):
+        return added
+    assert isinstance(added, Sketch)
     return Handled(
         document=replace(document, features=(*document.features, added), next_id=next_id),
-        command=CreateSketch(plane=plane, id=sketch_id),
+        command=CreateSketch(plane=added.plane, id=sketch_id),
         label="Create Sketch",
         created_ids=(sketch_id,),
     )
+
+
+def _create_extrude(document: Document, command: CreateExtrude) -> Handled | list[Error]:
+    """Add an extrude at the end of the part's features. Nothing is built here: the solid is
+    worked out when it's asked for (`caliper.engine.features`), so a command never needs a
+    kernel. The profile must be closed now, which the engine checks exactly."""
+    errors: list[Error] = []
+    sketch = part.resolve_sketch(document, command.sketch, errors)
+    feature_id, next_id = _resolve_id(document, command.id, errors)
+    if errors or sketch is None:
+        return errors
+    values = {
+        "id": feature_id,
+        "sketch": sketch,
+        "depth": command.depth,
+        "operation": command.operation,
+        "ids": command.ids,
+    }
+    position = len(document.features)
+    added = build_feature(Extrude, values, document, position=position)
+    if isinstance(added, list):
+        return added
+    assert isinstance(added, Extrude)
+    if problem := _extrude_problem(document, added, position):
+        return [problem]
+    return Handled(
+        document=replace(document, features=(*document.features, added), next_id=next_id),
+        command=CreateExtrude(
+            depth=added.depth,
+            sketch=added.sketch,
+            operation=added.operation,
+            ids=added.ids,
+            id=feature_id,
+        ),
+        label="Extrude",
+        created_ids=(feature_id,),
+    )
+
+
+def _extrude_problem(document: Document, extrude: Extrude, position: int) -> Error | None:
+    """Why an extrude can't be made or changed so now: its profile isn't one closed profile,
+    or it removes with nothing that adds before it."""
+    found = features.profile(document, extrude)
+    if isinstance(found, Error):
+        return found
+    if extrude.operation is ExtrudeOperation.REMOVE and not any(
+        isinstance(f, Extrude) and f.operation is ExtrudeOperation.ADD
+        for f in document.features[:position]
+    ):
+        return _error(
+            ErrorCode.VALUE_OUT_OF_RANGE,
+            "operation",
+            "there's no solid to remove from yet: the part's first extrude adds",
+        )
+    return None
 
 
 def _create(document: Document, command: CreateCommand) -> Handled | list[Error]:
@@ -445,9 +509,11 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
 def _modify_feature(
     document: Document, current: PartFeature, command: ModifyEntity
 ) -> Handled | list[Error]:
-    """A sketch's plane changes; its geometry keeps its 2D coordinates, so the sketch moves to
-    the new plane whole. Its id stays. Nothing is solved: no constraint reaches outside it."""
-    names = ("id", "plane")
+    """Change a feature's fields; never its id. A sketch's plane changes with its geometry's 2D
+    coordinates kept, so the sketch moves to the new plane whole. An extrude's depth or
+    operation changes, or what it reads, checked as when it was made. Nothing is solved: no
+    constraint reaches outside a sketch, and solids are worked out when asked for."""
+    names = tuple(field_types(type(current)))
     errors = [
         _error(
             ErrorCode.FIELD_UNKNOWN,
@@ -461,11 +527,18 @@ def _modify_feature(
         return errors
     if command.changes.get("id", current.id) != current.id:
         return [_error(ErrorCode.VALUE_OUT_OF_RANGE, "id", f"a {current.kind}'s id can't change")]
-    plane = normalize_enum(Plane, command.changes.get("plane", current.plane), "plane", errors)
-    if errors:
-        return errors
-    built = replace(current, plane=plane)
+    position = next(i for i, f in enumerate(document.features) if f is current)
+    values = {name: getattr(current, name) for name in names} | dict(command.changes)
+    built = build_feature(type(current), values, document, position=position)
+    if isinstance(built, list):
+        return built
     changed = list(command.changes)
+    if (
+        isinstance(built, Extrude)
+        and {"sketch", "ids", "operation"} & set(changed)
+        and (problem := _extrude_problem(document, built, position))
+    ):
+        return [problem]
     return Handled(
         document=replace(
             document, features=tuple(built if f is current else f for f in document.features)
@@ -566,8 +639,13 @@ def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error
     ids = _existing_ids(document, command.ids, errors, features=True)
     if errors:
         return errors
-    sketches = {id for id in ids if id not in document.entities}
-    doomed = set(ids) - sketches
+    # Features named, and those that read them (an extrude of a deleted sketch), in order.
+    gone: set[EntityId] = {id for id in ids if id not in document.entities}
+    for feature in document.features:
+        if graph.reads(feature) & gone:
+            gone.add(feature.id)
+    sketches = {f.id for f in document.features if f.id in gone and isinstance(f, Sketch)}
+    doomed = set(ids) - gone
     if sketches:
         doomed |= {
             id
@@ -583,7 +661,7 @@ def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error
             entities=MappingProxyType(
                 {i: e for i, e in document.entities.items() if i not in doomed}
             ),
-            features=tuple(f for f in document.features if f.id not in sketches),
+            features=tuple(f for f in document.features if f.id not in gone),
         ),
         command=DeleteEntities(ids=ids),
         label=_plural_label("Delete", document, ids),
@@ -774,7 +852,7 @@ def _existing_ids(
         if entity_id not in document.entities:
             found = part.feature(document, entity_id)
             if found is not None and not features:
-                message = f"{entity_id!r} is a {found.kind}; name the geometry in it"
+                message = f"{entity_id!r} is {with_article(found.kind)}; name geometry instead"
                 errors.append(Error(code=ErrorCode.ENTITY_WRONG_KIND, message=message, field=field))
                 continue
             if found is None:
