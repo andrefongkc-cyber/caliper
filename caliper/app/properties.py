@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from caliper.app.session import DocumentSession
 from caliper.contracts.commands import Applied, ModifyEntity, ParamValue, Rejected
-from caliper.contracts.document import Entity, EntityId, Point2, Ref
+from caliper.contracts.document import Entity, EntityId, PartFeature, Point2, Ref
 from caliper.contracts.errors import Error
 
 
@@ -115,7 +115,7 @@ class PropertiesPanel(QWidget):
         entity = None
         if len(selection) == 1:
             (self._entity_id,) = selection
-            entity = self.session.document.entities.get(self._entity_id)
+            entity = self._lookup(self._entity_id)
         else:
             self._entity_id = None
         if entity is None:
@@ -135,7 +135,12 @@ class PropertiesPanel(QWidget):
         heading.setProperty("role", "section")
         form.addRow(heading)
         for field in dataclasses.fields(entity):
+            if field.name == "id":
+                continue  # a feature's id is in the heading
             value = getattr(entity, field.name)
+            if field.name == "ids" and value == ():
+                form.addRow("Profile", QLabel("All of the sketch's geometry"))
+                continue
             if field.type == float | None:
                 form.addRow(_title(field.name), self._optional_number(field.name, value))
             else:
@@ -214,7 +219,7 @@ class PropertiesPanel(QWidget):
         """Show the entity's current values after undo, redo, or another tool changed it."""
         if self._entity_id is None:
             return
-        entity = self.session.document.entities.get(self._entity_id)
+        entity = self._lookup(self._entity_id)
         if entity is None:
             self.rebuild()
             return
@@ -278,10 +283,18 @@ class PropertiesPanel(QWidget):
             case _:
                 pass
 
-    def _entity(self) -> Entity | None:
+    def _entity(self) -> Entity | PartFeature | None:
         if self._entity_id is None:
             return None
-        return self.session.document.entities.get(self._entity_id)
+        return self._lookup(self._entity_id)
+
+    def _lookup(self, id: EntityId) -> Entity | PartFeature | None:
+        """An entity, or one of the part's features (V2): a sketch's plane, an extrude's depth."""
+        document = self.session.document
+        found = document.entities.get(id)
+        if found is not None:
+            return found
+        return next((f for f in document.features if f.id == id), None)
 
     def _show_error(self, field: str, message: str) -> None:
         self._clear_error()

@@ -9,7 +9,7 @@ import statistics
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolButton
 
 from caliper.app import theme
 from caliper.app.main_window import MainWindow
@@ -72,12 +72,7 @@ def test_switching_shows_the_other_view_and_leaves_the_document_alone(window: Ma
 
 
 def test_the_toggle_is_in_the_toolbar_and_on_command_and_keys(window: MainWindow) -> None:
-    buttons = {
-        b.objectName()
-        for b in window.tool_bar.findChildren(
-            type(window.tool_bar.widgetForAction(window.mode_2d_action))
-        )
-    }
+    buttons = {b.objectName() for b in window.tool_bar.findChildren(QToolButton)}
     assert {"mode-2d", "mode-3d"} <= buttons
     assert window.mode_2d_action.isChecked()
     window.mode_3d_action.trigger()

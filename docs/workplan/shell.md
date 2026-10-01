@@ -7,6 +7,39 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 
+## V2, F6: sketch mode, the Part panel, Extrude, and a tidier window (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+Done when the milestone's steps can be clicked through, and the app runs on the real engine: **met**. No stand-in was needed: F2 and F3 were ready, so the UI is wired to them.
+
+- [x] **Sketch mode.**
+  - The session holds the active sketch, which is UI state. A new part edits its sketch; a file opens on its last sketch.
+  - New Sketch, on XY, XZ, or YZ, starts and edits one. Double-clicking a sketch in the Part panel edits it.
+  - Deleting or undoing the sketch being edited falls back to another.
+  - "Editing Sketch 1 · XY" sits over the canvas's corner, over the views rather than in the canvas, so its pixels and baselines are unchanged.
+  - With more than one sketch, the canvas, tools, browser, and Select All see only the active sketch (`session.sketch_view`, kept per document), so another sketch can't be picked or edited by accident. Drawing goes into the active sketch: `session.execute` names it when the part has several. With one sketch (every V1 file) the sketch view *is* the document, and the commands go as they did, so V1 behaviour is untouched.
+- [x] **The Part panel**, above the sketch browser:
+  - the features in order ("Sketch 1 · XY · editing", "Extrude 1 · adds 10 mm"), a failing one in the error colour with its reason, and the part's volume in its heading ("60,000 mm³");
+  - a click selects a feature for Properties and Delete.
+- [x] **Extrude**: Part → Extrude, the toolbar, or Shift+E.
+  - It's a compact panel over the view, not a window of its own, so the keyboard stays in the window. It shows the sketch, the profile (all of it, or the selected geometry), a depth, and add or cut.
+  - Return extrudes and Escape cancels. A refusal shows in the panel and leaves it open. An extrude shows the solid in 3D.
+- [x] **Properties** edits features too: a sketch's plane, an extrude's depth and operation. **The Checks panel** offers "Volume of the part", and "Volume after" a selected feature. The status bar shows the solid's volume.
+- [x] **The refresh**, in the existing design language and tokens:
+  - the 2D/3D switch is one segmented control, at the head of the toolbar, with the active half filled in the accent colour;
+  - the Part group (New Sketch ▾, Extrude) sits beside it;
+  - Zoom to Fit and Constraints are icons, so the toolbar fits in one row at 1280 px;
+  - disabled tools are dimmed;
+  - the Part heading and the browser splitter match the dock titles;
+  - volumes are written with thousands separators.
+- [x] **Found and fixed on the way:**
+  - History skipped feature changes (an extrude, a sketch, a depth), because it counted only entity changes, and so did the AI tools, which would have dropped a model's extrude from its proposal. Both now use the engine's own emptiness test.
+  - New Sketch passed `checked` as the plane.
+  - Focus stayed in a closed Extrude dialog, which is why it became a panel.
+- [x] **Tests:**
+  - `tests/app/test_sketch_mode.py` (15): a new part's sketch; New Sketch draws in the new one; the other sketch can't be picked or Select-All'd; fallbacks on delete and undo; opening on the last sketch; the Part panel's rows, volume, and failures; Properties editing an extrude's depth; Extrude's command, errors, selected profile, keys, and focus.
+  - `tests/app/test_v2_milestone.py`, on the analytic kernel and OCCT: the milestone typed and clicked through the window (draw 120 x 50, extrude 10, 60,000, width 140 in Properties, 70,000, undo, 60,000, 2D to add a dimension, 3D the same solid, save, reopen), and the commands the window sent, replayed headlessly, giving the saved file's bytes.
+  - `tests/ai/test_sketches.py`: the AI's extrude kept in the proposal.
+
 ## V2, F5: the 3D view and the 2D/3D switch (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 
 [ADR 0012](../adr/0012-the-3d-viewport-our-own-renderer-first.md) (Proposed: the plan left the choice to Andre and Lucas, and this is the first try, the one that's easy to undo). Done when the ADR records the choice with frame times, and nothing GPL is in the bundle: **met**.

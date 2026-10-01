@@ -9,9 +9,10 @@ import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 
 from PySide6.QtCore import QObject, Signal
 
@@ -22,12 +23,18 @@ from caliper.contracts.commands import (
     Command,
     CommandBus,
     CommandResult,
+    CreateArc,
     CreateCheck,
+    CreateCircle,
+    CreateExtrude,
+    CreateLine,
+    CreatePoint,
+    CreateRectangle,
     DeleteEntities,
     Rejected,
     Transaction,
 )
-from caliper.contracts.document import Document, EntityId, Expectation, Ref
+from caliper.contracts.document import Document, EntityId, Expectation, Ref, Sketch
 from caliper.contracts.queries import CheckResult, Queries
 from caliper.engine.commands.bus import Bus
 from caliper.engine.document.delta import diff, is_empty
@@ -72,6 +79,8 @@ class DocumentSession(QObject):
     references_changed = Signal()
     """The points and curves picked for a constraint changed (`references`)."""
     flagged_changed = Signal()
+    active_sketch_changed = Signal()
+    """The sketch being edited changed (V2's sketch mode): the canvas shows another sketch."""
     """What the last rejected change named changed (`flagged`)."""
 
     def __init__(self, bus: CommandBus | None = None, parent: QObject | None = None) -> None:
@@ -98,6 +107,8 @@ class DocumentSession(QObject):
         """Write the optional history section when saving (ADR 0005: off by default)."""
         self.last_measurement: tuple[Ref, Ref] | None = None
         """The two points the Measure tool last measured, for turning into a check."""
+        self._active: EntityId | None = _last_sketch(self._bus.document)
+        self._view: tuple[Document, EntityId | None, Document, Queries] | None = None
 
     # --- Engine ---------------------------------------------------------------------------
 
@@ -114,7 +125,16 @@ class DocumentSession(QObject):
         return self._bus.queries
 
     def execute(self, command: Command, *, author: Author = Author.YOU) -> CommandResult:
-        """Send a command. A rejection is also reported as a message."""
+        """Send a command. A rejection is also reported as a message. Geometry and extrudes
+        that don't name a sketch go in the one being edited, once the part has several (ADR
+        0011); with one, the command goes as it came and the engine finds the only sketch."""
+        if (
+            isinstance(command, _IN_A_SKETCH)
+            and command.sketch is None
+            and self._active is not None
+            and len(_sketches(self._bus.document)) > 1
+        ):
+            command = replace(command, sketch=self._active)
         self._own += 1
         try:
             result = self._bus.execute(command, source=author.value)
@@ -125,7 +145,7 @@ class DocumentSession(QObject):
             named = frozenset(id for e in result.errors for id in e.ids)
             self._set_flagged(named & self._bus.document.entities.keys())
             return result
-        if isinstance(result, Applied) and (result.delta.before or result.delta.after):
+        if isinstance(result, Applied) and not is_empty(result.delta):  # features count (V2)
             if self._transaction_depth:
                 self._pending.append(result.command)
             else:
@@ -230,7 +250,11 @@ class DocumentSession(QObject):
         self._announce(change)
 
     def _announce(self, change: Change) -> None:
-        live = self._bus.document.entities
+        document = self._bus.document
+        if change.delta.features_after is not None and self._active not in _sketches(document):
+            self._active, self._view = _last_sketch(document), None  # its sketch was deleted
+            self.active_sketch_changed.emit()
+        live = document.entities.keys() | {f.id for f in document.features}
         if any(id not in live for id in self._selection):
             self._selection = frozenset(id for id in self._selection if id in live)
             self.selection_changed.emit()
@@ -274,12 +298,14 @@ class DocumentSession(QObject):
         self._history = []
         self._history_position = 0
         self.last_measurement = None
+        self._active, self._view = _last_sketch(bus.document), None
         self.history_changed.emit()
         self.checks_changed.emit()
         self.selection_changed.emit()
         self.hover_changed.emit()
         self.references_changed.emit()
         self.flagged_changed.emit()
+        self.active_sketch_changed.emit()
         self.document_replaced.emit()
         self.document_changed.emit()
         self.file_changed.emit()
@@ -312,6 +338,56 @@ class DocumentSession(QObject):
         self._saved = document
         self._path = target
         self.file_changed.emit()
+
+    # --- Sketch mode (V2) ------------------------------------------------------------------
+
+    @property
+    def active_sketch(self) -> EntityId | None:
+        """The sketch being edited: where drawing goes, and what the canvas shows. UI state,
+        never in the document. None only when the part has no sketch."""
+        return self._active
+
+    def set_active_sketch(self, sketch: EntityId) -> None:
+        if sketch not in _sketches(self._bus.document):
+            raise ValueError(f"{sketch!r} isn't one of the part's sketches")
+        if sketch == self._active:
+            return
+        self._active, self._view = sketch, None
+        # What was selected is in the sketch left behind.
+        self.set_selection(frozenset())
+        self.set_hover(None)
+        self.active_sketch_changed.emit()
+
+    @property
+    def sketch_view(self) -> Document:
+        """The document as the canvas edits it: the part's entities in the active sketch. A
+        part with one sketch, every V1 file among them, is the document itself. Commands still
+        go to the whole document; this only limits what's drawn and picked, so nothing in
+        another sketch is edited by accident."""
+        document = self._bus.document
+        if len(_sketches(document)) <= 1:
+            return document
+        return self._viewed(document)[0]
+
+    @property
+    def sketch_queries(self) -> Queries:
+        """Queries over `sketch_view`: what picking, snapping, and the sketch's own solve state
+        see."""
+        document = self._bus.document
+        if len(_sketches(document)) <= 1:
+            return self._bus.queries
+        return self._viewed(document)[1]
+
+    def _viewed(self, document: Document) -> tuple[Document, Queries]:
+        cached = self._view
+        if cached is not None and cached[0] is document and cached[1] == self._active:
+            return cached[2], cached[3]
+        sketch_of = self._bus.queries.sketch_of
+        entities = {id: e for id, e in document.entities.items() if sketch_of(id) == self._active}
+        view = replace(document, entities=MappingProxyType(entities))
+        queries = Bus(view).queries
+        self._view = (document, self._active, view, queries)
+        return view, queries
 
     # --- UI state -------------------------------------------------------------------------
 
@@ -373,3 +449,17 @@ def check_command(expectation: Expectation) -> CreateCheck:
 
 def _natural(id: EntityId) -> list[int | str]:
     return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", id)]
+
+
+_IN_A_SKETCH = (CreatePoint, CreateLine, CreateCircle, CreateArc, CreateRectangle, CreateExtrude)
+"""Commands that draw in a sketch, or read one, and take `sketch` (None: the only one)."""
+
+
+def _sketches(document: Document) -> list[EntityId]:
+    return [f.id for f in document.features if isinstance(f, Sketch)]
+
+
+def _last_sketch(document: Document) -> EntityId | None:
+    """Where a part opens for editing: its last sketch, the one most recently made."""
+    found = _sketches(document)
+    return found[-1] if found else None

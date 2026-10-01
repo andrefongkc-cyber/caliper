@@ -31,7 +31,7 @@ def target_refs(session: DocumentSession) -> tuple[Ref, ...]:
     if session.references:
         return session.references
     refs: list[Ref] = []
-    entities = session.document.entities
+    entities = session.sketch_view.entities
     for id in sorted(session.selection, key=natural):
         match entities.get(id):
             case Line() | Circle() | Arc():
@@ -48,7 +48,9 @@ def constraint_options(session: DocumentSession) -> dict[str, ConstraintOption]:
     refs = target_refs(session)
     if not refs:
         return {}
-    return {option.type.value: option for option in session.queries.applicable_constraints(refs)}
+    return {
+        option.type.value: option for option in session.sketch_queries.applicable_constraints(refs)
+    }
 
 
 class ConstrainTool(Tool):
@@ -74,10 +76,10 @@ class ConstrainTool(Tool):
         return bool(self.session.references)
 
     def move(self, pointer: Pointer) -> None:
-        self.under = self.session.queries.reference_at_point(pointer.raw, pointer.tolerance)
+        self.under = self.session.sketch_queries.reference_at_point(pointer.raw, pointer.tolerance)
 
     def press(self, pointer: Pointer) -> None:
-        ref = self.session.queries.reference_at_point(pointer.raw, pointer.tolerance)
+        ref = self.session.sketch_queries.reference_at_point(pointer.raw, pointer.tolerance)
         picked = self.session.references
         if ref is None:
             self.session.set_references(())

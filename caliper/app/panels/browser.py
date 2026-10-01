@@ -1,4 +1,5 @@
-"""Sketch browser: every entity in the document, grouped, kept in sync with the selection.
+"""Sketch browser: every entity in the sketch being edited (the whole document while the part
+has one sketch), grouped, kept in sync with the selection.
 
 Click selects (Cmd or Shift adds), double-click frames the entity on the canvas. Click a
 group's header (Geometry, Dimensions, Constraints) to collapse or expand it; a collapsed group
@@ -86,6 +87,7 @@ class SketchBrowser(QTreeWidget):
         self.itemDoubleClicked.connect(self._frame)
         session.changed.connect(self._apply)
         session.document_replaced.connect(self.rebuild)
+        session.active_sketch_changed.connect(self.rebuild)  # the sketch being edited
         session.selection_changed.connect(self._pull_selection)
         self.rebuild()
 
@@ -95,7 +97,7 @@ class SketchBrowser(QTreeWidget):
             group.takeChildren()
         self.items = {}
         self._value_widths = {}
-        document = self.session.document
+        document = self.session.sketch_view
         for id in sorted(document.entities, key=_natural):
             self._insert(id)
         self._update_groups()
@@ -105,7 +107,7 @@ class SketchBrowser(QTreeWidget):
     def _apply(self, change: Change) -> None:
         """Update only what the change touched, and the dimensions measuring it."""
         blocker = QSignalBlocker(self)
-        delta, document = change.delta, self.session.document
+        delta, document = change.delta, self.session.sketch_view
         for id in delta.removed | {i for i in delta.modified if i not in document.entities}:
             item = self.items.pop(id, None)
             self._value_widths.pop(id, None)
@@ -113,7 +115,7 @@ class SketchBrowser(QTreeWidget):
                 item.parent().removeChild(item)
         for id in sorted(delta.added & document.entities.keys(), key=_natural):
             self._insert(id)
-        queries = self.session.queries
+        queries = self.session.sketch_queries
         changed = delta.modified | delta.removed
         for id in delta.modified & self.items.keys():
             self._fill(self.items[id], id, queries)
@@ -126,7 +128,7 @@ class SketchBrowser(QTreeWidget):
         self._pull_selection()
 
     def _insert(self, id: EntityId) -> None:
-        entity = self.session.document.entities[id]
+        entity = self.session.sketch_view.entities[id]
         if isinstance(entity, Expectation):
             return  # checks are listed in the Checks panel
         group = self.groups[_group(entity)]
@@ -134,13 +136,13 @@ class SketchBrowser(QTreeWidget):
         item.setData(0, ID_ROLE, id)
         item.setForeground(1, theme.TEXT_DIM)
         item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._fill(item, id, self.session.queries)
+        self._fill(item, id, self.session.sketch_queries)
         keys = [_natural(group.child(i).data(0, ID_ROLE)) for i in range(group.childCount())]
         group.insertChild(bisect.bisect(keys, _natural(id)), item)
         self.items[id] = item
 
     def _fill(self, item: QTreeWidgetItem, id: EntityId, queries: Queries) -> None:
-        entity = self.session.document.entities[id]
+        entity = self.session.sketch_view.entities[id]
         value = summary(entity, id, queries)
         item.setText(0, f"{kind_title(entity)}  {id}")
         item.setText(1, value)

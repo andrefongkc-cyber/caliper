@@ -26,7 +26,8 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] F3, extrude as the first feature, recomputed only when needed ([ADR 0013](docs/adr/0013-solids-extrude-and-recomputing-only-what-changed.md), Proposed): the milestone runs headlessly on both kernels (60,000 → 70,000 → undo 60,000, save, reopen, byte-identical replay); a width change rebuilds one prism, a label nothing
     - [x] F4, a persistent-naming spike ([ADR 0014](docs/adr/0014-persistent-naming-by-history.md), Proposed): names by history (a feature's caps, and the side each sketch edge sweeps; edges by the faces they join) survive every rebuild tried, and names by position don't; a cut across a face splits a name, which will be refused as ambiguous. No naming code yet: the first feature that refers to a face adds it
     - [x] F5, the 3D view and a 2D/3D switch ([ADR 0012](docs/adr/0012-the-3d-viewport-our-own-renderer-first.md), Proposed): our own QPainter renderer, no new dependency; orbit, pan, zoom, fit; one document behind both views; frames 0.39 ms for the milestone plate, 19 ms for 2,604 triangles
-    - [ ] F6–F7, the app: sketch mode, a feature list, and an Extrude tool; the contract review (Lucas)
+    - [x] F6, sketch mode, the Part panel, and Extrude, on the real engine: the milestone clicked through the window on both kernels; a tidier toolbar and panels
+    - [ ] F7, the contract reviewed from the app's side (Lucas)
     - [ ] F8, tests alongside each: F1's are in (a schema-4 golden, the migration fixtures, a property test of the part's rules)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)

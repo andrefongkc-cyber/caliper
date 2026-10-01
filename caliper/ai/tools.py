@@ -52,6 +52,7 @@ from caliper.contracts.errors import Error
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.handlers import Executed
 from caliper.engine.commands.validation import GEOMETRY
+from caliper.engine.document.delta import is_empty
 from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import COMMAND_KINDS, DecodeError, decode_command, encode
 
@@ -460,7 +461,7 @@ class Workspace:
         if isinstance(result, Rejected):
             raise _ToolError({"rejected": [_error(e) for e in result.errors]})
         assert isinstance(result, Applied)
-        if not (result.delta.before or result.delta.after):
+        if is_empty(result.delta):  # an extrude or a sketch changes features, not entities
             return None
         self._applied.append(result)
         self._calls.append((1, result.label))

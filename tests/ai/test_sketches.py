@@ -98,3 +98,14 @@ def test_the_summary_lists_the_sketches_and_says_where_each_entity_is_only_when_
     assert [f["id"] for f in summary["features"]] == [FIRST_SKETCH, second]  # type: ignore[index, union-attr]
     shown = {e["id"]: e for e in summary["entities"]}  # type: ignore[index, union-attr]
     assert (shown["e1"]["sketch"], shown[seed]["sketch"]) == (FIRST_SKETCH, second)
+
+
+def test_an_extrude_is_kept_in_the_proposal_though_it_changes_no_entity() -> None:
+    """An extrude changes the part's features, not its entities: it must still count as a
+    change, or the model's extrude would vanish from what the user is asked to accept."""
+    bus = Bus()
+    bus.execute(CreateCircle(center=Point2(x=0.0, y=0.0), radius=5.0))
+    workspace = Workspace(bus.document)
+    outcome = workspace.call(call("create_extrude", depth=3.0))
+    assert not outcome.is_error, outcome.content
+    assert [c.kind for c in workspace.commands] == ["create_extrude"]

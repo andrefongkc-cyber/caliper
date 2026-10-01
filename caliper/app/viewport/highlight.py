@@ -12,8 +12,8 @@ def paint_references(
     painter: ModelPainter, session: DocumentSession, refs: tuple[Ref, ...]
 ) -> None:
     """Draw each reference with the painter's current pen."""
-    entities = session.document.entities
-    queries = session.queries
+    entities = session.sketch_view.entities
+    queries = session.sketch_queries
     for ref in refs:
         entity = entities.get(ref.entity)
         if ref.feature is Feature.CURVE and isinstance(entity, GEOMETRY_TYPES):

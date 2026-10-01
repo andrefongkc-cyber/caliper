@@ -77,6 +77,8 @@ def describe(e: Expectation) -> str:
             subject = f"Area of {target}"
         case Metric.DIMENSION_VALUE:
             subject = f"Dimension {target}"
+        case Metric.VOLUME:
+            subject = f"Volume after {target}" if e.ids else "Volume of the part"
         case Metric.DISTANCE | Metric.DISTANCE_X | Metric.DISTANCE_Y:
             kind = {
                 Metric.DISTANCE: "Distance",
@@ -97,6 +99,10 @@ def options(session: DocumentSession) -> list[Option]:
     entities = session.document.entities
     selected = sorted(session.selection)
     found: list[Option] = []
+    features = {f.id for f in session.document.features}
+    if len(selected) == 1 and selected[0] in features:
+        volume = Option(f"Volume after {selected[0]}", Metric.VOLUME, ids=(selected[0],))
+        return [volume] if _solid(session, volume) else []
     if session.last_measurement is not None:
         a, b = session.last_measurement
         if a.entity in entities and b.entity in entities:
@@ -134,6 +140,9 @@ def options(session: DocumentSession) -> list[Option]:
             Option("Sketch width", Metric.BBOX_WIDTH),
             Option("Sketch height", Metric.BBOX_HEIGHT),
         ]
+        volume = Option("Volume of the part", Metric.VOLUME)
+        if _solid(session, volume):
+            found.append(volume)
     return found
 
 
@@ -385,6 +394,12 @@ def _measurable(session: DocumentSession, option: Option) -> bool:
     """False when the engine can't evaluate it here, e.g. area without a geometry kernel."""
     result = session.queries.check(_expectation(option, 0.0, 0.0))
     return result.error is None or result.error.code is not ErrorCode.KERNEL_UNAVAILABLE
+
+
+def _solid(session: DocumentSession, option: Option) -> bool:
+    """A volume is offered once there's a solid to measure: not before any extrude, and not
+    while one fails."""
+    return session.queries.check(_expectation(option, 0.0, 0.0)).error is None
 
 
 def _expectation(option: Option, expected: float, tolerance: float) -> Expectation:
