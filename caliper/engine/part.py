@@ -7,7 +7,17 @@ one sketch; a check belongs to the part.
 """
 
 from collections.abc import Iterable
+from dataclasses import replace
 
+from caliper.contracts.commands import (
+    Command,
+    CreateArc,
+    CreateCircle,
+    CreateExtrude,
+    CreateLine,
+    CreatePoint,
+    CreateRectangle,
+)
 from caliper.contracts.document import (
     AngleDimension,
     Arc,
@@ -57,6 +67,27 @@ def feature(document: Document, id: EntityId) -> PartFeature | None:
 def sketches(document: Document) -> tuple[EntityId, ...]:
     """The part's sketches, in feature order."""
     return tuple(each.id for each in document.features if isinstance(each, Sketch))
+
+
+IN_A_SKETCH = (CreatePoint, CreateLine, CreateCircle, CreateArc, CreateRectangle, CreateExtrude)
+"""The commands that draw in a sketch, or read one, and take `sketch` (None: the only one)."""
+
+
+def in_sketch(document: Document, command: Command, editing: EntityId | None) -> Command:
+    """`command` in `editing`, the sketch the user is editing, when it names no sketch and the
+    part has more than one: what the window and the AI both send. With one sketch it goes as it
+    came, and the engine finds the only sketch, as for every V1 file. A sketch the part no
+    longer has is ignored, so the command is refused with `sketch.required`, as if no sketch
+    were being edited."""
+    found = sketches(document)
+    if (
+        isinstance(command, IN_A_SKETCH)
+        and command.sketch is None
+        and editing in found
+        and len(found) > 1
+    ):
+        return replace(command, sketch=editing)
+    return command
 
 
 def taken(document: Document, id: EntityId) -> bool:
