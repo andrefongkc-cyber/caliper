@@ -1,9 +1,59 @@
-Status: the N phase (finish and harden 2D) merged in #54: N1–N5 and N10 complete, the stress plate's reference confirmed on Linux CI, profiles from lines and arcs, OCCT run locally; next: nothing on the core side until the N phase closes (N9's Claude Desktop run), then V2 (F1)
+Status: V2's F1 (ADR 0011: a document is one part, with sketches on planes, file schema 4) done on `shared/v2-f1-document` (local, not pushed), waiting on Lucas's review from the app's side (F7) for the ADR to be Accepted; next: F2 (the kernel grows solids), only after that
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## V2, F1: the part, and the V2 document contract (branch `shared/v2-f1-document`, 2026-09-30; local, not pushed)
+
+Andre (2026-09-30): start V2 with F1 of the Caliper Engine Plan, ADR 0011 and the V2 document contract, and nothing from F2 or F3 until it is settled and tested. Done when ADR 0011 is Accepted (Lucas's review, F7) and every existing file and fixture migrates and replays unchanged. The N phase was merged (#54, #55) and `main` was at 425f73e when it started.
+
+- [x] **[ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) (Proposed).** A document is one part:
+  - `Document.features` in order; F1's one kind is `Sketch(id, plane)` on XY, XZ, or YZ, with each plane's axes fixed.
+  - `Document.entities` keeps its meaning. Geometry names its `sketch`. A dimension or constraint is in the sketch of what it refers to, and isn't stored there, since that would be a derived value. Checks belong to the part.
+  - One id space. A new part has one sketch, `e0` on XY, which the counter never allocates.
+  - Why features aren't entities, as checks became in ADR 0010: 73 tests and the app's Select All, browser, and canvas loop over every entity, and Select All then Delete would delete the sketch.
+- [x] **Contract** (joint).
+  - Types and fields: `Plane`, `Sketch`, `PartFeature`, `FIRST_SKETCH`, and `Document.features`, which defaults to one sketch on XY, what a V1 document is. Geometry gets `sketch`, defaulting to `e0`.
+  - Commands: `CreateSketch`, and an optional `sketch` on the five geometry commands, resolved to the only sketch and recorded in the resolved command. `ModifyEntity` changes a sketch's plane.
+  - Deltas and values: `Delta.features_before` and `features_after`, set only when the list changed. `ParamValue` takes `Plane`.
+  - Queries and errors: `Queries.sketch_of`, and the codes `sketch.required` and `sketch.mixed`.
+- [x] **Engine.**
+  - `caliper/engine/part.py`: which sketch an entity is in, the one-sketch rule, and the sketch a create draws in.
+  - Validation, shared by commands and loading: geometry in a sketch that exists, and a relation's references in one sketch.
+  - Handlers: create a sketch; draw in the named or only sketch; a fillet stays in its lines' sketch; a move takes one sketch's geometry and refuses a sketch's id; deleting a sketch deletes everything drawn in it; a sketch changes plane whole; ids are unique across features and entities.
+  - Queries: distances, boxes, areas, and checks read one sketch. Constraint options and dimension inference refuse references from two sketches. Suggestions stay within one sketch. Picking and `solve_status` stay part-wide.
+  - Every document built from another keeps its features (`replace`): the solver's two places, the delta, and the snapshot.
+  - `inspect` lists the features, and each entity's sketch and the bounds per sketch when there are several.
+- [x] **File schema 4.**
+  - The document gains `"features"`, and geometry gains `"sketch"`.
+  - Migration 3 → 4 puts everything into `e0` on XY. A file that already used `e0` gets `e{next_id}`, with `next_id` moved past it.
+  - On load, features are validated: valid, unique ids, unused by any entity, and a known plane. Files from schemas 1 and 2 go through every step.
+- [x] **V1 preserved, shown by tests, not by eye.**
+  - The 14 schema-3 golden files (5 fixtures, 9 bench cases) are kept in `tests/engine/fixtures/v3/`. Each migrates to its schema-4 golden byte for byte, and every replay script gives those same bytes.
+  - The bench passes 9 of 9.
+  - N1's digests of `main`'s own files still match once the part is taken out again (`one_sketch_as_before`, the inverse of the migration). The reference solver's output for the rectangle, the ball bearing, and the stress plate is unchanged to the byte, with no digest re-pinned.
+  - Schema-1 files go through all three migrations.
+- [x] **Tests, written with the contract (F8).**
+  - Contract: features, planes, the first sketch, which entities store a sketch, and deltas.
+  - Snapshot: migration 3 → 4 of every schema-3 golden, the migration's fields, `e0` already taken, a malformed document, nine invalid schema-4 files, and a two-sketch round trip.
+  - A schema-4 golden of a part with two sketches, replayed byte for byte (`two-sketches`).
+  - `tests/engine/test_part.py`: each rule in the ADR. Every kind of command runs on a two-sketch part, and a handler that drops the part's features fails it (checked by breaking the move). A property test runs over 150 sessions per run. Sketches come and go and planes change. Geometry is drawn by name or by default, points are made coincident across the whole part, and things move, are deleted, undone, and redone. After every step: ids are unique, geometry is in a sketch the part has, every relation is inside one sketch, undo and redo are exact, and save and load give back the document. A sample of 150 sessions reached every command, including 20 constraints refused across sketches.
+- [x] **Checks run:** with OCCT, 1607 passed (1544 before), 0 skipped. With OCCT hidden, as Linux CI has it: 978 passed and 32 skipped across the engine, AI, contract, and top-level tests. `ruff`, `ruff format`, and `mypy` are clean. Benchmarks:
+  - The bench passes 9 of 9.
+  - `bench/numerics.py`: nothing significant.
+  - `bench/perf.py` is within noise of the N phase's baseline: the stress plate is 0.49 s in the engine both times, and in the window 0.74 s against 0.73 s, over three runs.
+- **Not in F1:**
+  - F2 (the kernel's solids), F3 (extrude, and items 1 to 3 of the graph below), F4 (naming), and F5 to F7 (the app).
+  - Offset planes and faces, sketch names, reordering features, and moving geometry between sketches.
+- **For Lucas (F7):**
+  - ADR 0011's "What the app has to decide": an active sketch, File → New, what the canvas draws, picking, Properties, the feature list, and the 3D view's mesh.
+  - App-visible changes:
+    - Properties shows "Sketch e0" read-only on geometry.
+    - The palette leaves `CreateSketch` out, since it has no form for a plane; its test lists it.
+    - Resolved commands, so History and proposals, record the sketch.
+    - Known issue C-14.
 
 ## The N phase: finish and harden 2D (branch `shared/n-phase`, 2026-09-30; PR #54)
 
@@ -128,7 +178,7 @@ Andre (2026-09-28): an overnight audit of the 2D foundation (constraints, editin
 
 **Items.**
 - [ ] 1. Name the 2D graph: `inputs` and `dependents` in one engine module (`references` and `referrers` move there, same behaviour, same incremental index), with tests against today's functions over random sessions. When: the first second caller, or V2's first feature
-- [ ] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. Needs more than one sketch per document (a contract change: V2)
+- [ ] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. Needs more than one sketch per document (a contract change: V2). That's in F1 (ADR 0011): sketches are `Document.features`, in order
 - [ ] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s
 - [ ] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology
 - [ ] 5. Invalid propagation: a failed feature marks its dependents invalid without recomputing them, keeps its last good result for display, and says why

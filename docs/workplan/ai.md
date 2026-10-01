@@ -1,4 +1,4 @@
-Status: the N phase's AI side merged in #54: test 004 recorded over MCP from Claude Code (N9, in part), the live in-app assistant run deferred by decision (N11, no API key; AI-6 stays open); next: Andre's Claude Desktop run of the stress plate on `main` (test 005, prompt ready)
+Status: V2's F1 on `shared/v2-f1-document` (local, not pushed): the tools take the part's sketches in stride (an optional `sketch` on the drawing tools, no `create_sketch` until the app has sketch mode); N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: that run, then the AI side of F3 (extrude and volume checks)
 
 # AI workplan
 
@@ -7,6 +7,13 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## V2, F1: the part, from the AI side (branch `shared/v2-f1-document`, 2026-09-30)
+
+- [x] The tools follow the contract: `create_point`, `create_line`, `create_circle`, `create_arc`, and `create_rectangle` take an optional `sketch`, described as "leave it out while the part has one sketch". Results report the resolved command, which records the sketch (`e0` for every V1-shaped part)
+- [x] No `create_sketch` tool (`COMMAND_TOOLS` leaves `CreateSketch` out, as it leaves out `CreateCheck`): the app can't show a second sketch on its plane or pick one to draw in until sketch mode (F6), and the model gets no more than the UI (invariant 5). `tests/ai/test_tools.py` holds it to that
+- [x] With one sketch nothing changes for Claude Desktop or the assistant: the same 28 tools, the same results apart from the recorded sketch, and every recorded MCP session still replays (`bench/perf.py`, `bench/numerics.py`)
+- [ ] Later (with F6): `create_sketch`, the part's features in `inspect_document`, and a measurement that spans two sketches answered in 3D rather than refused
 
 ## The N phase, AI side (branch `shared/n-phase`, 2026-09-30)
 

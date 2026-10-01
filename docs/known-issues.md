@@ -1,7 +1,8 @@
 # Known issues
 
-What breaks in Caliper today, on `main` at `b598af0` (2026-09-30, the N phase merged in #54).
-Each entry was checked against the code or found in a test run. It's sorted by side:
+What breaks in Caliper today, on `main` at `b598af0` (2026-09-30, the N phase merged in #54),
+updated for V2's F1 on `shared/v2-f1-document`. Each entry was checked against the code or
+found in a test run. It's sorted by side:
 
 - **AI side**: `caliper/ai`, the `caliper-mcp` server, the in-app assistant, and Claude Desktop
   setup.
@@ -13,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited) | C-6 | |
+| Client side | C-13 (limited), C-14 (not yet) | C-6 | |
 
 ---
 
@@ -46,6 +47,19 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Where:** `caliper/engine/profiles.py`, `find`.
 - **Workaround:** draw the slot as one outline of two lines and two arcs (`create_outline`, or
   lines and arcs joined end to end): it's a loop, and has an area.
+
+### C-14. A part with more than one sketch can't be worked on in the app yet
+- **What happens:** the engine, scripts, and files handle a part with several sketches
+  (ADR 0011), but the app has no sketch mode yet. Opening such a file draws every sketch on
+  the one 2D canvas, whatever its plane. Every drawing tool is then refused with
+  `sketch.required`, because nothing says which sketch to draw in. Measuring across two
+  sketches says `sketch.mixed`. Nothing in the app or the AI tools can make a second sketch
+  (`CreateSketch` isn't in the palette or an AI tool), so only a script or a hand-made file
+  gets there.
+- **Where:** `caliper/app/`, which has no active sketch; ADR 0011, "What the app has to
+  decide".
+- **Next:** sketch mode (V2's F6, Lucas): an active sketch passed in every create command,
+  and the canvas showing one sketch, or each on its plane.
 
 ### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the

@@ -134,6 +134,25 @@ Grouping works the same way for every caller. `with bus.transaction("Add Mountin
 turns many commands into one undo step, and an optimizer can run thousands of commands
 without growing the undo stack.
 
+## The document: one part
+
+Since V2's F1 ([ADR 0011](adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md),
+file schema 4), a document is one part:
+
+- **`Document.features`**, in order: the part's features, each with its id. Today that's
+  sketches, each placed on the XY, XZ, or YZ plane. An extrude is next (F3), and order is the
+  order features are recomputed in.
+- **`Document.entities`**, keyed by id as before: everything the sketches hold, plus the
+  part's checks. Geometry names its sketch (`sketch`). A dimension or constraint is in the
+  sketch of the geometry it refers to, and it can't reach into another sketch. Checks belong
+  to the part.
+
+A new part starts with one sketch, `e0` on XY, which is what every V1 file migrates into.
+So code that reads `document.entities` sees what it always did, and a part with one sketch
+behaves exactly as V1 did. `caliper/engine/part.py` holds the rules: which sketch an
+entity is in, and `sketch.mixed` for 2D work that spans two sketches. A sketch isn't an
+entity, so the app's loops over entities, Select All among them, never meet one.
+
 ## The three records
 
 | Record | Where it lives | Saved? |
@@ -286,7 +305,9 @@ A `.caliper` file is a **snapshot** of the document as canonical JSON (ADR 0005)
   formatting, `\n` line endings everywhere.
 - **Inputs only:** a rectangle is stored as corner, width, and height. Nothing computed
   (arc endpoints, measured dimension values, kernel output) is stored.
-- **Versioned:** a `schema_version` plus a migration chain.
+- **Versioned:** a `schema_version` plus a migration chain. Schema 4 (ADR 0011) added the
+  part's feature list and each geometry's sketch; older files migrate into one sketch on XY
+  with their ids unchanged.
 
 That combination makes replay meaningful. `python -m caliper.engine replay script.json` runs
 commands with no UI and must produce a byte-identical file on any OS. It also makes the file
