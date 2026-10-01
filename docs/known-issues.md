@@ -1,8 +1,7 @@
 # Known issues
 
-What breaks in Caliper today, on `main` at `7d4f681` (2026-09-30), updated for
-`shared/n-phase` (2026-09-30). Each entry was checked against the code or found in a test run.
-It's sorted by side:
+What breaks in Caliper today, on `main` at `b598af0` (2026-09-30, the N phase merged in #54).
+Each entry was checked against the code or found in a test run. It's sorted by side:
 
 - **AI side**: `caliper/ai`, the `caliper-mcp` server, the in-app assistant, and Claude Desktop
   setup.
@@ -25,9 +24,10 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   The request shape, including the `server-side-fallback-2026-07-01` beta, hasn't been
   confirmed against a live API.
 - **Where:** `caliper/ai/claude.py`.
-- **Next:** one live run with `CALIPER_ASSISTANT=claude` and a key in your shell. Still not
-  done on 2026-09-30 (N11): no API key in the environment the N phase ran in, so nothing was
-  sent; the adapter wasn't changed.
+- **Next:** one live run with `CALIPER_ASSISTANT=claude` and a key in your shell. Deferred on
+  2026-09-30 (N11), by Andre's decision: no API key will be provided, so nothing was sent, no
+  SDK was installed, and the adapter wasn't changed. It stays open until someone runs it with
+  their own key.
 
 ### AI-8. MCP needs macOS or Linux
 - **What happens:** the bridge uses a Unix socket, so on Windows the window can't serve
@@ -58,12 +58,16 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   `_truncated`; called from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
 - **Fix, if it matters:** update the factorization in place for rows that changed (a rank
   update) instead of redoing them, or solve only the part of a cluster a command can move.
+- **Measured 2026-09-30:** the carry-on costs where it can't carry on. A chain of 150
+  constraints (`bench/perf.py`, `synthetic/many-constraints/chain-150`) takes 1.5 ms a call at
+  the median, against 0.5 ms before f4a9e92, and 2.5 s for all 299 calls against 2.3 s; the
+  same change took a 12-point star's circular pattern from 2.35 s to 0.33 s.
 
 ---
 
 ## Recently fixed
 
-On `shared/n-phase` (the N phase, PR #54):
+In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
 
 - Area checks of lines and arcs: an area was one rectangle or circle, so an area check of a
   traced outline, such as the stress plate's, was refused whatever it made. A closed profile is
@@ -78,6 +82,11 @@ On `shared/n-phase` (the N phase, PR #54):
   stress plate pushed Accept off the card. More than two are counted in one line.
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
+
+On `shared/n-phase-final` (closing out the N phase):
+
+- `bench/perf.py` crashed since #51, on `Draft.checks` and an old `prepare` signature, both
+  gone now that checks are commands in a proposal. It runs again, counting the same checks.
 
 On `contracts/checks-authors-labels` (stacked on the known-issue fixes, not pushed):
 
