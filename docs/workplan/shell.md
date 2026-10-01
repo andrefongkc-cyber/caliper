@@ -1,4 +1,4 @@
-Status: the N phase's app side merged in #54 (reviewed and merged by Lucas): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: nothing on the shell side until the N phase closes (N9's Claude Desktop run), then V2
+Status: V2's F1 contract (ADR 0011, the part) drafted on `shared/v2-f1-document` (local, not pushed); the app behaves as before with the part's one sketch; next: Lucas's review of the contract from the app's side (F7), then sketch mode (F6) and the 3D viewport spike (F5)
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,25 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## V2, F7: review the part's contract from the app's side (Lucas; branch `shared/v2-f1-document`, 2026-09-30)
+
+F1 ([core.md](core.md#v2-f1-the-part-and-the-v2-document-contract-branch-sharedv2-f1-document-2026-09-30-local-not-pushed), [ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)) makes a document one part: `Document.features` in order (sketches on XY, XZ, or YZ), and geometry naming its sketch. A new part has one sketch, `e0` on XY, and every V1 file migrates into it, so the app runs as before. No app code changed. The ADR stays Proposed until this review:
+
+- [ ] ADR 0011's "What the app has to decide", seven items. Each one is a choice for F6 that the contract already allows any answer to:
+  1. An active sketch (UI state) passed as `sketch` in every create command.
+  2. File → New with `e0` on XY or with no sketch.
+  3. What the canvas draws.
+  4. Whether picking takes a sketch.
+  5. Properties' read-only "Sketch e0" row, and whether sketches get names.
+  6. The feature list from `Document.features` and `Queries.sketch_of`.
+  7. The 3D view's mesh, which goes with F2's kernel contract.
+- [ ] Four app-visible changes:
+  - Properties shows a geometry's sketch as read-only text, through its generic field rows.
+  - The palette leaves `CreateSketch` out, because it has no form for a plane. `tests/app/test_palette.py` lists it, and it stays out until F6.
+  - Resolved commands record their sketch (`sketch='e0'`), so History and a proposal's commands carry it. `tests/app/test_assistant.py` expects it.
+  - Known issue C-14: a file with two sketches opens, but can't be drawn in.
+- [ ] Anything the browser, selection, the proposal card, or the palette needs from sketches and features that the contract lacks, before it freezes again. That's the Engine Plan's F7.
 
 ## The N phase, app side (branch `shared/n-phase`, 2026-09-30)
 

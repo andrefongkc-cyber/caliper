@@ -59,7 +59,8 @@ in it two ways, as the in-app assistant or from Claude Desktop over MCP. 3D is n
 | **AI assistant** | In the prompt bar: Claude through the Anthropic API (opt-in), working through 27 tools made from Caliper's own commands and queries. Its changes arrive as a proposal you accept as one undo step ([#32](https://github.com/andrefongkc-cyber/caliper/pull/32)) |
 | **Claude Desktop over MCP** | Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper. The Timing panel times each task and shows the time left. Setup: [docs/mcp.md](docs/mcp.md) ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)) |
 | **Performance** | Only what a change reaches is solved again, and Accept commits what the proposal already solved: the 281-call stress plate costs Caliper under 1 s in all, and Accept 0.02 s (Performance V2, [#47](https://github.com/andrefongkc-cyber/caliper/pull/47)) |
-| **Not yet** | 3D parts (V2), simulation (V4), and everything after |
+| **V2, started** | A document is one part: sketches placed on the XY, XZ, or YZ plane, in order, with V1 files migrated into one sketch on XY (file schema 4, [ADR 0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)). The app draws in one sketch until sketch mode lands |
+| **Not yet** | Extrude and 3D parts (V2), simulation (V4), and everything after |
 
 ## What the test runs found
 
@@ -194,6 +195,8 @@ Read more in [docs/architecture.md](docs/architecture.md) and the
 | [0005](docs/adr/0005-file-format-and-schema-versioning.md) File format | Canonical JSON with schema versions |
 | [0006](docs/adr/0006-license-policy-no-gpl.md) Licenses | No GPL or AGPL dependencies |
 | [0009](docs/adr/0009-sketch-constraints-in-the-document.md) Constraints | Stored in the document, solved inside the command that changes them |
+| [0010](docs/adr/0010-checks-in-the-document.md) Checks (proposed) | Stored in the document, changed by commands like everything else |
+| [0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) The part (proposed) | A document is one part: features in order, sketches on planes (V2's first step) |
 
 ## Roadmap
 

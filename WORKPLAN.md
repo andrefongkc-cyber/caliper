@@ -1,4 +1,4 @@
-Status: the N phase (finish and harden 2D) merged in #54 and closed out on `shared/n-phase-final`: N1–N8 and N10 done, N1 confirmed on Linux CI, N11 deferred (no API key, by decision), next: Andre's Claude Desktop run of the stress plate (N9, test 005 ready); V2 (F1–F8) starts only after that
+Status: V2 started: F1 (ADR 0011, a document is one part with sketches on planes, file schema 4) done on `shared/v2-f1-document` (local, not pushed), waiting on Lucas's review from the app's side (F7); next: F2 (the kernel grows solids) once ADR 0011 is Accepted; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -20,6 +20,13 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [ ] N11, a live in-app assistant request: deferred, by Andre's decision (2026-09-30): no API key will be provided, so nothing is installed or changed for it, and AI-6 stays open
     - Found and fixed on the way: a check refused on a machine without a geometry kernel, and `bench/perf.py`, broken since #51
     - Closed out after #54: 1544 tests passed with OCCT, lint, format, and types clean, the bench 9 of 9, the solver numerics clean, and a performance run saved as the baseline for V2 ([core.md](docs/workplan/core.md#closing-out-2026-09-30-after-54-merged))
+  - **V2, the foundation** (the Caliper Engine Plan's F1–F8, in order; F1 details in [core.md](docs/workplan/core.md#v2-f1-the-part-and-the-v2-document-contract-branch-sharedv2-f1-document-2026-09-30-local-not-pushed), Lucas's review in [shell.md](docs/workplan/shell.md#v2-f7-review-the-parts-contract-from-the-apps-side-lucas-branch-sharedv2-f1-document-2026-09-30)):
+    - [~] F1, [ADR 0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) and the contract: a document is one part, features in order, sketches on XY, XZ, or YZ, file schema 4 with every V1 file migrated into one sketch on XY. Done and tested on `shared/v2-f1-document`: every schema-3 golden migrates byte for byte, every replay is unchanged, and N1's digests of `main`'s files still match. The ADR stays Proposed until Lucas reviews it (F7)
+    - [ ] F2, the kernel grows solids. Waits for F1
+    - [ ] F3, extrude as the first feature, recomputed only when needed. Waits for F2
+    - [ ] F4, a persistent-naming spike
+    - [ ] F5–F7, the app: the 3D viewport spike, sketch mode and a feature list, the contract review (Lucas)
+    - [ ] F8, tests alongside each: F1's are in (a schema-4 golden, the migration fixtures, a property test of the part's rules)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)
