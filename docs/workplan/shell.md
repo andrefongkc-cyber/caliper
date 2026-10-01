@@ -1,4 +1,4 @@
-Status: V2's F1 contract (ADR 0011, the part) drafted on `shared/v2-f1-document` (local, not pushed); the app behaves as before with the part's one sketch; next: Lucas's review of the contract from the app's side (F7), then sketch mode (F6) and the 3D viewport spike (F5)
+Status: V2's F7 done on `shared/v2-milestone` (local, not pushed): the contract reviewed from the app's side, no contract change needed, four app bugs fixed; next: F8 (V2's tests end to end), then Lucas's sign-off on ADRs 0011 to 0014
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,33 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## V2, F7: the contract reviewed from the app's side (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+F1's contract ([ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)) and F2–F3's ([ADR 0013](../adr/0013-solids-extrude-and-recomputing-only-what-changed.md)) were reviewed against the app as built in F5 and F6, a workflow at a time. **Result: the contract needs no change.** Nothing in `caliper/contracts/` changed for F5, F6, or F7. Four app-side bugs were found and fixed, each with a test that fails without its fix. ADR 0011's seven questions are answered in the ADR, as built. The ADR stays Proposed until Lucas confirms them; this review prepares it for him.
+
+- [x] **Selection:** UI state, as before. It can hold a feature (from the Part panel), which Properties edits and Delete deletes, and the engine's delete takes what reads it. With several sketches, picking, box select, and Select All see only the edited sketch, through the session's view of it. No query needed a `sketch` argument.
+- [x] **The feature tree:** `Document.features`, `feature_error`, and `solid_properties`, as the AI reads them. Sketch names ("Sketch 1") are numbered by kind in the app; no name field was needed.
+- [x] **Sketch activation:** UI state. Commands that draw or extrude and name no sketch get the edited one, from `part.in_sketch`, in the engine, which the session, the in-app assistant, and Claude Desktop now share. It acts only when the part has more than one sketch, so V1 files record and replay as before. An engine test fails if a command that takes a sketch is left off its list.
+  - **Fixed:** with two sketches, the assistant's and Claude Desktop's drawing calls were refused with `sketch.required` unless the model named a sketch. `Workspace`, `Draft.call`, and `Assistant.ask` now take the edited sketch, and the document summary says which one it is (`"editing"`), only when there are several.
+- [x] **2D/3D mode:** UI state. Neither view changes the document, the history, or the selection.
+- [x] **Properties:** generic fields edit an extrude's depth and operation, and a sketch's plane, through `ModifyEntity`. No change was needed.
+- [x] **The proposal card:** an extrude from either assistant is proposed, its volume check measured on the proposed solid, accepted, and undone as one step.
+  - **Fixed:** an extrude with its check was called "Assistant Changes", because a change to no entity looked like a check. It's "Extrude".
+  - **Fixed:** the proposal's preview drew another sketch's changes on the edited sketch's canvas. It shows only the edited sketch's.
+  - **Known, not fixed (C-16):** a proposed extrude isn't shown in 3D until Accept.
+- [x] **Checks:** "Volume of the part", and "Volume after" a selected feature, from `Metric.VOLUME`.
+  - **Fixed:** with two sketches, "Sketch width" and "Sketch height" measured every sketch at once and were refused. They name the edited sketch's geometry, and aren't offered for an empty sketch.
+- [x] **Extrude:** one `CreateExtrude`; the profile is the selection or the whole sketch. A refusal's message is shown as it comes.
+- [x] **The viewport's mesh:** `Queries.mesh`, asked for only when the 3D view shows a changed document.
+- [x] **Undo and redo:** feature changes are in `Delta.features_*`; History and the AI use the engine's `is_empty`, fixed in F6.
+- [x] **Save and reopen:** schema 4 holds the features; a file opens on its last sketch. Both are tested, and so is the replay of what the window sent.
+- [x] **Tests:**
+  - `tests/engine/test_part.py`: `part.in_sketch`, and that every command with a `sketch` field is filled in.
+  - `tests/ai/test_sketches.py`: drawing into the edited sketch, a sketch that's gone, the summary's `"editing"`, and the extrude's label.
+  - `tests/app/test_sketch_mode.py`: the sketch-size checks with one and with two sketches, and the proposal preview limited to the edited sketch.
+  - `tests/app/test_mcp.py`: Claude Desktop drawing into the edited sketch, and an extrude proposed, checked, accepted, and undone.
+  - `tests/app/test_assistant.py`: the in-app assistant drawing into the edited sketch.
 
 ## V2, F6: sketch mode, the Part panel, Extrude, and a tidier window (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 
@@ -58,25 +85,6 @@ Done when the milestone's steps can be clicked through, and the app runs on the 
   - `tests/app/test_camera3d.py` (no Qt): the axes, the isometric start, the orbit and its limits, pan and zoom keeping the pointer's point, and fitting from any side.
   - `tests/app/test_view3d.py`: switching keeps the very same document, history, undo label, and selection; the toggle is in the toolbar and on its keys; sketch tools wait in 3D and 2D drawing works after; undo and redo in 3D; the solid drawn from the engine's mesh, by its pixels; the messages; 2D edits there in 3D; drags and the wheel move the camera; frames of a detailed part.
   - They run on the analytic kernel, as CI's app job has no OCCT.
-
-## V2, F7: review the part's contract from the app's side (Lucas; branch `shared/v2-f1-document`, 2026-09-30)
-
-F1 ([core.md](core.md#v2-f1-the-part-and-the-v2-document-contract-branch-sharedv2-f1-document-2026-09-30-local-not-pushed), [ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)) makes a document one part: `Document.features` in order (sketches on XY, XZ, or YZ), and geometry naming its sketch. A new part has one sketch, `e0` on XY, and every V1 file migrates into it, so the app runs as before. No app code changed. The ADR stays Proposed until this review:
-
-- [ ] ADR 0011's "What the app has to decide", seven items. Each one is a choice for F6 that the contract already allows any answer to:
-  1. An active sketch (UI state) passed as `sketch` in every create command.
-  2. File → New with `e0` on XY or with no sketch.
-  3. What the canvas draws.
-  4. Whether picking takes a sketch.
-  5. Properties' read-only "Sketch e0" row, and whether sketches get names.
-  6. The feature list from `Document.features` and `Queries.sketch_of`.
-  7. The 3D view's mesh, which goes with F2's kernel contract.
-- [ ] Four app-visible changes:
-  - Properties shows a geometry's sketch as read-only text, through its generic field rows.
-  - The palette leaves `CreateSketch` out, because it has no form for a plane. `tests/app/test_palette.py` lists it, and it stays out until F6.
-  - Resolved commands record their sketch (`sketch='e0'`), so History and a proposal's commands carry it. `tests/app/test_assistant.py` expects it.
-  - Known issue C-14: a file with two sketches opens, but can't be drawn in.
-- [ ] Anything the browser, selection, the proposal card, or the palette needs from sketches and features that the contract lacks, before it freezes again. That's the Engine Plan's F7.
 
 ## The N phase, app side (branch `shared/n-phase`, 2026-09-30)
 
