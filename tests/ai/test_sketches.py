@@ -109,3 +109,45 @@ def test_an_extrude_is_kept_in_the_proposal_though_it_changes_no_entity() -> Non
     outcome = workspace.call(call("create_extrude", depth=3.0))
     assert not outcome.is_error, outcome.content
     assert [c.kind for c in workspace.commands] == ["create_extrude"]
+
+
+def test_drawing_that_names_no_sketch_goes_into_the_one_being_edited() -> None:
+    """The window draws into the sketch the user is editing; the AI's tools do the same, so
+    a part with two sketches doesn't refuse every call that leaves the sketch out (F7)."""
+    document, second, _, _ = two_sketches()
+    workspace = Workspace(document, sketch=second)
+    circle = workspace.call(call("create_circle", center={"x": 0.0, "y": 0.0}, radius=3.0))
+    assert not circle.is_error, circle.content
+    points = [{"x": 0.0, "y": 0.0}, {"x": 5.0, "y": 0.0}, {"x": 5.0, "y": 5.0}]
+    outline = workspace.call(call("create_outline", points=points, closed=True))
+    assert not outline.is_error, outline.content
+    assert made_in(workspace, document) == {second}
+    # The resolved commands name it, so accepting or replaying them lands in the same place.
+    drawn = [c for c in workspace.commands if isinstance(c, CreateCircle | CreateLine)]
+    assert {c.sketch for c in drawn} == {second}
+    # Named outright, the sketch named wins.
+    first = workspace.call(
+        call("create_circle", center={"x": 0.0, "y": 0.0}, radius=1.0, sketch=FIRST_SKETCH)
+    )
+    assert part.sketch_of(workspace.document, EntityId(first.content["created"][0])) == FIRST_SKETCH  # type: ignore[index]
+
+
+def test_a_sketch_that_is_gone_is_not_drawn_into() -> None:
+    """The window's sketch can be one the document no longer has (deleted, or undone, as the
+    call comes in): then the call is as if no sketch were being edited, and says so."""
+    document, _, _, _ = two_sketches()
+    workspace = Workspace(document, sketch=EntityId("e99"))
+    outcome = workspace.call(call("create_circle", center={"x": 0.0, "y": 0.0}, radius=3.0))
+    assert outcome.is_error
+    assert "sketch.required" in str(outcome.content)
+
+
+def test_the_summary_says_which_sketch_is_being_edited_only_when_there_are_several() -> None:
+    document, second, _, _ = two_sketches()
+    assert describe(document, editing=second)["editing"] == second
+    assert "editing" not in describe(document)
+    one = Bus()
+    assert "editing" not in describe(one.document, editing=FIRST_SKETCH)
+    workspace = Workspace(document, sketch=second)
+    inspected = workspace.call(call("inspect_document"))
+    assert inspected.content["editing"] == second  # type: ignore[index]

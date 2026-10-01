@@ -49,6 +49,7 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.errors import Error
+from caliper.engine import part
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.handlers import Executed
 from caliper.engine.commands.validation import GEOMETRY
@@ -364,6 +365,9 @@ class Workspace:
 
     base: Document
     selection: frozenset[EntityId] = frozenset()
+    sketch: EntityId | None = None
+    """The sketch the user is editing (V2): drawing and extrudes that name no sketch go there,
+    once the part has more than one, as the window's own commands do."""
 
     def __post_init__(self) -> None:
         self._bus = Bus(self.base)
@@ -442,7 +446,7 @@ class Workspace:
             command = decode_command({**arguments, "kind": kind}, kind)
         except (DecodeError, TypeError, ValueError) as e:
             raise _ToolError({"error": str(e)}) from e
-        result = self._execute(command)
+        result = self._execute(self._in_sketch(command))
         if result is None:
             return {"applied": True, "changed": "nothing: the document already was that way"}
         # No echo of the command: what it created and changed, in stored form, says all the
@@ -476,7 +480,7 @@ class Workspace:
         steps: list[Applied] = []
 
         def run(command: Command) -> Applied:
-            result = self._bus.execute(command)
+            result = self._bus.execute(self._in_sketch(command))
             if isinstance(result, Rejected):
                 raise patterns.PatternError(
                     {
@@ -533,7 +537,12 @@ class Workspace:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise _ToolError({"error": "limit must be a positive integer"})
         focus = _ids(arguments.get("focus", []), "focus")
-        return describe(self.document, selection=self.selection, focus=focus, limit=limit)
+        return describe(
+            self.document, selection=self.selection, focus=focus, limit=limit, editing=self.sketch
+        )
+
+    def _in_sketch(self, command: Command) -> Command:
+        return part.in_sketch(self.document, command, self.sketch)
 
     def _inspect_entities(self, arguments: Mapping[str, object]) -> JSON:
         queries = self._bus.queries

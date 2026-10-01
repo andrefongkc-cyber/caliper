@@ -37,8 +37,8 @@ from caliper.app.agent.timing import RunTimer, Timing, markdown
 from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.panels.timing import time_left
 from caliper.app.session import Author
-from caliper.contracts.commands import CreateCircle
-from caliper.contracts.document import Circle, EntityId, Point2, Rectangle
+from caliper.contracts.commands import CreateCircle, CreateRectangle
+from caliper.contracts.document import Circle, EntityId, Plane, Point2, Rectangle
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
@@ -159,6 +159,24 @@ def test_undoing_all_of_it_withdraws_the_proposal(served, qtbot) -> None:
     assert window.agent.proposal is None
     assert not window.proposal_card.isVisible()
     assert call(window, qtbot, "solve_status").note is None  # the client did it itself
+
+
+def test_claude_desktop_draws_into_the_sketch_the_user_is_editing(served, qtbot) -> None:
+    """With two sketches, a call that names none goes where the user is drawing (V2's F7),
+    as the window's own tools do, rather than being refused for leaving the sketch out."""
+    window, session = served, served.session
+    session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=40, height=20))
+    window.new_sketch_actions[Plane.XZ].trigger()
+    second = session.active_sketch
+    response = call(window, qtbot, "create_circle", CIRCLE)
+    assert not response.is_error, response.content
+    (command,) = window.agent.proposal.plan.commands
+    assert isinstance(command, CreateCircle)
+    assert command.sketch == second
+    assert call(window, qtbot, "inspect_document").content["editing"] == second
+    window.proposal_card.accept_button.click()
+    circle = command.id
+    assert session.queries.sketch_of(circle) == second
 
 
 # --- When the user acts meanwhile -------------------------------------------------------
@@ -588,9 +606,9 @@ def timed(served, monkeypatch):
     window.mcp.timer = RunTimer(clock=clock)
     real = window.mcp.draft.call
 
-    def slow(document, selection, name, arguments):
+    def slow(document, selection, name, arguments, **options):
         clock.now += took.get(name, 0.0)
-        return real(document, selection, name, arguments)
+        return real(document, selection, name, arguments, **options)
 
     monkeypatch.setattr(window.mcp.draft, "call", slow)
     return window, clock, took

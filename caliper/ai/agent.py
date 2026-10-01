@@ -99,17 +99,20 @@ class Assistant:
         *,
         on_step: Callable[[ToolOutcome], None] | None = None,
         stop: Callable[[], bool] | None = None,
+        sketch: EntityId | None = None,
     ) -> Turn:
         """`stop` is asked before each request to the model (the user pressed Stop): when it
-        says so, the turn ends there and is forgotten, as if never asked, with no changes."""
+        says so, the turn ends there and is forgotten, as if never asked, with no changes.
+        `sketch` is the one the user is editing, where drawing that names none goes."""
         self._forget_old_turns()
         seen, start = self._last_seen, len(self.conversation)
-        workspace = Workspace(document, frozenset(selection))
+        workspace = Workspace(document, frozenset(selection), sketch)
         context = describe(
             document,
             selection=selection,
             limit=self.context_limit,
             changes_since=self._last_seen,
+            editing=sketch,
         )
         self._last_seen = document
         self.conversation.append(

@@ -14,7 +14,7 @@ from caliper.ai.model import Message, ModelError, Reply, Stop, ToolCall, ToolOut
 from caliper.app.panels.assistant import step_text
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateRectangle
-from caliper.contracts.document import FIRST_SKETCH, EntityId, Point2, Rectangle
+from caliper.contracts.document import FIRST_SKETCH, EntityId, Plane, Point2, Rectangle
 
 E1 = EntityId("e1")
 
@@ -41,6 +41,7 @@ def calls(*calls: tuple[str, dict[str, object]]) -> Reply:
 
 
 RECTANGLE = ("create_rectangle", {"corner": {"x": 0, "y": 0}, "width": 100, "height": 50})
+CIRCLE = {"center": {"x": 10, "y": 10}, "radius": 5}
 WIDTH_CHECK = (
     "run_check",
     {"metric": "bbox_width", "expected": 100, "tolerance": 0.001, "ids": ["e1"]},
@@ -96,6 +97,31 @@ def test_a_request_creates_real_geometry_once_accepted_and_undoes_normally(windo
     assert dict(session.document.entities) == {}  # the rectangle and its check
     window.redo_action.trigger()
     assert E1 in session.document.entities
+
+
+def test_the_assistant_draws_into_the_sketch_the_user_is_editing(window, qtbot) -> None:
+    """With two sketches, drawing that names none goes where the user is drawing (V2's F7),
+    and the model is told which sketch that is."""
+    seen: list[str] = []
+
+    class Watching(ScriptedModel):
+        def reply(
+            self, system: str, conversation: Sequence[Message], tools: Sequence[ToolSpec]
+        ) -> Reply:
+            seen.append(str(conversation[-1]))
+            return super().reply(system, conversation, tools)
+
+    window.agent.set_assistant(
+        Assistant(Watching([calls(("create_circle", CIRCLE)), Reply(text="Done.")]))
+    )
+    window.new_sketch_actions[Plane.XZ].trigger()
+    second = window.session.active_sketch
+    ask(window, qtbot, "a circle")
+    assert seen, window.assistant_log.lines()
+    assert f'"editing": "{second}"' in seen[0]
+    window.proposal_card.accept_button.click()
+    (circle,) = window.session.document.entities
+    assert window.session.queries.sketch_of(circle) == second
 
 
 def test_a_follow_up_refers_to_what_the_last_request_made(window, qtbot) -> None:
