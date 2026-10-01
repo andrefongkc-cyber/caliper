@@ -381,6 +381,35 @@ def test_constraint_and_dimension_options_across_sketches_say_why_not() -> None:
 # --- Every command keeps the part whole --------------------------------------------------------
 
 
+def test_drawing_that_names_no_sketch_goes_into_the_one_being_edited() -> None:
+    """What the window and the AI both send (F7): with several sketches, the edited one is
+    named; with one, the command goes as it came; a sketch the part no longer has is ignored,
+    so the command is refused as if none were being edited."""
+    circle = CreateCircle(center=ORIGIN, radius=1.0)
+    one = Bus()
+    assert part.in_sketch(one.document, circle, E0) is circle  # one sketch: as it came
+    bus = Bus()
+    (second,) = applied(bus.execute(CreateSketch(plane=Plane.XZ))).created_ids
+    document = bus.document
+    assert part.in_sketch(document, circle, second) == CreateCircle(
+        center=ORIGIN, radius=1.0, sketch=second
+    )
+    named = CreateCircle(center=ORIGIN, radius=1.0, sketch=E0)
+    assert part.in_sketch(document, named, second) is named  # the sketch named wins
+    assert part.in_sketch(document, circle, EntityId("e99")) is circle  # gone: refused below
+    assert refused(bus.execute(circle)).code is ErrorCode.SKETCH_REQUIRED
+    assert part.in_sketch(document, CreateExtrude(depth=1.0), second).sketch == second  # type: ignore[union-attr]
+    other = DeleteEntities(ids=(second,))
+    assert part.in_sketch(document, other, second) is other  # nothing to name
+
+
+def test_every_command_that_takes_a_sketch_is_filled_in() -> None:
+    """A command added later with a `sketch` field must be in `IN_A_SKETCH`, or the window
+    and the AI would refuse it in a part with two sketches."""
+    takes = {kind for kind in get_args(Command) if "sketch" in kind.__dataclass_fields__}
+    assert takes == set(part.IN_A_SKETCH)
+
+
 def test_every_command_keeps_the_parts_features_unless_it_changes_them() -> None:
     """Each kind of command, run in the second sketch of a two-sketch part. A handler that
     builds its document afresh instead of from the one before (`dataclasses.replace`) would

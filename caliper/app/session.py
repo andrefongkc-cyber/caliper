@@ -23,19 +23,14 @@ from caliper.contracts.commands import (
     Command,
     CommandBus,
     CommandResult,
-    CreateArc,
     CreateCheck,
-    CreateCircle,
-    CreateExtrude,
-    CreateLine,
-    CreatePoint,
-    CreateRectangle,
     DeleteEntities,
     Rejected,
     Transaction,
 )
 from caliper.contracts.document import Document, EntityId, Expectation, Ref, Sketch
 from caliper.contracts.queries import CheckResult, Queries
+from caliper.engine import part
 from caliper.engine.commands.bus import Bus
 from caliper.engine.document.delta import diff, is_empty
 from caliper.engine.io import snapshot
@@ -128,13 +123,7 @@ class DocumentSession(QObject):
         """Send a command. A rejection is also reported as a message. Geometry and extrudes
         that don't name a sketch go in the one being edited, once the part has several (ADR
         0011); with one, the command goes as it came and the engine finds the only sketch."""
-        if (
-            isinstance(command, _IN_A_SKETCH)
-            and command.sketch is None
-            and self._active is not None
-            and len(_sketches(self._bus.document)) > 1
-        ):
-            command = replace(command, sketch=self._active)
+        command = part.in_sketch(self._bus.document, command, self._active)
         self._own += 1
         try:
             result = self._bus.execute(command, source=author.value)
@@ -449,10 +438,6 @@ def check_command(expectation: Expectation) -> CreateCheck:
 
 def _natural(id: EntityId) -> list[int | str]:
     return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", id)]
-
-
-_IN_A_SKETCH = (CreatePoint, CreateLine, CreateCircle, CreateArc, CreateRectangle, CreateExtrude)
-"""Commands that draw in a sketch, or read one, and take `sketch` (None: the only one)."""
 
 
 def _sketches(document: Document) -> list[EntityId]:
