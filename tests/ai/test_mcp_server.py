@@ -18,6 +18,7 @@ from caliper.ai.bridge import NOT_RUNNING, SOCKET_ENV, BridgeError, Request, Res
 from caliper.ai.draft import Ended
 from caliper.ai.mcp_server import INSTRUCTIONS, MCP_TOOLS, PROGRESS, READ_ONLY, build
 from caliper.ai.tools import (
+    CHANGES,
     COMMAND_TOOLS,
     CONVENTIONS,
     DRAWING_TOOLS,
@@ -86,6 +87,10 @@ def test_it_exposes_caliper_and_nothing_else() -> None:
     assert names >= READ_ONLY
     assert not READ_ONLY & COMMAND_KINDS.keys()
     assert not READ_ONLY & {"run_check", "remove_check"}  # they change the proposal
+    # Every tool either only looks (read-only to Claude Desktop) or can change the sketch
+    # (refused while the in-app assistant works): none falls between.
+    assert {spec.name for spec in TOOLS} == CHANGES | (READ_ONLY - {PROGRESS.name})
+    assert not CHANGES & READ_ONLY
 
 
 def test_an_unknown_tool_is_refused_without_reaching_caliper(caliper, socket_file: Path) -> None:

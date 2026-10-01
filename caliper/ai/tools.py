@@ -322,6 +322,18 @@ TOOLS: tuple[ToolSpec, ...] = (
     *QUERY_TOOLS,
 )
 
+CHANGES: frozenset[str] = frozenset(
+    {
+        *COMMAND_TOOLS,
+        *(spec.name for spec in (*DRAWING_TOOLS, *REPEAT_TOOLS)),
+        "run_check",
+        "remove_check",
+        "undo",
+    }
+)
+"""The tools whose call can change the sketch, or what's pending: the rest only look. A check
+is stored, so running or removing one is a change (C-1)."""
+
 
 # --- The workspace ----------------------------------------------------------------------
 
