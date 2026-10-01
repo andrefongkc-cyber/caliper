@@ -231,14 +231,20 @@ class Queries(Protocol):
         ...
 
     def area_properties(self, ids: Sequence[EntityId]) -> AreaProperties | Error:
-        """Area properties of the region bounded by `ids`. V1: exactly one Rectangle or Circle.
+        """Area properties of the region bounded by `ids`: one closed profile.
+
+        A profile is one outline and any holes inside it. Each is a Rectangle or Circle, or
+        lines and arcs joined end to end (in any order and direction; ends join within
+        `tolerance.BROKEN` of the profile's size). Boundaries may meet only end to end, and an
+        island inside a hole would be a second profile (N4; V1 took one Rectangle or Circle).
 
         The only query that needs a geometry kernel, so it is the only one that can report
         `kernel.unavailable` — when no kernel is configured, or the optional OCCT extra is
         not installed. `selection.empty` for no ids, `profile.not_closed` for anything that
-        isn't one closed profile, `profile.construction` for construction geometry. `ixx`
-        and `iyy` are about the centroid, and `ixy` is the product of inertia in the usual
-        engineering sense (∫xy dA).
+        isn't one closed profile (an open end, a branch, crossing boundaries, two regions),
+        with the reason and the ids involved, `geometry.degenerate` for a zero-length edge,
+        `profile.construction` for construction geometry. `ixx` and `iyy` are about the
+        centroid, and `ixy` is the product of inertia in the usual engineering sense (∫xy dA).
         """
         ...
 

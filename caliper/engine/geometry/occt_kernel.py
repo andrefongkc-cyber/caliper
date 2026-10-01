@@ -1,36 +1,44 @@
 """OpenCascade Kernel (ADR 0001). The only module allowed to import OCP.
 
 Needs the `occt` extra (cadquery-ocp). It builds real B-rep faces for what the provisional
-Kernel protocol asks of V1: a planar face bounded by one Rectangle or Circle. It is held to
+Kernel protocol asks for: a planar face inside one loop of lines and arcs (or one Rectangle
+or Circle), less any holes. Consecutive edges share one vertex, toleranced to the engine's
+joining distance, so a loop closes even where its ends differ in the last bits. It is held to
 the same conformance suite as FakeKernel (tests/engine/geometry/test_kernel_conformance.py).
 
 OCP ships without type information, so its names are Any here and every value leaving this
 module is converted to a plain float first.
 """
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import TYPE_CHECKING, Any
 
 # OCP has no type information, and the Linux core CI job doesn't install it.
 from OCP import (  # type: ignore[import-not-found, import-untyped, unused-ignore]
     Bnd,
+    BRep,
     BRepBndLib,
     BRepBuilderAPI,
     BRepCheck,
     BRepGProp,
     GProp,
+    ShapeFix,
+    TopoDS,
     gp,
 )
 
-from caliper.contracts.document import Circle, Geometry, Point2, Rectangle
+from caliper.contracts.document import Point2
 from caliper.contracts.errors import ErrorCode
-from caliper.contracts.kernel import KernelError, Shape
+from caliper.contracts.kernel import KernelError, Loop, Shape
 from caliper.contracts.queries import AreaProperties, BoundingBox
+from caliper.engine import profiles
 
 if TYPE_CHECKING:
     from caliper.contracts.kernel import Kernel
+
+PRECISION = 1e-7
+"""mm: OCCT's own confusion distance (Precision::Confusion), the least vertex tolerance."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -41,42 +49,25 @@ class OCCTFace:
 
 
 class OCCTKernel:
-    def make_face(self, boundary: Sequence[Geometry]) -> Shape:
-        if len(boundary) != 1 or not isinstance(boundary[0], Rectangle | Circle):
-            raise KernelError(
-                ErrorCode.PROFILE_NOT_CLOSED,
-                "a face needs exactly one Rectangle or Circle as its boundary",
-            )
-        profile = boundary[0]
-        match profile:
-            case Rectangle(corner=corner, width=width, height=height):
-                _require_valid(profile, (corner.x, corner.y, width, height), (width, height))
-                x0, y0, x1, y1 = corner.x, corner.y, corner.x + width, corner.y + height
-                polygon = BRepBuilderAPI.BRepBuilderAPI_MakePolygon(
-                    gp.gp_Pnt(x0, y0, 0.0),
-                    gp.gp_Pnt(x1, y0, 0.0),
-                    gp.gp_Pnt(x1, y1, 0.0),
-                    gp.gp_Pnt(x0, y1, 0.0),
-                    True,
-                )
-                wire = polygon.Wire() if polygon.IsDone() else None
-            case Circle(center=center, radius=radius):
-                _require_valid(profile, (center.x, center.y, radius), (radius,))
-                axis = gp.gp_Ax2(gp.gp_Pnt(center.x, center.y, 0.0), gp.gp_Dir(0.0, 0.0, 1.0))
-                edge = BRepBuilderAPI.BRepBuilderAPI_MakeEdge(gp.gp_Circ(axis, radius))
-                wire = (
-                    BRepBuilderAPI.BRepBuilderAPI_MakeWire(edge.Edge()).Wire()
-                    if edge.IsDone()
-                    else None
-                )
-            case _:
-                assert_never(profile)
-        face = BRepBuilderAPI.BRepBuilderAPI_MakeFace(wire, True) if wire is not None else None
-        if face is None or not face.IsDone():
-            raise KernelError(
-                ErrorCode.GEOMETRY_DEGENERATE, f"OCCT could not build a face: {profile}"
-            )
-        return OCCTFace(face=face.Face())
+    def make_face(self, outer: Loop, holes: Sequence[Loop] = ()) -> Shape:
+        loops = (outer, *holes)
+        for loop in loops:
+            if (problem := profiles.loop_problem(loop)) is not None:
+                raise KernelError(problem.code, problem.message)
+        join = max(PRECISION, profiles.joining([e for loop in loops for e in loop.edges]))
+        wires = [_wire(loop, join) for loop in loops]
+        maker = BRepBuilderAPI.BRepBuilderAPI_MakeFace(wires[0], True)
+        if not maker.IsDone():
+            raise KernelError(ErrorCode.GEOMETRY_DEGENERATE, "OCCT could not build a face")
+        for wire in wires[1:]:
+            maker.Add(wire)
+        # Each hole must run the other way round from the outline; this sets them so.
+        fix = ShapeFix.ShapeFix_Face(maker.Face())
+        fix.FixOrientation()
+        face = fix.Face()
+        if not BRepCheck.BRepCheck_Analyzer(face).IsValid():
+            raise KernelError(ErrorCode.GEOMETRY_DEGENERATE, "OCCT built a face that isn't valid")
+        return OCCTFace(face=face)
 
     def area_properties(self, face: Shape) -> AreaProperties:
         props = GProp.GProp_GProps()
@@ -106,9 +97,47 @@ class OCCTKernel:
         )
 
 
-def _require_valid(profile: Geometry, numbers: tuple[float, ...], sizes: tuple[float, ...]) -> None:
-    if not all(math.isfinite(n) for n in numbers) or not all(s > 0 for s in sizes):
-        raise KernelError(ErrorCode.GEOMETRY_DEGENERATE, f"degenerate profile: {profile}")
+def _wire(loop: Loop, join: float) -> Any:
+    """`loop` as an OCCT wire, each joint one vertex shared by the edges meeting there."""
+    walked = profiles.traversed(loop)
+    maker = BRepBuilderAPI.BRepBuilderAPI_MakeWire()
+    if len(walked) == 1:  # a whole circle
+        maker.Add(_edge(BRepBuilderAPI.BRepBuilderAPI_MakeEdge(_circle(walked[0]))))
+    else:
+        joints = [_vertex(e.a, join) for e in walked]  # each edge starts where the last ends
+        for n, e in enumerate(walked):
+            first, last = joints[n], joints[(n + 1) % len(walked)]
+            if e.center is None:
+                edge = _edge(BRepBuilderAPI.BRepBuilderAPI_MakeEdge(first, last))
+            elif e.sweep > 0:
+                edge = _edge(BRepBuilderAPI.BRepBuilderAPI_MakeEdge(_circle(e), first, last))
+            else:
+                # OCCT's circle runs counter-clockwise, so the edge is made from where this
+                # one ends, then turned round to run the way the wire does.
+                made = BRepBuilderAPI.BRepBuilderAPI_MakeEdge(_circle(e), last, first)
+                edge = TopoDS.TopoDS.Edge(_edge(made).Reversed())
+            maker.Add(edge)
+    if not maker.IsDone():
+        raise KernelError(ErrorCode.PROFILE_NOT_CLOSED, "OCCT could not join the loop's edges")
+    return maker.Wire()
+
+
+def _edge(made: Any) -> Any:
+    if not made.IsDone():
+        raise KernelError(ErrorCode.GEOMETRY_DEGENERATE, "OCCT could not build an edge")
+    return made.Edge()
+
+
+def _circle(edge: profiles.Edge) -> Any:
+    assert edge.center is not None
+    axis = gp.gp_Ax2(gp.gp_Pnt(edge.center.x, edge.center.y, 0.0), gp.gp_Dir(0.0, 0.0, 1.0))
+    return gp.gp_Circ(axis, edge.radius)
+
+
+def _vertex(at: Point2, tolerance: float) -> Any:
+    vertex = TopoDS.TopoDS_Vertex()
+    BRep.BRep_Builder().MakeVertex(vertex, gp.gp_Pnt(at.x, at.y, 0.0), tolerance)
+    return vertex
 
 
 def _own(shape: Shape) -> OCCTFace:
