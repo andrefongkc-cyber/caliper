@@ -368,3 +368,17 @@ def test_the_properties_catch_a_check_that_forgets_its_value_on_load(
     monkeypatch.setattr(codec, "decode_entity", forgetful)
     with pytest.raises(AssertionError, match="save and load"):
         run_session([("rectangle", 0, 0, 10, 5), ("check", 0, 0, "width", 0)])
+
+
+def test_history_names_each_change_to_a_check() -> None:
+    bus = plate()
+    made = bus.execute(width_check())
+    assert isinstance(made, Applied)
+    (check,) = made.created_ids
+    labels = [
+        made.label,
+        bus.execute(ModifyEntity(id=check, changes={"expected": 121.0})).label,  # type: ignore[union-attr]
+        bus.execute(ModifyEntity(id=check, changes={"tolerance": 0.5})).label,  # type: ignore[union-attr]
+        bus.execute(DeleteEntities(ids=(check,))).label,  # type: ignore[union-attr]
+    ]
+    assert labels == ["Create Check", "Edit Check", "Edit Check", "Delete Check"]
