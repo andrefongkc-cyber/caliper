@@ -12,6 +12,9 @@ end. The AI layer (V3) adds a solver that reads the prompt instead, and this har
 it gets measured.
 
 Expectations are evaluated through `queries.check`, the same call the AI layer will use.
+A volume (V2) needs a geometry kernel: OCCT when the `occt` extra is installed, otherwise the
+analytic kernel, which the conformance suite holds to the same answers for what it can build
+(`--kernel` chooses). The last line says which ran.
 
 Usage:
     uv run python bench/run.py [--cases DIR] [CASE ...]
@@ -24,8 +27,11 @@ from pathlib import Path
 
 from caliper.contracts.commands import Command, Rejected
 from caliper.contracts.document import Document, EntityId, Feature, Ref
+from caliper.contracts.kernel import Kernel
 from caliper.contracts.queries import CheckResult, Expectation, Metric
 from caliper.engine.commands.bus import Bus
+from caliper.engine.geometry import default_kernel
+from caliper.engine.geometry.fake_kernel import FakeKernel
 from caliper.engine.io import canonical, script, snapshot
 
 CASES = Path(__file__).resolve().parent / "cases"
@@ -93,9 +99,20 @@ def reference_solver(case: Case) -> tuple[Command, ...]:
     return script.load(case.directory / "reference.script.json")
 
 
-def evaluate(case: Case, commands: tuple[Command, ...]) -> Outcome:
+def kernel(choice: str) -> tuple[Kernel, str]:
+    """The kernel to measure with, and its name for the report."""
+    occt = default_kernel() if choice in ("auto", "occt") else None
+    if occt is not None:
+        return occt, "occt"
+    if choice == "occt":
+        raise SystemExit("--kernel occt: the occt extra isn't installed")
+    reason = "" if choice == "analytic" else " (the occt extra isn't installed)"
+    return FakeKernel(), f"analytic{reason}"
+
+
+def evaluate(case: Case, commands: tuple[Command, ...], kernel: Kernel | None = None) -> Outcome:
     outcome = Outcome(case=case.name)
-    bus = Bus(case.start)
+    bus = Bus(case.start, kernel=kernel)
     for index, command in enumerate(commands):
         result = bus.execute(command)
         if isinstance(result, Rejected):
@@ -115,13 +132,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cases", type=Path, default=CASES)
     parser.add_argument("names", nargs="*", help="cases to run (default: all)")
+    parser.add_argument(
+        "--kernel",
+        choices=("auto", "occt", "analytic"),
+        default="auto",
+        help="the geometry kernel for volumes: OCCT if installed, else analytic (default)",
+    )
     args = parser.parse_args(argv)
+    chosen, name = kernel(args.kernel)
 
     directories = sorted(p for p in args.cases.iterdir() if (p / "case.json").exists())
     if args.names:
         directories = [d for d in directories if d.name in args.names]
 
-    outcomes = [evaluate(case, reference_solver(case)) for case in map(load_case, directories)]
+    outcomes = [
+        evaluate(case, reference_solver(case), chosen) for case in map(load_case, directories)
+    ]
 
     width = max([len(o.case) for o in outcomes] + [4])
     print(f"{'case':<{width}}  result  snapshot  expectations")
@@ -136,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failures = sum(not o.passed for o in outcomes)
     print(f"\n{len(outcomes)} case(s): {len(outcomes) - failures} passed, {failures} failed")
+    print(f"kernel: {name}")
     return 1 if failures else 0
 
 

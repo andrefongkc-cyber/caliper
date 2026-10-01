@@ -22,6 +22,7 @@ from caliper.contracts.commands import (
     CreateConstraint,
     CreateDimension,
     CreateDistanceDimension,
+    CreateExtrude,
     CreateLine,
     CreatePoint,
     CreateRadialDimension,
@@ -410,7 +411,7 @@ def test_every_command_keeps_the_parts_features_unless_it_changes_them() -> None
         FilletCorner(a=a, b=b, radius=5.0),
         DeleteEntities(ids=(circle,)),
     ]
-    changing = {CreateSketch}  # adds a feature: tested above, as are a sketch's delete and edit
+    changing = {CreateSketch, CreateExtrude}  # add features: tested in their own files
     assert {type(c) for c in commands} | changing | {CreateLine, CreateCircle} == set(
         get_args(Command)
     )

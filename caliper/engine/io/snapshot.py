@@ -15,8 +15,8 @@ from caliper.contracts.document import FIRST_SKETCH, Document, Entity, EntityId,
 from caliper.contracts.errors import Error, ErrorCode, LoadError
 from caliper.engine.commands.validation import (
     build_entity,
+    build_feature,
     field_types,
-    normalize_enum,
     normalize_id,
 )
 from caliper.engine.io import canonical
@@ -219,8 +219,10 @@ def _validated(document: Document) -> Document:
 
 
 def _validated_features(document: Document, errors: list[Error]) -> tuple[PartFeature, ...]:
-    """Each feature's id valid, and unique across features and entities; a sketch's plane one
-    of the three."""
+    """Each feature built as a command would build it at its place in the order: ids valid and
+    unique across features and entities, a sketch's plane one of the three, an extrude's depth
+    positive and its sketch one before it. An extrude whose profile a later edit broke still
+    loads, and fails when recomputed, with the reason."""
     features: list[PartFeature] = []
     seen: set[EntityId] = set()
     for index, feature in enumerate(document.features):
@@ -231,9 +233,13 @@ def _validated_features(document: Document, errors: list[Error]) -> tuple[PartFe
             found.append(
                 Error(code=ErrorCode.ID_TAKEN, message=f"id {id!r} is used twice", field="id")
             )
-        plane = normalize_enum(Plane, feature.plane, "plane", found)
         seen.add(id)
-        features.append(replace(feature, id=id, plane=plane))
+        values = {name: getattr(feature, name) for name in field_types(type(feature))}
+        built = build_feature(type(feature), values, document, position=index)
+        if isinstance(built, list):
+            found += built
+        else:
+            features.append(built)
         errors.extend(
             Error(code=e.code, message=e.message, field=f"{where}.{e.field}") for e in found
         )

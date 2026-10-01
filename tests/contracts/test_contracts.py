@@ -147,6 +147,7 @@ def test_metric_names_are_stable() -> None:
         "bbox_height",
         "area",
         "dimension_value",
+        "volume",
     ]
 
 

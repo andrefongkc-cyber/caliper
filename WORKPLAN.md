@@ -22,8 +22,8 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - Closed out after #54: 1544 tests passed with OCCT, lint, format, and types clean, the bench 9 of 9, the solver numerics clean, and a performance run saved as the baseline for V2 ([core.md](docs/workplan/core.md#closing-out-2026-09-30-after-54-merged))
   - **V2, the foundation** (the Caliper Engine Plan's F1–F8, in order; F1 details in [core.md](docs/workplan/core.md#v2-f1-the-part-and-the-v2-document-contract-branch-sharedv2-f1-document-2026-09-30-local-not-pushed), Lucas's review in [shell.md](docs/workplan/shell.md#v2-f7-review-the-parts-contract-from-the-apps-side-lucas-branch-sharedv2-f1-document-2026-09-30)):
     - [~] F1, [ADR 0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) and the contract: a document is one part, features in order, sketches on XY, XZ, or YZ, file schema 4 with every V1 file migrated into one sketch on XY. Done and tested on `shared/v2-f1-document`: every schema-3 golden migrates byte for byte, every replay is unchanged, and N1's digests of `main`'s files still match. The ADR stays Proposed until Lucas reviews it (F7)
-    - [ ] F2, the kernel grows solids. Waits for F1
-    - [ ] F3, extrude as the first feature, recomputed only when needed. Waits for F2
+    - [x] F2, the kernel grows solids (`shared/v2-milestone`): extrude, union, cut, volume, and meshes on both kernels, held to formulas by one conformance suite
+    - [x] F3, extrude as the first feature, recomputed only when needed ([ADR 0013](docs/adr/0013-solids-extrude-and-recomputing-only-what-changed.md), Proposed): the milestone runs headlessly on both kernels (60,000 → 70,000 → undo 60,000, save, reopen, byte-identical replay); a width change rebuilds one prism, a label nothing
     - [ ] F4, a persistent-naming spike
     - [ ] F5–F7, the app: the 3D viewport spike, sketch mode and a feature list, the contract review (Lucas)
     - [ ] F8, tests alongside each: F1's are in (a schema-4 golden, the migration fixtures, a property test of the part's rules)

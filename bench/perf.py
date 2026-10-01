@@ -549,6 +549,72 @@ def many_checks() -> Result:
     return Result("synthetic/many-checks/prepare-200", spread(samples))
 
 
+def v2_milestone() -> Result:
+    """V2's milestone (ADR 0013): a 120 x 50 plate extruded 10 mm, the width driven to 140,
+    a label moved, then undone, each step timed with the volume asked for after it. The
+    counts are prisms the kernel built again: the width rebuilds one, the label and undo none."""
+    from caliper.contracts.commands import (
+        CreateDistanceDimension,
+        CreateExtrude,
+        CreateRectangle,
+        ModifyEntity,
+    )
+    from caliper.contracts.document import DistanceOrientation
+    from caliper.contracts.errors import Error
+    from caliper.engine import features
+    from caliper.engine.geometry import default_kernel
+    from caliper.engine.geometry.fake_kernel import FakeKernel
+
+    real = default_kernel() or FakeKernel()
+
+    class Counting:
+        def __init__(self) -> None:
+            self.prisms = 0
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(real, name)
+
+        def extrude(self, *args: object) -> object:
+            self.prisms += 1
+            return real.extrude(*args)  # type: ignore[arg-type]
+
+    kernel = Counting()
+    features.forget()
+    result = Result("v2/milestone")
+
+    def step(name: str, change: Callable[[], object]) -> None:
+        before = kernel.prisms
+        started = time.perf_counter()
+        change()
+        volume = bus.queries.solid_properties()
+        result.metrics[f"{name}_ms"] = 1e3 * (time.perf_counter() - started)
+        result.metrics[f"{name}_prisms"] = float(kernel.prisms - before)
+        assert not isinstance(volume, Error), volume
+
+    bus = Bus(kernel=kernel)  # type: ignore[arg-type]
+    plate, width = EntityId("e1"), EntityId("e2")
+
+    def build() -> None:
+        bus.execute(CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0))
+        bus.execute(
+            CreateDistanceDimension(
+                a=Ref(entity=plate, feature=Feature.BOTTOM_LEFT),
+                b=Ref(entity=plate, feature=Feature.BOTTOM_RIGHT),
+                orientation=DistanceOrientation.HORIZONTAL,
+                offset=-10.0,
+                value=120.0,
+            )
+        )
+        bus.execute(CreateExtrude(depth=10.0))
+
+    step("build", build)
+    step("widen", lambda: bus.execute(ModifyEntity(id=width, changes={"value": 140.0})))
+    step("label", lambda: bus.execute(ModifyEntity(id=width, changes={"offset": -20.0})))
+    step("undo", lambda: (bus.undo(), bus.undo()))
+    result.metrics["analytic"] = float(isinstance(real, FakeKernel))
+    return result
+
+
 def large_inspect() -> Result:
     document = _circles(2000)
     samples, size = [], 0
@@ -657,6 +723,7 @@ def cases() -> list[tuple[str, Callable[[], list[Result]]]]:
     found.append(("synthetic/many-checks", lambda: [many_checks()]))
     found.append(("repeat", repeats))
     found.append(("synthetic/inspect-document", lambda: [large_inspect()]))
+    found.append(("v2/milestone", lambda: [v2_milestone()]))
     found.append(("synthetic/file", lambda: [large_file()]))
     found.append(("synthetic/render", lambda: [large_render()]))
     found.append(("timing/overhead", lambda: [timing_overhead()]))

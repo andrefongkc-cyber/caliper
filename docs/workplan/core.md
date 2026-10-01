@@ -5,6 +5,58 @@ Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+## V2, F3: extrude as the first feature, recomputed only when needed (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+[ADR 0013](../adr/0013-solids-extrude-and-recomputing-only-what-changed.md) (Proposed). Done when the milestone runs headlessly, and a bench case shows that changing the width recomputes only the sketch and the extrude: **met**.
+
+- [x] **The contract.**
+  - The feature `Extrude(id, sketch, depth, operation, ids)`, with `ExtrudeOperation` add or remove. One solid per part, and the first extrude adds.
+  - `CreateExtrude`: `sketch` left out is the only sketch, and the resolved command records it.
+  - `Metric.VOLUME`, and `solid_properties`, `mesh`, `feature_error`, and `SolidProperties`.
+  - The codes `dependency.cycle` and `feature.failed`. Schema 4 carries extrudes too: it hasn't reached `main`, so there's no second bump.
+- [x] **The graph** (`caliper/engine/graph.py`), items 1 to 3 below:
+  - `inputs`, `dependents`, `affected`, and `order`.
+  - Its 2D layer is the solver's `references` and `referrers`, named rather than moved, and a property test over random sessions holds them equal.
+  - A sketch is one node, whose inputs are its geometry. An extrude reads its sketch and builds on the extrude before it.
+  - A feature reads only what comes before it. `order` refuses a cycle, and so does a file.
+- [x] **Recompute** (`caliper/engine/features.py`), cached by identity:
+  - each extrude's prism, by the kernel, the extrude, its sketch, and its geometry objects;
+  - each solid, by the solid before and the prism;
+  - each document's results, and each solid's meshes.
+
+  A feature whose profile a later edit breaks fails, with the reason, and the ones after it are `feature.failed`. Commands never need a kernel; queries do, except to say there's no solid yet.
+- [x] **Handlers.**
+  - Create an extrude, refused unless its profile is one closed profile now, or if it removes with nothing before it.
+  - Edit any feature through one path, with `build_feature`, the same as a file load uses.
+  - Delete a sketch, and its extrudes go with it.
+  - `inspect` shows the part's solid.
+- [x] **Tests:**
+  - `tests/engine/test_extrude.py`: made, undone, refused, edited, read only from before, broken and failing, deleted, and checked by volume.
+  - `tests/engine/test_recompute.py`: a kernel that counts its work shows what each change builds.
+
+    | Change | What is rebuilt |
+    |---|---|
+    | The width | One face and one prism |
+    | A label | Nothing |
+    | Undo or redo | Nothing |
+    | One of two sketches | Its prism and the join |
+
+    The graph also agrees with the solver over random sessions.
+  - `tests/engine/test_milestone.py`, on both kernels: 60,000, then 70,000, then undo to 60,000; save and reopen; and a byte-identical replay of `fixtures/extruded-plate.script.json`.
+  - The bench case `extruded-plate-milestone`. `bench/run.py --kernel` chooses OCCT or the analytic kernel, and says which it used.
+- [x] **Checks run:**
+  - With OCCT: 1682 passed.
+  - With OCCT hidden: engine, AI, contracts, and top-level tests 1035 passed, 50 skipped; app tests 596 passed.
+  - `ruff`, `mypy`, `bench/run.py` 10 of 10 on OCCT and on the analytic kernel, and `bench/numerics.py` are clean.
+  - `bench/perf.py` is within noise of the N phase's baseline (the stress plate's engine time 0.486 s against 0.491 s). New, `v2/milestone`:
+
+    | Step | Time | Prisms rebuilt |
+    |---|---|---|
+    | The width change | 0.49 ms | 1 |
+    | A label | 0.12 ms | 0 |
+    | Undo | 0.09 ms | 0 |
+- **The suite's time:** 87 s was seen once mid-F3. Run back to back on this Mac, F2's commit took 58.4 s and 56.5 s (1652 tests), and F3 62.7 s and 59.6 s (1682 tests). The difference is F3's 30 new tests, two of which replay in a subprocess. The 87 s was the machine, not a regression.
+
 ## V2, F2: the kernel grows solids (branch `shared/v2-milestone`, stacked on F1, 2026-10-01; local, not pushed)
 
 Andre (2026-10-01): F2 to F8 in order, on top of F1, toward the milestone (a 120 x 50 sketch, extruded 10 mm, 60,000 mm³; 140 wide, 70,000; undo, 60,000; save, reopen, replay). Done when the conformance suite passes for both kernels, including volume = area x depth as a property test: **met**.
@@ -204,9 +256,9 @@ Andre (2026-09-28): an overnight audit of the 2D foundation (constraints, editin
 - **Unresolved.** How persistent names are made (by topology, by the generating feature and profile, or both) needs its own ADR and a spike against OCCT. Until then, 3D references to faces are out of scope.
 
 **Items.**
-- [ ] 1. Name the 2D graph: `inputs` and `dependents` in one engine module (`references` and `referrers` move there, same behaviour, same incremental index), with tests against today's functions over random sessions. When: the first second caller, or V2's first feature
-- [ ] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. Needs more than one sketch per document (a contract change: V2). That's in F1 (ADR 0011): sketches are `Document.features`, in order
-- [ ] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s
+- [x] 1. Name the 2D graph: `inputs` and `dependents` in one engine module, with tests against today's functions over random sessions. Done in F3 (`caliper/engine/graph.py`). `references` and `referrers` are named there, not moved (ADR 0013)
+- [x] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. F1 gave the part more than one sketch (ADR 0011); F3 made the sketch a node (its inputs are its geometry)
+- [x] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s. Done in F3 (`caliper/engine/features.py`, ADR 0013)
 - [ ] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology
 - [ ] 5. Invalid propagation: a failed feature marks its dependents invalid without recomputing them, keeps its last good result for display, and says why
 - [ ] 6. Benchmarks: a 3D chain in `bench/perf.py`; editing an early sketch's dimension must recompute only it and what's downstream, measured against recomputing everything

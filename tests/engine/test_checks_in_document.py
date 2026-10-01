@@ -95,7 +95,7 @@ def test_a_check_that_fails_is_stored_one_that_cant_be_evaluated_isnt() -> None:
             ErrorCode.VALUE_OUT_OF_RANGE,
         ),
         (
-            CreateCheck(metric="volume", expected=1.0, tolerance=0.1),  # type: ignore[arg-type]
+            CreateCheck(metric="mass", expected=1.0, tolerance=0.1),  # type: ignore[arg-type]
             ErrorCode.VALUE_OUT_OF_RANGE,
         ),
     ):

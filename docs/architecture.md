@@ -153,6 +153,24 @@ behaves exactly as V1 did. `caliper/engine/part.py` holds the rules: which sketc
 entity is in, and `sketch.mixed` for 2D work that spans two sketches. A sketch isn't an
 entity, so the app's loops over entities, Select All among them, never meet one.
 
+## The part's solid
+
+Since V2's F3 ([ADR 0013](adr/0013-solids-extrude-and-recomputing-only-what-changed.md)), an
+`Extrude` feature sweeps a sketch's closed profile along its plane's normal. It is added to,
+or cut from, the part's one solid.
+
+- **Never stored.** `caliper/engine/features.py` works the solid out from the features, in
+  order, when a query asks (`solid_properties`, `mesh`, a volume check). It is kernel output,
+  so it differs across platforms in the last bits, and keeping it out of the file keeps files
+  byte-identical (ADR 0005).
+- **Kept by identity.** Each extrude's prism is kept by the very objects it was built from, and
+  each solid by the solid before it and that prism. A width change rebuilds one prism, a label
+  moving rebuilds nothing, and undo finds the old prism waiting.
+- **The graph.** `caliper/engine/graph.py` names what reads what, across 2D and 3D. A feature
+  reads only what comes before it, so the graph has no cycles.
+- **Commands never need a kernel.** Queries do: OCCT, or the analytic kernel in tests and the
+  bench.
+
 ## The three records
 
 | Record | Where it lives | Saved? |

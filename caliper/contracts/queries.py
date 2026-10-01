@@ -12,7 +12,8 @@ post-V1 fixes added the position metrics (`Metric.POSITION_X`, `Metric.POSITION_
 C-1 moved `Metric` and `Expectation` to the document contract, since checks are stored now;
 they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and measurements
 read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
-sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part.
+sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part. V2's F3
+(ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -101,6 +102,14 @@ class BoundingBox3:
     x_max: float
     y_max: float
     z_max: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SolidProperties:
+    volume: float
+    """mm³. 0 for a solid that is nothing, such as one cut away entirely."""
+    bounding_box: BoundingBox3 | None
+    """None when there's nothing to bound."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -337,6 +346,29 @@ class Queries(Protocol):
         `tolerance` mm or `angle_tolerance` degrees. Skips what existing constraints
         already say or imply. Sorted by deviation, then type, then references.
         """
+        ...
+
+    def solid_properties(self, ids: Sequence[EntityId] = ()) -> SolidProperties | Error:
+        """The part's solid: empty `ids` for the whole part after its last feature, or one
+        feature's id for the part as it stands after that feature.
+
+        Worked out by the geometry kernel and never stored; recomputed only where what a
+        feature reads has changed. `kernel.unavailable` without one. `selection.empty` when no
+        feature has made a solid yet. A feature that fails gives its own error (the profile's
+        `profile.not_closed`, a kernel's `kernel.unsupported`), and every feature after it
+        `feature.failed`.
+        """
+        ...
+
+    def mesh(self, ids: Sequence[EntityId] = (), tolerance: float = 0.05) -> Mesh | Error:
+        """Triangles for drawing the part's solid, within `tolerance` mm of its surface. `ids`
+        and the errors as for `solid_properties`; a solid that is nothing has no triangles."""
+        ...
+
+    def feature_error(self, id: EntityId) -> Error | None:
+        """Why a feature fails, or None when it works or `id` isn't a feature. A sketch never
+        fails; an extrude fails when its profile isn't one closed profile any more, its sketch
+        geometry is gone, or the kernel can't build it."""
         ...
 
     def sketch_of(self, id: EntityId) -> EntityId | None:

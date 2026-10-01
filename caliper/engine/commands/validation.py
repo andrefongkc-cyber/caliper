@@ -29,9 +29,11 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     Expectation,
+    Extrude,
     Feature,
     Geometry,
     Line,
+    PartFeature,
     Point,
     Point2,
     RadialDimension,
@@ -53,19 +55,77 @@ _POSITIVE_FIELDS: Mapping[type, tuple[str, ...]] = {
 }
 
 
-def _field_types(entity_type: type[Entity]) -> Mapping[str, object]:
-    hints = get_type_hints(entity_type)
-    return MappingProxyType({f.name: hints[f.name] for f in fields(entity_type)})
+def _field_types(kind: type) -> Mapping[str, object]:
+    hints = get_type_hints(kind)
+    return MappingProxyType({f.name: hints[f.name] for f in fields(kind)})
 
 
-_FIELD_TYPES: Mapping[type[Entity], Mapping[str, object]] = {
-    entity_type: _field_types(entity_type) for entity_type in get_args(Entity)
+FEATURES: tuple[type[PartFeature], ...] = get_args(PartFeature)
+_FIELD_TYPES: Mapping[type, Mapping[str, object]] = {
+    kind: _field_types(kind) for kind in (*get_args(Entity), *FEATURES)
 }
 
 
-def field_types(entity_type: type[Entity]) -> Mapping[str, object]:
-    """Field name → annotated type, in declaration order."""
-    return _FIELD_TYPES[entity_type]
+def field_types(kind: type[Entity] | type[PartFeature]) -> Mapping[str, object]:
+    """Field name → annotated type, in declaration order, for an entity or feature type."""
+    return _FIELD_TYPES[kind]
+
+
+def build_feature(
+    kind: type[PartFeature], values: Mapping[str, object], document: Document, *, position: int
+) -> PartFeature | list[Error]:
+    """Normalize `values` into a feature standing at `position` in the part's features, and
+    apply the rules about it on its own and what it names (ADR 0011, ADR 0013).
+
+    Whether an extrude's profile is closed is the command's to check (`CreateExtrude`): an
+    edit to the sketch may break it later, and then the extrude fails rather than the file."""
+    errors: list[Error] = []
+    normalized = {
+        name: normalize(tp, values[name], name, errors) for name, tp in field_types(kind).items()
+    }
+    if errors:
+        return errors
+    construct: Callable[..., PartFeature] = kind
+    feature = construct(**normalized)
+    if isinstance(feature, Extrude):
+        if not feature.depth > 0:
+            errors.append(
+                _error(ErrorCode.VALUE_NOT_POSITIVE, "depth", "depth must be greater than 0")
+            )
+        errors += _read_errors(feature.sketch, document, position, "sketch")
+    return errors or feature
+
+
+def _read_errors(read: EntityId, document: Document, position: int, field: str) -> list[Error]:
+    """Whether the feature at `position` may read the sketch `read`: one of the part's
+    sketches, before it (ADR 0013)."""
+    for index, each in enumerate(document.features):
+        if each.id != read:
+            continue
+        if index >= position:
+            message = (
+                f"{read!r} comes at or after this feature: features read only what comes "
+                "before them"
+            )
+            return [_error(ErrorCode.DEPENDENCY_CYCLE, field, message)]
+        if not isinstance(each, Sketch):
+            return [
+                _error(
+                    ErrorCode.ENTITY_WRONG_KIND,
+                    field,
+                    f"{read!r} is {with_article(each.kind)}, not a sketch",
+                )
+            ]
+        return []
+    if read in document.entities:
+        message = f"{read!r} is {with_article(document.entities[read].kind)}, not a sketch"
+        return [_error(ErrorCode.ENTITY_WRONG_KIND, field, message)]
+    return [_error(ErrorCode.ENTITY_NOT_FOUND, field, f"no sketch {read!r}")]
+
+
+def with_article(kind: str) -> str:
+    """ "a line", "an extrude"."""
+    return f"{'an' if kind[0] in 'aeiou' else 'a'} {kind.replace('_', ' ')}"
 
 
 def build_entity(
@@ -277,9 +337,9 @@ def _sketch_errors(sketch: EntityId, document: Document) -> list[Error]:
     found = part.feature(document, sketch)
     if isinstance(found, Sketch):
         return []
-    if found is None and sketch in document.entities:
-        kind = document.entities[sketch].kind
-        message = f"{sketch!r} is a {kind}; geometry goes in a sketch"
+    if found is not None or sketch in document.entities:
+        kind = found.kind if found is not None else document.entities[sketch].kind
+        message = f"{sketch!r} is {with_article(kind)}; geometry goes in a sketch"
         return [_error(ErrorCode.ENTITY_WRONG_KIND, "sketch", message)]
     return [_error(ErrorCode.ENTITY_NOT_FOUND, "sketch", f"no sketch {sketch!r}")]
 

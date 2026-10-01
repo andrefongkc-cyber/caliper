@@ -28,11 +28,24 @@ def test_all_cases_pass() -> None:
         "fillet-corner-10mm",
         "check-stored-with-the-part",  # a check saved in the file (C-1)
         "hole-grid-pattern",  # linear_pattern's commands, replayed
+        "extruded-plate-milestone",  # V2: a volume, 120 x 50 x 10 widened to 140 (ADR 0013)
     ):
         assert re.search(rf"^{case}\s+pass\s+match\s+\d+ passed, 0 failed$", result.stdout, re.M), (
             case
         )
-    assert "9 case(s): 9 passed, 0 failed" in result.stdout
+    assert "10 case(s): 10 passed, 0 failed" in result.stdout
+    assert re.search(
+        r"^kernel: (occt|analytic \(the occt extra isn't installed\))$", result.stdout, re.M
+    )
+
+
+def test_the_milestone_passes_on_the_analytic_kernel_too() -> None:
+    """Volumes without OCCT: the analytic kernel, held to the same answers by the conformance
+    suite, measures the milestone exactly."""
+    result = run_bench("--kernel", "analytic", "extruded-plate-milestone")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 case(s): 1 passed, 0 failed" in result.stdout
+    assert result.stdout.rstrip().endswith("kernel: analytic")
 
 
 def test_a_failed_expectation_fails(tmp_path: Path) -> None:

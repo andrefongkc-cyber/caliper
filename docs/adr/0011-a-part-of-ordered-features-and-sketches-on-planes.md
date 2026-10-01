@@ -119,7 +119,8 @@ restore it exactly. `added`, `removed`, and `modified` still name entities only.
 
 **New error codes:** `sketch.required` and `sketch.mixed`. No existing code changes meaning.
 
-**File schema 4.** The document gains `"features"`, an ordered list:
+**File schema 4.** The document gains `"features"`, an ordered list. The list carries
+extrudes too (ADR 0013): schema 4 reaches `main` with F3, so it isn't bumped again.
 
 ```json
 {"id": "e0", "kind": "sketch", "plane": "xy"}

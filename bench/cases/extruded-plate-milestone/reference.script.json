@@ -1,0 +1,11 @@
+{
+  "commands": [
+    {"corner": {"x": 0.0, "y": 0.0}, "height": 50.0, "kind": "create_rectangle", "width": 120.0},
+    {"a": {"entity": "e1", "feature": "bottom_left"}, "b": {"entity": "e1", "feature": "bottom_right"}, "kind": "create_distance_dimension", "offset": -10.0, "orientation": "horizontal", "value": 120.0},
+    {"depth": 10.0, "kind": "create_extrude"},
+    {"expected": 60000.0, "kind": "create_check", "metric": "volume", "tolerance": 1e-06},
+    {"changes": {"value": 140.0}, "id": "e2", "kind": "modify_entity"}
+  ],
+  "format": "caliper.script",
+  "schema_version": 1
+}

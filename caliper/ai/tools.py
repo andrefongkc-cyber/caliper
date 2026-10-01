@@ -201,6 +201,10 @@ METRICS = {
         "and arcs joined end to end, in any order) and any holes inside it"
     ),
     Metric.DIMENSION_VALUE: "ids [dimension]: what the dimension measures",
+    Metric.VOLUME: (
+        "ids: the volume of the part's solid in mm3, after all its features (no ids) or as it "
+        "stands after one feature (ids [feature])"
+    ),
 }
 """What each check metric measures and reads, for the model (AI-5): the contract's names alone
 left it guessing, and it ordered points defensively."""

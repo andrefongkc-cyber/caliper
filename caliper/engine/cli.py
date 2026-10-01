@@ -23,13 +23,15 @@ from caliper.contracts.document import (
     Document,
     Entity,
     Expectation,
+    Extrude,
     PartFeature,
     Point2,
     RadialDimension,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode, LoadError
-from caliper.contracts.queries import BoundingBox, ConstraintState, SolveStatus
+from caliper.contracts.queries import BoundingBox, ConstraintState, Queries, SolveStatus
 from caliper.engine import part
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.validation import GEOMETRY
@@ -119,6 +121,7 @@ def _inspect(path: Path) -> int:
     features = ", ".join(_feature(f) for f in document.features)
     print(f"  features        {len(document.features)}" + (f": {features}" if features else ""))
     print(f"  bounds          {_part_bounds(document, bounds)}")
+    print(f"  solid           {_solid(queries)}")
     status = queries.solve_status()
     print(f"  sketch          {_status(status)}")
     print(f"  history         {_history(read.history)}")
@@ -129,7 +132,10 @@ def _inspect(path: Path) -> int:
     for id in sorted(document.entities):
         entity = document.entities[id]
         line = f"  {id:<{id_width}}  {entity.kind:<{kind_width}}  {_fields(entity)}"
-        if len(document.features) > 1 and (sketch := part.sketch_of(document, id)) is not None:
+        if (
+            len(part.sketches(document)) > 1
+            and (sketch := part.sketch_of(document, id)) is not None
+        ):
             line += f" (in {sketch})"
         if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
             value = queries.dimension_value(id)
@@ -211,8 +217,27 @@ def _part_bounds(document: Document, whole: BoundingBox | Error) -> str:
     return "; ".join(found)
 
 
+def _solid(queries: Queries) -> str:
+    """The part's solid: its volume and bounds, why there isn't one, or "none" before any."""
+    found = queries.solid_properties()
+    if isinstance(found, Error):
+        return "none" if found.code is ErrorCode.SELECTION_EMPTY else f"? ({found.message})"
+    box = found.bounding_box
+    bounds = (
+        ""
+        if box is None
+        else f", x {box.x_min!r} to {box.x_max!r}, y {box.y_min!r} to {box.y_max!r}, "
+        f"z {box.z_min!r} to {box.z_max!r}"
+    )
+    return f"{found.volume!r} mm³{bounds}"
+
+
 def _feature(feature: PartFeature) -> str:
-    return f"{feature.id} {feature.kind} on {feature.plane.value}"
+    match feature:
+        case Sketch(plane=plane):
+            return f"{feature.id} sketch on {plane.value}"
+        case Extrude(sketch=sketch, depth=depth, operation=operation):
+            return f"{feature.id} extrude of {sketch}, {depth!r} mm, {operation.value}"
 
 
 def _fields(entity: Entity) -> str:
