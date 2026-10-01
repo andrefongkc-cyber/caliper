@@ -7,6 +7,25 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 
+## V2, F5: the 3D view and the 2D/3D switch (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+[ADR 0012](../adr/0012-the-3d-viewport-our-own-renderer-first.md) (Proposed: the plan left the choice to Andre and Lucas, and this is the first try, the one that's easy to undo). Done when the ADR records the choice with frame times, and nothing GPL is in the bundle: **met**.
+
+- [x] **Our own renderer, QPainter, no GPU, no new dependency.**
+  - The camera (`viewport/camera3d.py`, no Qt) is orthographic and Z-up. It starts isometric. A left drag orbits, a right or middle drag (or Shift with a left drag) pans, the wheel zooms about the pointer, and F fits.
+  - Drawing (`viewport/view3d.py`): the painter's algorithm, flat light at the viewer, edges where faces meet at more than 25°, and an X, Y, Z triad.
+  - The mesh comes from `Queries.mesh`, asked for only when the view shows and the document has changed.
+  - The view's messages: no solid yet, no kernel, or a failing feature (the last good solid stays, with the reason).
+- [x] **The switch, a core mode.**
+  - "2D" and "3D" at the head of the toolbar, in the View menu, in the palette, and on ⌘1 and ⌘2.
+  - One session behind both views: switching never touches the document, the undo history, or the selection.
+  - Sketch tools are disabled in 3D, undo and redo work in both, and an agent's proposal switches back to 2D.
+- [x] **Frames** (1280 x 800, OCCT's meshes): the milestone plate 0.39 ms; a plate with 24 holes (2,604 triangles) 19 ms median, 34 ms p95. Above about 10,000 triangles, move to `QOpenGLWidget`, behind the same view.
+- [x] **Tests:**
+  - `tests/app/test_camera3d.py` (no Qt): the axes, the isometric start, the orbit and its limits, pan and zoom keeping the pointer's point, and fitting from any side.
+  - `tests/app/test_view3d.py`: switching keeps the very same document, history, undo label, and selection; the toggle is in the toolbar and on its keys; sketch tools wait in 3D and 2D drawing works after; undo and redo in 3D; the solid drawn from the engine's mesh, by its pixels; the messages; 2D edits there in 3D; drags and the wheel move the camera; frames of a detailed part.
+  - They run on the analytic kernel, as CI's app job has no OCCT.
+
 ## V2, F7: review the part's contract from the app's side (Lucas; branch `shared/v2-f1-document`, 2026-09-30)
 
 F1 ([core.md](core.md#v2-f1-the-part-and-the-v2-document-contract-branch-sharedv2-f1-document-2026-09-30-local-not-pushed), [ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)) makes a document one part: `Document.features` in order (sketches on XY, XZ, or YZ), and geometry naming its sketch. A new part has one sketch, `e0` on XY, and every V1 file migrates into it, so the app runs as before. No app code changed. The ADR stays Proposed until this review:

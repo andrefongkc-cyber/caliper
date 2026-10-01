@@ -704,6 +704,50 @@ def large_render() -> Result:
     return result
 
 
+def render_3d() -> list[Result]:
+    """Frames of the 3D view (ADR 0012) at 1280 x 800, drawn without a GPU: the milestone plate,
+    and a 240 x 160 plate with 24 round holes. On OCCT when installed, else the analytic kernel."""
+    from caliper.contracts.commands import CreateExtrude, CreateRectangle
+    from caliper.engine import features
+    from caliper.engine.geometry import default_kernel
+
+    app, window = _window()
+    window.resize(1280, 800)  # type: ignore[attr-defined]
+    found = []
+    for name, build in (
+        ("plate", [CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0)]),
+        (
+            "holes-24",
+            [
+                CreateRectangle(corner=Point2(x=0.0, y=0.0), width=240.0, height=160.0),
+                *(
+                    CreateCircle(center=Point2(x=20.0 + 40 * i, y=20.0 + 40 * j), radius=8.0)
+                    for i in range(6)
+                    for j in range(4)
+                ),
+            ],
+        ),
+    ):
+        features.forget()
+        window.session.replace(Bus(), None)  # type: ignore[attr-defined]
+        for command in (*build, CreateExtrude(depth=10.0)):
+            window.session.execute(command)  # type: ignore[attr-defined]
+        window.set_mode("3d")  # type: ignore[attr-defined]
+        app.processEvents()  # type: ignore[attr-defined]
+        view = window.view3d  # type: ignore[attr-defined]
+        view.resize(1280, 800)
+        view.frame_ms.clear()
+        for _ in range(20):
+            view.repaint()
+        result = Result(f"v2/render-3d/{name}", spread([ms / 1e3 for ms in view.frame_ms]))
+        result.metrics["triangles"] = float(len(view.mesh.triangles))
+        result.metrics["occt"] = float(default_kernel() is not None)
+        found.append(result)
+        window.set_mode("2d")  # type: ignore[attr-defined]
+    _dispose(window)
+    return found
+
+
 # --- Running -------------------------------------------------------------------------------
 
 
@@ -724,6 +768,7 @@ def cases() -> list[tuple[str, Callable[[], list[Result]]]]:
     found.append(("repeat", repeats))
     found.append(("synthetic/inspect-document", lambda: [large_inspect()]))
     found.append(("v2/milestone", lambda: [v2_milestone()]))
+    found.append(("v2/render-3d", render_3d))
     found.append(("synthetic/file", lambda: [large_file()]))
     found.append(("synthetic/render", lambda: [large_render()]))
     found.append(("timing/overhead", lambda: [timing_overhead()]))

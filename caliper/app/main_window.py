@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QStackedWidget,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
@@ -38,6 +39,7 @@ from caliper.app.tokens import SPACE
 from caliper.app.tools.constrain import constraint_options
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
+from caliper.app.viewport.view3d import View3D
 from caliper.contracts.commands import Applied, CreateConstraint, DeleteEntities, ModifyEntity
 from caliper.contracts.document import ConstraintType, Document, Expectation, Point2
 from caliper.contracts.errors import Error
@@ -71,6 +73,13 @@ class MainWindow(QMainWindow):
         self.session = session if session is not None else DocumentSession(parent=self)
         self.controller = ToolController(self.session, self)
         self.canvas = Canvas(self.session, self.controller)
+        self.view3d = View3D(self.session)
+        """The part's solid (V2). Both views read `session`; switching never touches it."""
+        self.views = QStackedWidget()
+        self.views.addWidget(self.canvas)
+        self.views.addWidget(self.view3d)
+        self.mode = "2d"
+        """"2d", sketching on the canvas, or "3d", the part's solid: UI state, as a view is."""
         self.properties = PropertiesPanel(self.session)
         self.tool_actions: dict[str, QAction] = {}
         self.palette = CommandPalette(self.session, self)
@@ -97,7 +106,7 @@ class MainWindow(QMainWindow):
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
-        central_layout.addWidget(self.canvas, 1)
+        central_layout.addWidget(self.views, 1)
         central_layout.addWidget(self.prompt_bar)
         self.setCentralWidget(central)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -124,6 +133,8 @@ class MainWindow(QMainWindow):
         self.canvas.cursor_moved.connect(self._update_cursor)
 
         palette_actions = [
+            self.mode_2d_action,
+            self.mode_3d_action,
             *self.tool_actions.values(),
             *self.constraint_actions.values(),
             self.construction_action,
@@ -185,7 +196,7 @@ class MainWindow(QMainWindow):
             "Save the list of commands that built this drawing. Off by default: project files "
             "are sent to suppliers, and a part's history isn't theirs to read."
         )
-        self.fit_action = self._action("Zoom to Fit", self.canvas.zoom_to_fit, "F")
+        self.fit_action = self._action("Zoom to Fit", self._fit, "F")
         self.grid_action = self._action("Show Grid", self._toggle_grid, "G")
         self.grid_action.setCheckable(True)
         self.grid_action.setChecked(True)
@@ -206,6 +217,20 @@ class MainWindow(QMainWindow):
             (self.constraints_action, "badges"),
         ):
             action.setIcon(icons.icon(name))
+
+        # The core mode switch (V2): sketch in 2D, see the part in 3D. One document behind both.
+        self.mode_2d_action = self._action("2D Sketch", lambda: self.set_mode("2d"), "Ctrl+1")
+        self.mode_3d_action = self._action("3D Part", lambda: self.set_mode("3d"), "Ctrl+2")
+        self.mode_group = QActionGroup(self)
+        for action, text, tip in (
+            (self.mode_2d_action, "2D", "Sketch: draw, constrain, and dimension (⌘1)"),
+            (self.mode_3d_action, "3D", "The part's solid: orbit, pan, and zoom (⌘2)"),
+        ):
+            action.setCheckable(True)
+            action.setIconText(text)
+            action.setToolTip(tip)
+            self.mode_group.addAction(action)
+        self.mode_2d_action.setChecked(True)
 
         self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
         self.ask_action = self._action("Ask the Agent…", self._focus_prompt, "Ctrl+L")
@@ -278,6 +303,9 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.select_all_action)
 
         view_menu = bar.addMenu("View")
+        view_menu.addAction(self.mode_2d_action)
+        view_menu.addAction(self.mode_3d_action)
+        view_menu.addSeparator()
         view_menu.addAction(self.palette_action)
         view_menu.addSeparator()
         view_menu.addAction(self.fit_action)
@@ -320,6 +348,12 @@ class MainWindow(QMainWindow):
         bar.setFloatable(False)
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         bar.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
+        for action in (self.mode_2d_action, self.mode_3d_action):
+            bar.addAction(action)
+            button = bar.widgetForAction(action)
+            button.setObjectName(f"mode-{action.iconText().lower()}")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        bar.addSeparator()
         # Groups by category, so a later category adds a group, not a redesign.
         for category in ("select", "create", "constrain", "inspect"):
             for name, tool in self.controller.tools.items():
@@ -572,6 +606,8 @@ class MainWindow(QMainWindow):
 
         A proposal an agent keeps adding to is framed again only when it outgrows the view:
         moving the view redraws the whole sketch, which each addition shouldn't cost."""
+        if self.mode != "2d":
+            self.set_mode("2d")  # a proposal is reviewed on the sketch, where its card is
         box = Bus(proposal.result).queries.bounding_box()
         if isinstance(box, Error):
             return
@@ -718,7 +754,47 @@ class MainWindow(QMainWindow):
         self.solve_label.setText(solve_state.describe(self.session.queries.solve_status()))
         self.solve_label.show()
 
+    # --- 2D and 3D --------------------------------------------------------------------
+
+    def set_mode(self, mode: str) -> None:
+        """Show the sketch ("2d") or the part's solid ("3d"). Only the view changes: the
+        document, the undo history, and the selection are the session's, and stay as they are.
+        Sketch tools, which act on the canvas, wait in 3D."""
+        if mode not in ("2d", "3d"):
+            raise ValueError(f"no mode {mode!r}")
+        self.mode = mode
+        sketching = mode == "2d"
+        (self.mode_2d_action if sketching else self.mode_3d_action).setChecked(True)
+        self.views.setCurrentWidget(self.canvas if sketching else self.view3d)
+        for action in self._sketch_actions():
+            action.setEnabled(sketching)
+        if sketching:
+            self._update_constraint_actions()
+            self.canvas.setFocus()
+        else:
+            self.view3d.refresh()
+            self.view3d.setFocus()
+            self.show_message("3D: drag to orbit, right-drag to pan, scroll to zoom, F to fit")
+
+    def _sketch_actions(self) -> list[QAction]:
+        return [
+            *self.tool_actions.values(),
+            *self.constraint_actions.values(),
+            self.construction_action,
+            self.grid_action,
+            self.constraints_action,
+            self.snap_action,
+        ]
+
+    def _fit(self) -> None:
+        if self.mode == "3d":
+            self.view3d.fit()
+        else:
+            self.canvas.zoom_to_fit()
+
     def _update_constraint_actions(self) -> None:
+        if self.mode != "2d":
+            return  # waiting in 3D; refreshed on the way back
         options = constraint_options(self.session)
         for type, action in self.constraint_actions.items():
             option = options.get(type.value)

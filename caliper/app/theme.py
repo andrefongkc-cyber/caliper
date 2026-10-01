@@ -40,6 +40,9 @@ PREVIEW = QColor(P.preview)
 DIMENSION = QColor(P.dimension)
 SNAP = QColor(P.snap)
 RUBBER_BAND = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), P.rubber_band_alpha)
+SOLID = QColor(P.solid)
+SOLID_EDGE = QColor(P.solid_edge)
+AXIS_Z = QColor(P.axis_z)
 
 GUIDE_WIDTH = STROKE.guide
 GEOMETRY_WIDTH = STROKE.geometry

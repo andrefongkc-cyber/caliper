@@ -82,6 +82,9 @@ def test_measure_sits_in_its_own_tool_bar_group(window) -> None:
     actions = window.tool_bar.actions()
     names = [a.text() if not a.isSeparator() else "|" for a in actions]
     assert names[: names.index("Zoom to Fit")] == [
+        "2D Sketch",  # the mode switch leads (V2, ADR 0012)
+        "3D Part",
+        "|",
         "Select",
         "|",
         "Line",
