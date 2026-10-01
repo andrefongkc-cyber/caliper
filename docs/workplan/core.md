@@ -5,6 +5,33 @@ Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+## V2, F2: the kernel grows solids (branch `shared/v2-milestone`, stacked on F1, 2026-10-01; local, not pushed)
+
+Andre (2026-10-01): F2 to F8 in order, on top of F1, toward the milestone (a 120 x 50 sketch, extruded 10 mm, 60,000 mm³; 140 wide, 70,000; undo, 60,000; save, reopen, replay). Done when the conformance suite passes for both kernels, including volume = area x depth as a property test: **met**.
+
+- [x] **The Kernel protocol (Provisional).**
+  - `extrude(face, frame, depth)`, `union`, `cut`, `volume`, `bounding_box_3d`, and `mesh(solid, tolerance)`. `Frame` says where a face sits in 3D.
+  - Values the app can have: `Point3`, `BoundingBox3`, and `Mesh` in `contracts.queries`. A mesh's triangles face out, and faces don't share vertices.
+  - `kernel.unsupported` is for what one kernel can't do exactly.
+  - `part.frame(plane)` turns ADR 0011's table into frames.
+- [x] **The analytic kernel.**
+  - A solid is prisms whose insides don't overlap, and its volume is area x depth, exactly.
+  - Union and cut are exact where no 3D boolean is needed: solids apart; one inside another on the same frame; a cut through the whole depth, which leaves a hole; and a cut that leaves nothing. Anything else is `kernel.unsupported`, never a guess.
+  - Meshes are walls and caps. The caps come from `engine/geometry/triangulate.py`, which cuts the region into strips at every corner's height, so holes need no special cases. Ear clipping with bridges was tried first: a property test over 5,000 random plates with holes found it stalling on corners that two bridges share, so it was replaced.
+- [x] **OCCT.**
+  - Extrude: the face is moved onto the frame (`gp_Ax3`) and swept (`BRepPrimAPI_MakePrism`).
+  - Booleans: `BRepAlgoAPI_Fuse` and `Cut`. Volume from `VolumeProperties_s`, and bounds from `Bnd`.
+  - Meshes: `BRepMesh_IncrementalMesh`, with a reversed face's triangles turned round.
+- [x] **Tests.** `tests/engine/geometry/test_solid_conformance.py` runs on both kernels:
+  - The milestone plate on each plane is 60,000 mm³, with the bounds ADR 0011's table gives (XZ goes along -Y). At 140 wide it's 70,000.
+  - Property tests of volume = area x depth: rectangles anywhere, on any plane; rounded plates with a round hole.
+  - Unions apart, touching, and contained. A cut through, one that misses, and one that covers.
+  - Two overlapping cubes: refused by the analytic kernel, and exact in OCCT (1,500 and 500 mm³).
+  - A depth of 0 or less is refused.
+  - Meshes enclose the volume (exactly for straight edges, within tolerance for arcs) and face out.
+  - `test_triangulate.py`, the strips against exact areas.
+- [x] **Checks run:** with OCCT, 1652 passed. With OCCT hidden, 953 passed and 49 skipped. `ruff`, `mypy`, `bench/run.py` 9 of 9, and `bench/numerics.py` are clean.
+
 ## V2, F1: the part, and the V2 document contract (branch `shared/v2-f1-document`, 2026-09-30; local, not pushed)
 
 Andre (2026-09-30): start V2 with F1 of the Caliper Engine Plan, ADR 0011 and the V2 document contract, and nothing from F2 or F3 until it is settled and tested. Done when ADR 0011 is Accepted (Lucas's review, F7) and every existing file and fixture migrates and replays unchanged. The N phase was merged (#54, #55) and `main` was at 425f73e when it started.

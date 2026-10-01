@@ -18,12 +18,32 @@ from caliper.contracts.document import (
     EntityId,
     Line,
     PartFeature,
+    Plane,
     Point,
     RadialDimension,
     Rectangle,
     Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
+from caliper.contracts.kernel import Frame
+from caliper.contracts.queries import Point3
+
+_O, _X, _Y, _Z = (
+    Point3(x=0.0, y=0.0, z=0.0),
+    Point3(x=1.0, y=0.0, z=0.0),
+    Point3(x=0.0, y=1.0, z=0.0),
+    Point3(x=0.0, y=0.0, z=1.0),
+)
+FRAMES: dict[Plane, Frame] = {
+    Plane.XY: Frame(origin=_O, x=_X, y=_Y),  # normal +Z
+    Plane.XZ: Frame(origin=_O, x=_X, y=_Z),  # normal -Y
+    Plane.YZ: Frame(origin=_O, x=_Y, y=_Z),  # normal +X
+}
+"""Where each plane's sketch coordinates sit in the part (ADR 0011's table)."""
+
+
+def frame(plane: Plane) -> Frame:
+    return FRAMES[plane]
 
 
 def feature(document: Document, id: EntityId) -> PartFeature | None:
