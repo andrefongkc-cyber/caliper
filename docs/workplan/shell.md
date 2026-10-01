@@ -1,4 +1,4 @@
-Status: the N phase's app side done on `shared/n-phase` (PR #54): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: Lucas's review
+Status: the N phase's app side merged in #54 (reviewed and merged by Lucas): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: nothing on the shell side until the N phase closes (N9's Claude Desktop run), then V2
 
 # Shell workplan — Stream B
 

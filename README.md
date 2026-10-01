@@ -83,6 +83,8 @@ Known limitations today, all in [docs/known-issues.md](docs/known-issues.md):
 - An edit that moves a large, tightly joined shape takes tens of milliseconds (C-6).
 - MCP needs macOS or Linux (AI-8).
 - A slot drawn as a rectangle with end arcs has no area; drawn as one outline, it does (C-13).
+- The in-app assistant hasn't been run against the live Claude API; Claude Desktop over MCP
+  needs no key and is the tested way in (AI-6).
 
 <details>
 <summary><b>The ⌘K palette</b>: every command, found by name, with typed fields</summary>
