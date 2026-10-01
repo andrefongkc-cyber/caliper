@@ -66,6 +66,19 @@ def test_a_constrained_sketch_replays_to_identical_bytes() -> None:
     assert second.stdout == first.stdout
 
 
+def test_a_part_with_two_sketches_replays_to_identical_bytes() -> None:
+    """V2's document (ADR 0011, schema 4): a rectangle in the part's first sketch; a second
+    sketch on XZ with a circle driven to 30 mm across and a line levelled by a constraint, both
+    drawn in it by name; that sketch moved to YZ; and a check of the circle, which belongs to
+    the part. Lines and circles only, as above."""
+    script = FIXTURES / "two-sketches.script.json"
+    expected = FIXTURES / "two-sketches.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
 def test_replay_can_write_a_file(tmp_path: Path) -> None:
     output = tmp_path / "milestone.caliper"
     result = replay(SCRIPT, "-o", output)
