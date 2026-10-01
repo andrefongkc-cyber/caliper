@@ -166,8 +166,10 @@ the user or the AI keeps is stored in the document as an entity of its own, made
 `CreateCheck` and saved with the part (ADR 0010).
 
 2D sketch queries are plain math. The **kernel** is used only for real solid-modeling work,
-such as turning a closed profile into a face to get its area properties. Two kernels
-implement the same provisional protocol:
+such as turning a closed profile into a face to get its area properties. The engine finds the
+profile first (`caliper/engine/profiles.py`: lines and arcs joined end to end into loops, one
+outline and the holes inside it, refused with the reason when they aren't one), so a kernel is
+handed loops, never a pile of edges. Two kernels implement the same provisional protocol:
 
 - `FakeKernel`: analytic, used in tests.
 - `OCCTKernel`: OpenCascade, behind the optional `occt` extra.
