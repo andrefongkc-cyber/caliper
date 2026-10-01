@@ -9,12 +9,16 @@ from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QRes
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
+    QSplitter,
     QStackedWidget,
     QTabWidget,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -25,11 +29,13 @@ from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.timing import TIMING_FILE, markdown, timing_file
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
+from caliper.app.extrude import ExtrudeForm
 from caliper.app.opener import OpenServer
 from caliper.app.palette import CommandPalette
 from caliper.app.panels.assistant import AssistantLog
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
+from caliper.app.panels.features import FeatureTree, titles, volume_text
 from caliper.app.panels.history import HistoryList
 from caliper.app.panels.timing import TimingPanel
 from caliper.app.properties import PropertiesPanel
@@ -40,8 +46,22 @@ from caliper.app.tools.constrain import constraint_options
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.canvas import Canvas
 from caliper.app.viewport.view3d import View3D
-from caliper.contracts.commands import Applied, CreateConstraint, DeleteEntities, ModifyEntity
-from caliper.contracts.document import ConstraintType, Document, Expectation, Point2
+from caliper.contracts.commands import (
+    Applied,
+    CreateConstraint,
+    CreateSketch,
+    DeleteEntities,
+    ModifyEntity,
+)
+from caliper.contracts.document import (
+    ConstraintType,
+    Document,
+    EntityId,
+    Expectation,
+    Plane,
+    Point2,
+    Sketch,
+)
 from caliper.contracts.errors import Error
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io.canonical import LoadError
@@ -78,6 +98,12 @@ class MainWindow(QMainWindow):
         self.views = QStackedWidget()
         self.views.addWidget(self.canvas)
         self.views.addWidget(self.view3d)
+        self.sketch_label = QLabel(self.views)
+        """Which sketch the canvas edits (V2's sketch mode), over its top left corner. Over
+        the views, not in the canvas, so the canvas's own drawing is as it was."""
+        self.sketch_label.setObjectName("sketch-label")
+        self.sketch_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.sketch_label.move(SPACE.m, SPACE.m)
         self.mode = "2d"
         """"2d", sketching on the canvas, or "3d", the part's solid: UI state, as a view is."""
         self.properties = PropertiesPanel(self.session)
@@ -129,6 +155,8 @@ class MainWindow(QMainWindow):
         # A committed transaction sends no Change, so refresh labels when history moves too.
         self.session.history_changed.connect(self._update_edit_actions)
         self.session.message.connect(self.show_message)
+        for signal in (self.session.active_sketch_changed, self.session.document_changed):
+            signal.connect(self._update_part_labels)
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
 
@@ -158,6 +186,7 @@ class MainWindow(QMainWindow):
         self._update_solve_status()
         self._update_constraint_actions()
         self._update_tool_state()
+        self._update_part_labels()
         self.resize(1280, 800)
 
     # --- Construction ---------------------------------------------------------------------
@@ -231,6 +260,21 @@ class MainWindow(QMainWindow):
             action.setToolTip(tip)
             self.mode_group.addAction(action)
         self.mode_2d_action.setChecked(True)
+
+        # The part (V2): sketches on planes, and extrudes of them.
+        self.extrude_action = self._action("Extrude…", self.start_extrude, "Shift+E")
+        self.extrude_action.setIconText("Extrude")
+        self.extrude_action.setToolTip(
+            "Sweep the sketch being edited (or its selected geometry) into a solid (Shift+E)"
+        )
+        # `triggered` passes `checked` first, so the plane has to come after it.
+        self.new_sketch_actions = {
+            plane: self._action(
+                f"New Sketch on {plane.value.upper()}",
+                lambda _=False, p=plane: self.new_sketch(p),
+            )
+            for plane in Plane
+        }
 
         self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
         self.ask_action = self._action("Ask the Agent…", self._focus_prompt, "Ctrl+L")
@@ -314,6 +358,12 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.constraints_action)
         view_menu.addAction(self.snap_action)
 
+        part_menu = bar.addMenu("Part")
+        for action in self.new_sketch_actions.values():
+            part_menu.addAction(action)
+        part_menu.addSeparator()
+        part_menu.addAction(self.extrude_action)
+
         sketch_menu = bar.addMenu("Sketch")
         for action in self.tool_actions.values():
             sketch_menu.addAction(action)
@@ -335,6 +385,7 @@ class MainWindow(QMainWindow):
             file_menu,
             edit_menu,
             view_menu,
+            part_menu,
             sketch_menu,
             constrain_menu,
             agent_menu,
@@ -348,11 +399,32 @@ class MainWindow(QMainWindow):
         bar.setFloatable(False)
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         bar.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
+        # The mode switch: two halves of one control, then what's being edited.
+        switch = QWidget()
+        switch.setObjectName("mode-switch")
+        halves = QHBoxLayout(switch)
+        halves.setContentsMargins(0, 0, 0, 0)
+        halves.setSpacing(0)
         for action in (self.mode_2d_action, self.mode_3d_action):
-            bar.addAction(action)
-            button = bar.widgetForAction(action)
+            button = QToolButton()
+            button.setDefaultAction(action)
             button.setObjectName(f"mode-{action.iconText().lower()}")
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            halves.addWidget(button)
+        bar.addWidget(switch)
+        bar.addSeparator()
+        new_sketch = QToolButton()
+        new_sketch.setObjectName("new-sketch")
+        new_sketch.setText("New Sketch")
+        new_sketch.setToolTip("Start a sketch on one of the part's planes")
+        new_sketch.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        planes = QMenu(new_sketch)
+        for action in self.new_sketch_actions.values():
+            planes.addAction(action)
+        new_sketch.setMenu(planes)
+        bar.addWidget(new_sketch)
+        bar.addAction(self.extrude_action)
+        bar.widgetForAction(self.extrude_action).setObjectName("extrude")
         bar.addSeparator()
         # Groups by category, so a later category adds a group, not a redesign.
         for category in ("select", "create", "constrain", "inspect"):
@@ -360,8 +432,9 @@ class MainWindow(QMainWindow):
                 if tool.category == category:
                     bar.addAction(self.tool_actions[name])
             bar.addSeparator()
-        bar.addAction(self.fit_action)
-        bar.addAction(self.constraints_action)
+        for action in (self.fit_action, self.constraints_action):
+            bar.addAction(action)  # icons only: they read at a glance, and the bar stays one row
+            bar.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar
 
@@ -380,11 +453,21 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.assistant_log, "Assistant")
         self.agent.turn_started.connect(lambda _: tabs.setCurrentWidget(self.assistant_log))
         self.browser_tabs = tabs
+        # The part above, the sketch being edited below (V2): the feature tree, then its contents.
+        self.features = FeatureTree(self.session)
+        self.features.edit_requested.connect(self.edit_sketch)
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.setObjectName("browser-split")
+        split.setChildrenCollapsible(False)
+        split.addWidget(self.features)
+        split.addWidget(tabs)
+        split.setStretchFactor(1, 1)
+        split.setSizes([110, 540])
         browser = QDockWidget("Browser", self)
         browser.setObjectName("browser")
         browser.setFeatures(features)
         browser.setTitleBarWidget(QWidget())  # the tabs are the title
-        browser.setWidget(tabs)
+        browser.setWidget(split)
         browser.setMinimumWidth(BROWSER_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, browser)
         self.browser_dock = browser
@@ -447,7 +530,11 @@ class MainWindow(QMainWindow):
         self.cursor_label = QLabel()
         self.cursor_label.setMinimumWidth(190)
         self.cursor_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.solid_label = QLabel()
+        self.solid_label.setObjectName("solid-status")
+        self.solid_label.setToolTip("The volume of the part's solid, after its last feature")
         status.addWidget(self.hint_label, 1)
+        status.addPermanentWidget(self.solid_label)
         status.addPermanentWidget(self.solve_label)
         status.addPermanentWidget(self.cursor_label)
 
@@ -720,8 +807,9 @@ class MainWindow(QMainWindow):
                     self.session.execute(ModifyEntity(id=id, changes={"construction": make}))
 
     def select_all(self) -> None:
-        """Everything in the sketch; not its checks, which aren't drawn (the Checks panel)."""
-        entities = self.session.document.entities
+        """Everything in the sketch being edited; not its checks, which aren't drawn (the Checks
+        panel), nor what's in another sketch."""
+        entities = self.session.sketch_view.entities
         self.session.set_selection(
             frozenset(id for id, e in entities.items() if not isinstance(e, Expectation))
         )
@@ -766,8 +854,11 @@ class MainWindow(QMainWindow):
         sketching = mode == "2d"
         (self.mode_2d_action if sketching else self.mode_3d_action).setChecked(True)
         self.views.setCurrentWidget(self.canvas if sketching else self.view3d)
+        self.sketch_label.setVisible(sketching)
+        self.sketch_label.raise_()
         for action in self._sketch_actions():
             action.setEnabled(sketching)
+        self._update_part_labels()
         if sketching:
             self._update_constraint_actions()
             self.canvas.setFocus()
@@ -775,6 +866,58 @@ class MainWindow(QMainWindow):
             self.view3d.refresh()
             self.view3d.setFocus()
             self.show_message("3D: drag to orbit, right-drag to pan, scroll to zoom, F to fit")
+
+    def edit_sketch(self, sketch: EntityId) -> None:
+        """Edit `sketch`: make it the one drawing goes into, and show it in 2D."""
+        self.controller.cancel_operation()
+        self.session.set_active_sketch(sketch)
+        self.set_mode("2d")
+        self.canvas.zoom_to_fit()
+
+    def new_sketch(self, plane: Plane) -> None:
+        result = self.session.execute(CreateSketch(plane=plane))
+        if isinstance(result, Applied):
+            (sketch,) = result.created_ids
+            self.edit_sketch(sketch)
+            axes = {
+                Plane.XY: "x is X, y is Y",
+                Plane.XZ: "x is X, y is Z",
+                Plane.YZ: "x is Y, y is Z",
+            }
+            self.show_message(f"Sketching on {plane.value.upper()}: {axes[plane]}")
+
+    def start_extrude(self) -> None:
+        """Open the Extrude form for the sketch being edited."""
+        if self.session.active_sketch is None:
+            self.show_message("The part has no sketch to extrude: start one with New Sketch")
+            return
+        old = getattr(self, "extrude_form", None)
+        if old is not None:
+            old.deleteLater()
+        self.extrude_form = ExtrudeForm(self.session, self.views)
+        self.extrude_form.extruded.connect(self._extruded)
+        self.extrude_form.closed.connect(lambda: self.views.currentWidget().setFocus())
+        self.extrude_form.open()
+
+    def _extruded(self, extrude: EntityId) -> None:
+        self.set_mode("3d")
+        self.show_message(f"Extruded {extrude}: the part is {volume_text(self.session)}")
+
+    def _update_part_labels(self) -> None:
+        """The mode switch's label (the sketch being edited, or the part) and the solid's
+        volume in the status bar."""
+        volume = volume_text(self.session)
+        self.solid_label.setText("" if volume == "No solid yet" else f"Solid {volume}")
+        sketch = self.session.active_sketch
+        if sketch is None:
+            self.sketch_label.setText("No sketch: start one with New Sketch")
+            return
+        document = self.session.document
+        plane = next(f.plane for f in document.features if isinstance(f, Sketch) and f.id == sketch)
+        self.sketch_label.setText(
+            f"Editing {titles(document.features)[sketch]}  ·  {plane.value.upper()}"
+        )
+        self.sketch_label.adjustSize()
 
     def _sketch_actions(self) -> list[QAction]:
         return [

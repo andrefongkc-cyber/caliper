@@ -155,6 +155,9 @@ class Canvas(QWidget):
         session.flagged_changed.connect(self.update)
         session.changed.connect(self._update_spots)
         session.document_replaced.connect(self._forget_spots)
+        # Another sketch to edit (V2): its own entities, labels, and hints.
+        for slot in (self._forget_spots, self._forget_acquired, self._sync_empty_hint, self.update):
+            session.active_sketch_changed.connect(slot)
         controller.changed.connect(self.update)
         controller.changed.connect(self._sync_entry)
 
@@ -167,7 +170,7 @@ class Canvas(QWidget):
         of this view, not the document. The shell draws the labels, so it pads for them here.
         A second pass is enough: the first fit sets the scale the label extents are measured at.
         """
-        box = self.session.queries.bounding_box()
+        box = self.session.sketch_queries.bounding_box()
         if isinstance(box, Error):
             self.reset_view()
             return
@@ -191,7 +194,7 @@ class Canvas(QWidget):
 
     def frame(self, ids: frozenset[EntityId]) -> None:
         """Fit the given geometry in view; dimensions frame the geometry they measure."""
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         targets: set[EntityId] = set()
         for id in ids:
             match entities.get(id):
@@ -205,7 +208,7 @@ class Canvas(QWidget):
                     pass
                 case _:
                     targets.add(id)
-        box = self.session.queries.bounding_box(sorted(targets))
+        box = self.session.sketch_queries.bounding_box(sorted(targets))
         if not isinstance(box, Error):
             margin = max(box.width, box.height, 1.0) * 0.25
             self.view.fit(
@@ -279,7 +282,7 @@ class Canvas(QWidget):
                 shift=shift,
                 force_box=force_box,
             )
-        queries = self.session.queries
+        queries = self.session.sketch_queries
         ref = queries.nearest_feature(raw, tolerance)
         if ref is not None:
             at = queries.feature_point(ref)
@@ -367,7 +370,9 @@ class Canvas(QWidget):
 
     def _sync_empty_hint(self) -> None:
         # Hidden while a proposal is shown: its ghost geometry is what's on the canvas (C-8).
-        self.empty_hint.setVisible(not self.session.document.entities and self.proposal() is None)
+        self.empty_hint.setVisible(
+            not self.session.sketch_view.entities and self.proposal() is None
+        )
         self._sync_empty_hint_geometry(self.width(), self.height())
 
     def _forget_acquired(self) -> None:
@@ -376,7 +381,7 @@ class Canvas(QWidget):
     def _hit(self, pointer: Pointer) -> EntityId | None:
         if pointer.annotation is not None:
             return pointer.annotation
-        return self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
+        return self.session.sketch_queries.entity_at_point(pointer.raw, pointer.tolerance)
 
     # --- Annotations the shell draws, and so hit-tests ------------------------------------
 
@@ -398,7 +403,7 @@ class Canvas(QWidget):
 
     def _view_key(self) -> tuple[object, ...]:
         view = self.view
-        return (self.session.document, view.scale, view.origin_x, view.origin_y)
+        return (self.session.sketch_view, view.scale, view.origin_x, view.origin_y)
 
     @property
     def constraint_glyphs(self) -> list[glyphs.Glyph]:
@@ -440,7 +445,7 @@ class Canvas(QWidget):
     def _sync_annotation_cache(self) -> None:
         """Rebuild label spots in full if the document isn't the one they describe (a new
         file, or a change that sent no notification)."""
-        document = self.session.document
+        document = self.session.sketch_view
         if self._spots_document is document:
             return
         self._spots = {}
@@ -450,7 +455,7 @@ class Canvas(QWidget):
 
     def _sync_hangings(self) -> None:
         """The same for where glyphs hang, done only when glyphs are shown."""
-        document = self.session.document
+        document = self.session.sketch_view
         if self._hangings_document is document:
             return
         self._hangings = {}
@@ -466,7 +471,7 @@ class Canvas(QWidget):
             self._spots[id] = spot
 
     def _rehang(self, id: EntityId) -> None:
-        hung = glyphs.hanging(self.session.queries, self.session.document, id)
+        hung = glyphs.hanging(self.session.sketch_queries, self.session.sketch_view, id)
         if hung is None:
             self._hangings.pop(id, None)
         else:
@@ -481,7 +486,7 @@ class Canvas(QWidget):
             self._hangings_document = None  # hidden: rebuilt if they're shown again
             hangings = False
         delta = change.delta
-        document = self.session.document
+        document = self.session.sketch_view
         touched = delta.added | delta.removed | delta.modified
         affected = {id for id in touched if id in document.entities}
         index = referrers(document)  # the dimensions measuring, and glyphs hanging from, them
@@ -505,9 +510,9 @@ class Canvas(QWidget):
         self._hangings_document = None
 
     def _annotation_tip(self, id: EntityId | None) -> str:
-        entity = self.session.document.entities.get(id) if id is not None else None
+        entity = self.session.sketch_view.entities.get(id) if id is not None else None
         if isinstance(entity, Constraint):
-            return f"{kind_title(entity)} {id}: {summary(entity, id, self.session.queries)}"
+            return f"{kind_title(entity)} {id}: {summary(entity, id, self.session.sketch_queries)}"
         if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
             return f"{kind_title(entity)} {id}: double-click to edit its value"
         return ""
@@ -559,7 +564,7 @@ class Canvas(QWidget):
     def edit_at(self, pointer: Pointer, at: QPoint) -> bool:
         """Open the entry on the dimension under the pointer. False if there's none."""
         hit = self._hit(pointer)
-        entity = self.session.document.entities.get(hit) if hit is not None else None
+        entity = self.session.sketch_view.entities.get(hit) if hit is not None else None
         field = editable_field(entity, pointer.raw, pointer.tolerance)
         if hit is None or field is None:
             return False
@@ -568,7 +573,7 @@ class Canvas(QWidget):
         self._editing = (hit, field)
         current = getattr(entity, field)
         if current is None:  # a driven dimension: start from what it measures
-            measured = self.session.queries.dimension_value(hit)
+            measured = self.session.sketch_queries.dimension_value(hit)
             current = None if isinstance(measured, Error) else round(measured, 6)
         text = "" if current is None else format_number(current)
         self.entry.open((field.capitalize(),), text, at)
@@ -766,7 +771,7 @@ class Canvas(QWidget):
             self._moving
             and layer is not None
             and self._layer_view is not None
-            and self._layer_document is self.session.document
+            and self._layer_document is self.session.sketch_view
             and self._layer_frame == self._frame_key()
         ):
             scale, origin_x, origin_y = self._layer_view
@@ -791,7 +796,7 @@ class Canvas(QWidget):
         view = self.view
         view_key = (view.scale, view.origin_x, view.origin_y)
         frame = self._frame_key()
-        document = self.session.document
+        document = self.session.sketch_view
         if (
             self._layer is not None
             and self._layer_view == view_key
@@ -816,7 +821,7 @@ class Canvas(QWidget):
         fixed: frozenset[EntityId] = frozenset()
         failed: frozenset[EntityId] = frozenset()
         if solve_state.is_constrained(document):
-            status = self.session.queries.solve_status()
+            status = self.session.sketch_queries.solve_status()
             fixed, failed = solve_state.fully_constrained(status), solve_state.unhealthy(status)
         real = [
             (id, e)
@@ -855,7 +860,7 @@ class Canvas(QWidget):
         flagged = self.session.flagged
         if not flagged:
             return
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         painter.set_pen(cosmetic_pen(theme.ERROR, theme.HIGHLIGHT_WIDTH))
         for id in sorted(flagged):
             entity = entities.get(id)
@@ -869,7 +874,7 @@ class Canvas(QWidget):
             self._paint_glyphs(painter.painter, named, dict.fromkeys(flagged, theme.ERROR))
 
     def _paint_highlights(self, painter: ModelPainter) -> None:
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         selection = self.session.selection
         hover = self.session.hover
         if hover is not None and hover not in selection:

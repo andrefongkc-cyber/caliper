@@ -112,7 +112,7 @@ def paint_annotations(
     `color` overrides the usual colours, e.g. for dimensions a rejected change named;
     `failed` names driving dimensions that don't hold, drawn in the error colour.
     """
-    document = session.document
+    document = session.sketch_view  # the sketch being edited (V2)
     skipped = 0
     for id in sorted(document.entities) if only is None else sorted(only):
         entity = document.entities.get(id)
@@ -383,7 +383,7 @@ def measures(entity: object, ids: frozenset[EntityId]) -> bool:
 def label_anchors(session: DocumentSession, view: ViewTransform) -> list[tuple[Point2, str]]:
     """Where each visible dimension's label sits, and its text, for Zoom to Fit padding."""
     anchors_: list[tuple[Point2, str]] = []
-    for id in sorted(session.document.entities):
+    for id in sorted(session.sketch_view.entities):
         plan = drawing(session, id, view)
         if plan is not None:
             anchors_.append((plan.label_at, plan.text))

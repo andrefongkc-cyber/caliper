@@ -74,7 +74,7 @@ class SelectTool(Tool):
         elif pointer.annotation is not None:
             hit = pointer.annotation
         else:
-            hit = self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
+            hit = self.session.sketch_queries.entity_at_point(pointer.raw, pointer.tolerance)
         self.start = self.current = pointer
         self.hit = hit
         if hit is None:
@@ -130,7 +130,7 @@ class SelectTool(Tool):
             dx, dy = self._offset(self.start, self.current)
             moved = painter.translated(dx, dy)
             moved.set_pen(cosmetic_pen(theme.PREVIEW, theme.GEOMETRY_WIDTH, Qt.PenStyle.DashLine))
-            entities = self.session.document.entities
+            entities = self.session.sketch_view.entities
             for id in self.session.selection:
                 entity = entities.get(id)
                 if isinstance(entity, GEOMETRY_TYPES):
@@ -154,7 +154,7 @@ class SelectTool(Tool):
         )
         crossing = b.x < a.x
         ids: frozenset[EntityId] = frozenset(
-            self.session.queries.entities_in_box(box, crossing=crossing)
+            self.session.sketch_queries.entities_in_box(box, crossing=crossing)
         )
         self.session.set_selection(self.session.selection | ids if end.shift else ids)
 

@@ -77,7 +77,7 @@ class MeasureTool(Tool):
     def _pick(self, pointer: Pointer) -> Ref | None:
         if pointer.snap is SnapKind.FEATURE and pointer.ref is not None:
             return pointer.ref
-        found = self.session.queries.nearest_feature(pointer.raw, pointer.tolerance)
+        found = self.session.sketch_queries.nearest_feature(pointer.raw, pointer.tolerance)
         if found is None:
             self.session.message.emit("Click on a point: a corner, center, end, or midpoint")
         return found
@@ -86,7 +86,7 @@ class MeasureTool(Tool):
         a, b = self.a, self.b
         if a is None or b is None:
             return
-        found = self.session.queries.measure_distance(a, b)
+        found = self.session.sketch_queries.measure_distance(a, b)
         if isinstance(found, Error):
             self.session.message.emit(found.message)
             self.cancel()
@@ -97,7 +97,7 @@ class MeasureTool(Tool):
         self.session.message.emit(describe(found))
 
     def _point(self, ref: Ref) -> Point2 | None:
-        found = self.session.queries.feature_point(ref)
+        found = self.session.sketch_queries.feature_point(ref)
         return None if isinstance(found, Error) else found
 
     def paint(self, painter: ModelPainter) -> None:

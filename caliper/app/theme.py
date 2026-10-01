@@ -68,10 +68,30 @@ def _stylesheet() -> str:
 QMainWindow::separator {{ background: {P.border}; width: 1px; height: 1px; }}
 QToolBar {{ background: {P.window}; border: none; border-bottom: 1px solid {P.border};
     spacing: {s.xxs}px; padding: {s.xxs}px {s.s}px; }}
-QToolBar QToolButton {{ padding: {s.xs - 1}px {s.m}px; border: 1px solid transparent;
+QToolBar QToolButton {{ padding: {s.xs - 1}px {s.s}px; border: 1px solid transparent;
     border-radius: {r.control}px; color: {P.ink}; }}
 QToolBar QToolButton:hover {{ border-color: {P.border}; }}
 QToolBar QToolButton:checked {{ background: {P.field}; border-color: {P.accent}; }}
+QToolBar QToolButton:disabled {{ color: {P.ink_dim}; }}
+QWidget#mode-switch QToolButton {{ border: 1px solid {P.border}; border-radius: 0;
+    padding: {s.xs - 1}px {s.l}px; font-weight: {TYPE.heading_weight}; color: {P.ink_dim}; }}
+QWidget#mode-switch QToolButton#mode-2d {{ border-top-left-radius: {r.control}px;
+    border-bottom-left-radius: {r.control}px; border-right: none; }}
+QWidget#mode-switch QToolButton#mode-3d {{ border-top-right-radius: {r.control}px;
+    border-bottom-right-radius: {r.control}px; }}
+QWidget#mode-switch QToolButton:checked {{ background: {P.accent}; color: {P.ink_on_accent};
+    border-color: {P.accent}; }}
+QWidget#mode-switch QToolButton:hover:!checked {{ color: {P.ink}; }}
+QLabel#sketch-label {{ color: {P.ink_dim}; background: {P.window}; border: 1px solid {P.border};
+    border-radius: {r.control}px; padding: {s.xxs}px {s.s}px; font-size: 11px; }}
+QWidget#part-heading {{ background: {P.window}; border-bottom: 1px solid {P.border}; }}
+QWidget#part-heading QLabel[role="section"] {{ padding: 0; }}
+QLabel#part-volume {{ color: {P.ink}; }}
+QSplitter#browser-split::handle {{ background: {P.border}; }}
+QFrame#extrude-form {{ background: {P.panel}; border: 1px solid {P.border};
+    border-radius: {r.control}px; }}
+QLabel#extrude-title {{ color: {P.ink}; font-weight: {TYPE.heading_weight}; }}
+QSplitter#browser-split::handle:vertical {{ height: 1px; }}
 QToolBar::separator {{ background: {P.border}; width: 1px; margin: {s.xs}px {s.s}px; }}
 QDockWidget::title {{ background: {P.window}; padding: {s.xs}px {s.m}px; text-align: left;
     border-bottom: 1px solid {P.border}; }}
