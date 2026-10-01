@@ -43,8 +43,8 @@ constrained first, so that their points are exactly a step apart where they shou
 """
 
 import math
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field, replace
 
 from caliper.ai.model import ToolSpec
 from caliper.contracts.commands import (
@@ -73,6 +73,7 @@ from caliper.contracts.document import (
     Rectangle,
     Ref,
 )
+from caliper.engine import part
 from caliper.engine.io.canonical import JSON
 
 Run = Callable[[Command], Applied]
@@ -216,12 +217,21 @@ class Repeated:
     note: str | None = None
 
 
+_DRAWS = (CreatePoint, CreateLine, CreateCircle, CreateArc, CreateRectangle)
+
+
 class _Builder:
-    def __init__(self, run: Run, made: Repeated) -> None:
+    """Runs what a repeat makes. Copies and layout geometry go in the originals' sketch
+    (ADR 0011), which a part with several sketches needs said."""
+
+    def __init__(self, run: Run, made: Repeated, sketch: EntityId | None) -> None:
         self._run = run
         self.made = made
+        self._sketch = sketch
 
     def create(self, command: Command) -> EntityId:
+        if isinstance(command, _DRAWS) and command.sketch is None:
+            command = replace(command, sketch=self._sketch)
         return self._run(command).created_ids[0]
 
     def layout(self, command: Command) -> EntityId:
@@ -235,6 +245,20 @@ class _Builder:
 
 def _ref(id: EntityId, feature: Feature) -> Ref:
     return Ref(entity=id, feature=feature)
+
+
+def _one_sketch(document: Document, ids: Iterable[EntityId]) -> EntityId | None:
+    """The sketch everything a repeat reads is in: a repeat stays inside one sketch."""
+    ids = list(ids)
+    found = sorted({s for id in ids if (s := part.sketch_of(document, id)) is not None})
+    if len(found) > 1:
+        raise PatternError(
+            {
+                "error": f"{', '.join(ids)} are in more than one sketch ({', '.join(found)}); "
+                "repeat one sketch's geometry at a time"
+            }
+        )
+    return EntityId(found[0]) if found else None
 
 
 # --- Mirror -----------------------------------------------------------------------------
@@ -288,7 +312,7 @@ def mirror(document: Document, arguments: Mapping[str, object], run: Run) -> Rep
     if not chosen:
         raise PatternError({"error": "nothing to mirror", "skipped": dict(made.skipped)})
 
-    build = _Builder(run, made)
+    build = _Builder(run, made, _one_sketch(document, [EntityId(axis_id), *(i for i, _ in chosen)]))
     for id, entity in chosen:
         match entity:
             case Point():
@@ -490,7 +514,7 @@ def linear_pattern(document: Document, arguments: Mapping[str, object], run: Run
     places = [(i, 0) for i in range(1, count)] + [
         (i, j) for i in range(count) for j in range(1, count2)
     ]
-    build = _Builder(run, made)
+    build = _Builder(run, made, _one_sketch(document, (id for id, _ in seeds)))
     masters: dict[int, EntityId] = {}
 
     def link(before: Ref, after: Ref, start: Point2, end: Point2, way: int) -> None:
@@ -769,7 +793,8 @@ def circular_pattern(document: Document, arguments: Mapping[str, object], run: R
             if owner(_point(seed, feature)) is None:
                 owners.append((_point(seed, feature), _ref(id, feature), True))
 
-    build = _Builder(run, made)
+    ids_read = [center.entity, *(id for id, _ in seeds)]
+    build = _Builder(run, made, _one_sketch(document, ids_read))
     joins: list[tuple[Ref, Ref]] = []
     at_copy: dict[EntityId, list[EntityId]] = {id: [] for id, _ in seeds}
     levels: list[tuple[Ref, EntityId, ConstraintType]] = []  # an arc copy's centre, across
