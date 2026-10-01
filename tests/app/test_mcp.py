@@ -199,6 +199,14 @@ def test_while_the_in_app_assistant_works_changes_wait_but_looking_is_fine(serve
     refused = call(window, qtbot, "create_rectangle", RECTANGLE)
     assert refused.is_error
     assert refused.content == {"error": BUSY}
+    # Checks and repeats change the sketch too (a check is stored, C-1): they wait as well.
+    for tool, arguments in (
+        ("run_check", WIDTH_CHECK),
+        ("linear_pattern", {"ids": ["e1"], "count": 2, "spacing": 5}),
+        ("undo", {}),
+    ):
+        assert call(window, qtbot, tool, arguments).content == {"error": BUSY}, tool
+    assert window.agent.proposal is None
     assert not call(window, qtbot, "solve_status").is_error
     window.agent.busy = False
 

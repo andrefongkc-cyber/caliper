@@ -29,11 +29,11 @@ from caliper.ai.bridge import (
 from caliper.ai.draft import Draft, Ended
 from caliper.ai.mcp_server import PROGRESS
 from caliper.ai.model import ToolCall, ToolOutcome
+from caliper.ai.tools import CHANGES
 from caliper.app.agent.proposal import Plan, Proposal
 from caliper.app.agent.timing import RunTimer
 from caliper.app.agent.ui import AgentController
 from caliper.app.session import DocumentSession
-from caliper.engine.io.codec import COMMAND_KINDS
 
 BUSY = (
     "Caliper's own assistant is working on a request right now, so Caliper can't take changes "
@@ -129,7 +129,7 @@ class McpHost(QObject):
             outcome = self._progress(request.arguments)
             self.stepped.emit(request.client, outcome)
             return encode_response(Response(outcome.content, outcome.is_error)), False
-        if request.tool in COMMAND_KINDS and self.controller.busy:
+        if request.tool in CHANGES and self.controller.busy:
             return encode_response(Response({"error": BUSY}, is_error=True)), False
         self._client = request.client
         try:
