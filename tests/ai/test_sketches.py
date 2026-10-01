@@ -151,3 +151,16 @@ def test_the_summary_says_which_sketch_is_being_edited_only_when_there_are_sever
     workspace = Workspace(document, sketch=second)
     inspected = workspace.call(call("inspect_document"))
     assert inspected.content["editing"] == second  # type: ignore[index]
+
+
+def test_an_extrude_names_the_change_though_a_check_comes_with_it() -> None:
+    """A check goes with what it checks: an extrude and its volume check is "Extrude" in the
+    undo menu, not "Assistant Changes" (an extrude changes no entity, so it looked like one
+    more check)."""
+    bus = Bus()
+    bus.execute(CreateCircle(center=Point2(x=0.0, y=0.0), radius=5.0))
+    workspace = Workspace(bus.document)
+    assert not workspace.call(call("create_extrude", depth=3.0)).is_error
+    volume = call("run_check", metric="volume", expected=1.0, tolerance=1e9)
+    assert not workspace.call(volume).is_error
+    assert workspace.label == "Extrude"
