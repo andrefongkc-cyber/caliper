@@ -64,7 +64,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from caliper.ai.bridge import Request, ask, encode_request
 from caliper.ai.context import describe
 from caliper.ai.draft import Draft
-from caliper.contracts.commands import CreateCircle, CreateConstraint, CreateLine
+from caliper.contracts.commands import CreateCheck, CreateCircle, CreateConstraint, CreateLine
 from caliper.contracts.document import (
     Circle,
     ConstraintType,
@@ -164,7 +164,8 @@ def engine_session(name: str) -> tuple[list[Result], Draft, Document]:
     engine.metrics["evaluations"] = float(counted["evaluations"])
     engine.metrics["deferred"] = float(counted["deferred"])
     engine.metrics["commands"] = float(len(draft.commands))
-    engine.metrics["checks"] = float(len(draft.checks))
+    entities = draft.workspace.document.entities.values()  # checks are in the proposal (ADR 0010)
+    engine.metrics["checks"] = float(sum(isinstance(e, Expectation) for e in entities))
 
     accept = Result(f"session/{name}/accept-engine")
     for replaying in (False, True):
@@ -531,16 +532,19 @@ def many_checks() -> Result:
 
     document = _circles(400)
     checks = tuple(
-        Expectation(
+        CreateCheck(
             metric=Metric.BBOX_WIDTH, expected=8.0, tolerance=1e-6, ids=(EntityId(f"e{n}"),)
         )
         for n in range(1, 201)
     )
-    plan = Plan("Checks", "", (), checks)
+    plan = Plan("Checks", "", checks)  # checks are commands in the proposal (ADR 0010)
+    bus = Bus(document)
+    for check in checks:
+        bus.execute(check)
     samples = []
     for _ in range(20):
         started = time.perf_counter()
-        prepare(plan, document, checks, result=document)
+        prepare(plan, document, result=bus.document)
         samples.append(time.perf_counter() - started)
     return Result("synthetic/many-checks/prepare-200", spread(samples))
 
