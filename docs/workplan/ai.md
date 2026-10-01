@@ -1,4 +1,4 @@
-Status: V2's F1 on `shared/v2-f1-document` (local, not pushed): the tools take the part's sketches in stride (an optional `sketch` on the drawing tools, no `create_sketch` until the app has sketch mode); N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: that run, then the AI side of F3 (extrude and volume checks)
+Status: V2's F7 on `shared/v2-milestone` (local, not pushed): the assistant and Claude Desktop draw in the sketch the user is editing, and an extrude with its check is labelled "Extrude"; N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: F8 (V2's tests end to end), then that run
 
 # AI workplan
 
@@ -7,6 +7,14 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## V2, F7: the AI in a part with several sketches (branch `shared/v2-milestone`, 2026-10-01)
+
+Found in the app-side review of the contract ([shell.md](shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)). No new tool and no tool schema change.
+
+- [x] **Drawing goes into the sketch the user is editing.** With two sketches, a drawing or extrude call that named no sketch was refused with `sketch.required`; models leave it out. `Workspace`, `Draft.call`, and `Assistant.ask` take the edited sketch (`sketch=`), which the window passes, and fill it in with `part.in_sketch`, the engine function the window uses. With one sketch nothing changes. The document summary carries `"editing"` only when there are several sketches.
+- [x] **An extrude's label:** "Extrude" on the card and in the undo menu, not "Assistant Changes", when a volume check comes with it. `_about_checks` took a change to no entity for a check.
+- [x] Tests in `tests/ai/test_sketches.py`, `tests/app/test_mcp.py`, and `tests/app/test_assistant.py`, each failing without its fix.
 
 ## V2, F3: extrude and volume, from the AI side (branch `shared/v2-milestone`, 2026-10-01)
 

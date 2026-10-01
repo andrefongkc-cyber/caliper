@@ -1,7 +1,7 @@
 # Known issues
 
 What breaks in Caliper today, on `main` at `b598af0` (2026-09-30, the N phase merged in #54),
-updated for V2's F1 on `shared/v2-f1-document`. Each entry was checked against the code or
+updated for V2 (F1 to F8) on `shared/v2-milestone`. Each entry was checked against the code or
 found in a test run. It's sorted by side:
 
 - **AI side**: `caliper/ai`, the `caliper-mcp` server, the in-app assistant, and Claude Desktop
@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-15 (needs OCCT) | C-6 | |
+| Client side | C-13 (limited), C-15 (needs OCCT) | C-6 | C-16 |
 
 ---
 
@@ -75,6 +75,15 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   the median, against 0.5 ms before f4a9e92, and 2.5 s for all 299 calls against 2.3 s; the
   same change took a 12-point star's circular pattern from 2.35 s to 0.33 s.
 
+### C-16. A proposed extrude can't be seen before it's accepted
+- **What happens:** a proposal is drawn in 2D as dashed geometry, and the window switches to
+  2D to show it. An extrude changes no geometry, so there is nothing to draw: the card lists
+  it, and its volume check is measured on the proposed solid, but the 3D view shows the solid
+  as it is until Accept.
+- **Where:** `caliper/app/viewport/view3d.py`, which meshes `session.document`.
+- **Fix, if it matters:** mesh `proposal.result` in the 3D view while a proposal is shown,
+  in the agent colour. The engine's `mesh` query already works on any document.
+
 ---
 
 ## Recently fixed
@@ -95,13 +104,22 @@ In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
 
-On `shared/v2-milestone` (V2's F6):
+On `shared/v2-milestone` (V2's F6 and F7):
 
 - C-14: a part with more than one sketch couldn't be worked on in the app: every sketch was
   drawn on one canvas, and drawing was refused with `sketch.required`. Sketch mode edits one
   sketch at a time. The canvas, the tools, the browser, and Select All see only the active
   sketch, and drawing goes into it. A sketch on XZ or YZ is drawn in its own 2D coordinates.
   The 3D view shows the solid, but not the sketches on their planes yet.
+- With two sketches, the in-app assistant's and Claude Desktop's drawing calls were refused
+  with `sketch.required` unless the model named a sketch. They now draw in the sketch the user
+  is editing, as the window's tools do, and the document summary says which one that is (F7).
+- With two sketches, the Checks panel's "Sketch width" and "Sketch height" measured every
+  sketch's geometry at once and were refused. They measure the sketch being edited (F7).
+- A proposal's dashed preview drew another sketch's changes on the edited sketch's canvas, in
+  the wrong place. It shows only the edited sketch's (F7).
+- An extrude proposed with its volume check was called "Assistant Changes" on the card and in
+  the undo menu, because a change to no entity looked like one more check. It's "Extrude" (F7).
 
 On `shared/n-phase-final` (closing out the N phase):
 

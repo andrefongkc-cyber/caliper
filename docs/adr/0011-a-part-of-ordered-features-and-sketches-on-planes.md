@@ -206,6 +206,38 @@ sketch mode (F6), and the contract supports any answer:
    `Delta.features_before` and `Delta.features_after`.
 7. **The 3D viewport's mesh** (F5) belongs to the kernel contract (F2), not this one.
 
+### The answers, as built (F6 and F7, 2026-10-01; for Lucas to confirm)
+
+The app was built on this contract unchanged: nothing in `caliper/contracts/` changed for
+F6 or F7. One rule the window and the AI share moved into the engine (`part.in_sketch`, item 1).
+
+1. **An active sketch:** yes, UI state in `DocumentSession` (`active_sketch`). A new part edits
+   `e0`; a file opens on its last sketch; deleting or undoing the edited sketch falls back to
+   another. Create commands and `CreateExtrude` that name no sketch are given the edited one
+   by `part.in_sketch`, which the session, the in-app assistant, and Claude Desktop's calls
+   all use, and only when the part has more than one sketch. With one, every V1 file, the
+   command goes as it came, so recorded commands and replays are unchanged.
+2. **File → New:** `e0` on XY, as today. New Sketch on XY, XZ, or YZ adds and edits another.
+3. **What the canvas draws:** the edited sketch only, in its own 2D coordinates. Sketches on
+   their planes in 3D wait for a later version; the 3D view (ADR 0012) shows the solid.
+4. **Picking:** the queries stay part-wide. The session keeps a view of the document holding
+   only the edited sketch's entities (`sketch_view`, `sketch_queries`), and the canvas, its
+   tools, the browser, and Select All use it, so nothing in another sketch can be picked or
+   edited by accident. No query needed a `sketch` argument.
+5. **Properties:** the sketch row stays read-only. Sketches have no name field: the Part
+   panel numbers them by kind ("Sketch 1", "Extrude 1"), which needs no contract change.
+6. **The feature list** is the Part panel: `Document.features` in order, `feature_error` for
+   a failing feature, and `solid_properties` for the volume in its heading. It rebuilds on
+   each change rather than following `Delta.features_*`, which is fast at V2's sizes.
+7. **The mesh:** `Queries.mesh`, from F2. The view keeps the last good mesh, with the reason,
+   when a feature fails.
+
+Found by the review and fixed (F7): with two sketches, the assistant's and Claude Desktop's
+drawing was refused unless the model named a sketch; the Checks panel's sketch size measured
+every sketch at once; a proposal's preview drew another sketch's changes; and an extrude
+proposed with a check was labelled "Assistant Changes". Each has a test that fails without
+its fix.
+
 ## How to review it
 
 What changed, in the order to read it:

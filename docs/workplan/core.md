@@ -1,4 +1,4 @@
-Status: V2's F1 (ADR 0011: a document is one part, with sketches on planes, file schema 4) done on `shared/v2-f1-document` (local, not pushed), waiting on Lucas's review from the app's side (F7) for the ADR to be Accepted; next: F2 (the kernel grows solids), only after that
+Status: V2's F1 to F4 done on `shared/v2-milestone` (local, not pushed), and F7's one engine addition (`part.in_sketch`); ADRs 0011, 0013, and 0014 Proposed, for Lucas; next: F8 (V2's tests end to end)
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
