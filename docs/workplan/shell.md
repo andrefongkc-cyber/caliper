@@ -1,4 +1,4 @@
-Status: V2's F7 done on `shared/v2-milestone` (local, not pushed): the contract reviewed from the app's side, no contract change needed, four app bugs fixed; next: F8 (V2's tests end to end), then Lucas's sign-off on ADRs 0011 to 0014
+Status: V2's F5 to F8 done on `shared/v2-milestone` (local, not pushed): sketch mode, the Part panel, Extrude, the 3D view and its switch, the contract reviewed from the app's side, and the milestone tested end to end through the window; next: Lucas's review of ADRs 0011 and 0012
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,11 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## V2, F8: the milestone end to end through the window (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+- [x] `tests/app/test_v2_milestone.py`, on both kernels: the whole milestone clicked and typed, from the rectangle to the headless replay of everything the window sent, the 3D view's mesh measured at each step. Details and the rest of F8 in [core.md](core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed).
+- [x] New app tests: a part cut away entirely (OCCT), double-clicking a sketch in the Part panel, and a depth that isn't a number.
 
 ## V2, F7: the contract reviewed from the app's side (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 

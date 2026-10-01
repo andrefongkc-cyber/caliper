@@ -1,4 +1,4 @@
-Status: V2's F1 to F7 done on `shared/v2-milestone` (local, not pushed; ADRs 0011 to 0014 Proposed, for Lucas); next: F8, V2's tests end to end; N9's Claude Desktop run still open
+Status: V2's F1 to F8 done on `shared/v2-milestone` (local, not pushed; ADRs 0011 to 0014 Proposed, for Lucas); next: Lucas's review, then a PR when Andre says; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -28,7 +28,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] F5, the 3D view and a 2D/3D switch ([ADR 0012](docs/adr/0012-the-3d-viewport-our-own-renderer-first.md), Proposed): our own QPainter renderer, no new dependency; orbit, pan, zoom, fit; one document behind both views; frames 0.39 ms for the milestone plate, 19 ms for 2,604 triangles
     - [x] F6, sketch mode, the Part panel, and Extrude, on the real engine: the milestone clicked through the window on both kernels; a tidier toolbar and panels
     - [x] F7, the contract reviewed from the app's side ([shell.md](docs/workplan/shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): no contract change needed; four app bugs found and fixed (the assistant's and Claude Desktop's drawing with two sketches, the sketch-size checks, the proposal preview, an extrude's label). ADR 0011's questions answered as built; Lucas to confirm
-    - [ ] F8, tests alongside each: F1's are in (a schema-4 golden, the migration fixtures, a property test of the part's rules)
+    - [x] F8, V2's tests ([core.md](docs/workplan/core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): the milestone end to end through the window on both kernels, from the rectangle to a byte-identical headless replay, with the 3D view's mesh measured at each step; coverage of V2's files measured (91–100%) and the gaps filled. 1754 passed with OCCT; 1688 passed and 54 skipped without it
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)

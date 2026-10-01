@@ -1,0 +1,243 @@
+{
+ "bridge/round-trip": {
+  "calls": 200.0,
+  "max_ms": 1.433375058695674,
+  "median_ms": 0.13874995056539774,
+  "p95_ms": 0.16941595822572708,
+  "total": 0.030127631267532706
+ },
+ "repeat/circular-pattern/star-12": {
+  "calls": 3.0,
+  "commands": 162,
+  "max_ms": 334.83750000596046,
+  "median_ms": 331.2416661065072,
+  "p95_ms": 334.83750000596046,
+  "total": 0.9936694160569459
+ },
+ "repeat/linear-pattern/grid-5x4": {
+  "calls": 3.0,
+  "commands": 133,
+  "max_ms": 114.56145788542926,
+  "median_ms": 113.35074994713068,
+  "p95_ms": 114.56145788542926,
+  "total": 0.34054208267480135
+ },
+ "repeat/mirror/half-star": {
+  "calls": 3.0,
+  "commands": 36,
+  "max_ms": 17.589207971468568,
+  "median_ms": 17.53608393482864,
+  "p95_ms": 17.589207971468568,
+  "total": 0.05258600087836385
+ },
+ "session/ball-bearing/accept-engine": {
+  "replay": 0.10383154195733368,
+  "total": 0.0008022498805075884
+ },
+ "session/ball-bearing/engine": {
+  "calls": 74.0,
+  "check_ms": 0.3485421184450388,
+  "checks": 5.0,
+  "commands": 71.0,
+  "deferred": 0.0,
+  "evaluations": 861.0,
+  "max_ms": 8.363625034689903,
+  "median_ms": 0.2562494482845068,
+  "p95_ms": 6.533749867230654,
+  "solve_ms": 102.9928750358522,
+  "status_ms": 1.9126669503748417,
+  "total": 0.111510124290362
+ },
+ "session/ball-bearing/memory": {
+  "accept_peak_mib": 0.06627655029296875,
+  "peak_mib": 0.9219522476196289,
+  "retained_mib": 0.3123912811279297
+ },
+ "session/ball-bearing/results": {
+  "calls": 74.0,
+  "max_kib": 1.57421875,
+  "total_kib": 27.1474609375
+ },
+ "session/ball-bearing/window": {
+  "calls": 74.0,
+  "max_ms": 9.319459088146687,
+  "median_ms": 1.3980414951220155,
+  "p95_ms": 7.428874960169196,
+  "total": 0.18224600260145962,
+  "ui_share_ms": 0.5940205883234739
+ },
+ "session/ball-bearing/window-accept": {
+  "entities": 71.0,
+  "total": 0.013025958091020584
+ },
+ "session/ball-bearing/window-reject": {
+  "total": 0.00024216691963374615
+ },
+ "session/ball-bearing/workflow": {
+  "total": 0.1952719606924802
+ },
+ "session/rectangle/accept-engine": {
+  "replay": 0.0005943751893937588,
+  "total": 8.866703137755394e-05
+ },
+ "session/rectangle/engine": {
+  "calls": 10.0,
+  "check_ms": 0.11250004172325134,
+  "checks": 2.0,
+  "commands": 8.0,
+  "deferred": 0.0,
+  "evaluations": 10.0,
+  "max_ms": 0.3279589582234621,
+  "median_ms": 0.10581244714558125,
+  "p95_ms": 0.3279589582234621,
+  "solve_ms": 0.52258325740695,
+  "status_ms": 0.10020798072218895,
+  "total": 0.0013740849681198597
+ },
+ "session/rectangle/memory": {
+  "accept_peak_mib": 0.012113571166992188,
+  "peak_mib": 0.04911327362060547,
+  "retained_mib": 0.023858070373535156
+ },
+ "session/rectangle/results": {
+  "calls": 10.0,
+  "max_kib": 0.3203125,
+  "total_kib": 2.03125
+ },
+ "session/rectangle/window": {
+  "calls": 10.0,
+  "max_ms": 5.164874950423837,
+  "median_ms": 1.429687486961484,
+  "p95_ms": 5.164874950423837,
+  "total": 0.01734133274294436,
+  "ui_share_ms": 0.5883953999727964
+ },
+ "session/rectangle/window-accept": {
+  "entities": 8.0,
+  "total": 0.009072791086509824
+ },
+ "session/rectangle/window-reject": {
+  "total": 0.00022879219613969326
+ },
+ "session/rectangle/workflow": {
+  "total": 0.026414123829454184
+ },
+ "session/stress-plate-build/accept-engine": {
+  "replay": 0.45064799999818206,
+  "total": 0.004464041907340288
+ },
+ "session/stress-plate-build/engine": {
+  "calls": 281.0,
+  "check_ms": 1.0524590034037828,
+  "checks": 10.0,
+  "commands": 265.0,
+  "deferred": 2.0,
+  "evaluations": 1793.0,
+  "max_ms": 28.56158302165568,
+  "median_ms": 0.3421669825911522,
+  "p95_ms": 10.903249960392714,
+  "solve_ms": 438.8265428133309,
+  "status_ms": 17.45799696072936,
+  "total": 0.48411357472650707
+ },
+ "session/stress-plate-build/memory": {
+  "accept_peak_mib": 0.2505207061767578,
+  "peak_mib": 2.2869415283203125,
+  "retained_mib": 0.532130241394043
+ },
+ "session/stress-plate-build/results": {
+  "calls": 281.0,
+  "max_kib": 5.1396484375,
+  "total_kib": 92.1318359375
+ },
+ "session/stress-plate-build/window": {
+  "calls": 281.0,
+  "max_ms": 30.23058408871293,
+  "median_ms": 1.2940408196300268,
+  "p95_ms": 12.478250078856945,
+  "total": 0.7659686175175011,
+  "ui_share_ms": 0.505833188071847
+ },
+ "session/stress-plate-build/window-accept": {
+  "entities": 265.0,
+  "total": 0.02370387502014637
+ },
+ "session/stress-plate-build/window-reject": {
+  "total": 0.00024516601115465164
+ },
+ "session/stress-plate-build/workflow": {
+  "total": 0.7896724925376475
+ },
+ "synthetic/file/2000": {
+  "dumps_ms": 10.11033309623599,
+  "loads_ms": 59.658291982486844,
+  "save_ms": 11.372582986950874,
+  "size_kib": 669.1181640625
+ },
+ "synthetic/inspect-document/2000": {
+  "calls": 4.0,
+  "max_kib": 41.9248046875,
+  "max_ms": 9.499500039964914,
+  "median_ms": 3.8469169521704316,
+  "p95_ms": 9.499500039964914,
+  "total": 0.01998820877633989
+ },
+ "synthetic/many-checks/prepare-200": {
+  "calls": 20.0,
+  "max_ms": 0.5497501697391272,
+  "median_ms": 0.5291665438562632,
+  "p95_ms": 0.5497501697391272,
+  "total": 0.010614166501909494
+ },
+ "synthetic/many-constraints/chain-150": {
+  "calls": 299.0,
+  "max_ms": 44.88399997353554,
+  "median_ms": 1.3719580601900816,
+  "p95_ms": 34.00841704569757,
+  "status_ms": 68.48137499764562,
+  "total": 2.4465998434461653
+ },
+ "synthetic/many-entities/create": {
+  "calls": 50.0,
+  "max_ms": 0.21991715766489506,
+  "median_ms": 0.15018752310425043,
+  "p95_ms": 0.16449997201561928,
+  "total": 0.007647754158824682
+ },
+ "synthetic/render/2000": {
+  "badges_ms": 10.239708004519343,
+  "no_badges_ms": 6.698374869301915
+ },
+ "timing/overhead": {
+  "per_call_us": 17.583370208740234
+ },
+ "v2/milestone": {
+  "analytic": 0.0,
+  "build_ms": 1.7639589495956898,
+  "build_prisms": 1.0,
+  "label_ms": 0.12504099868237972,
+  "label_prisms": 0.0,
+  "undo_ms": 0.0874579418450594,
+  "undo_prisms": 0.0,
+  "widen_ms": 0.5075838416814804,
+  "widen_prisms": 1.0
+ },
+ "v2/render-3d/holes-24": {
+  "calls": 20.0,
+  "max_ms": 21.252207923680544,
+  "median_ms": 19.430771004408598,
+  "occt": 1.0,
+  "p95_ms": 21.252207923680544,
+  "total": 0.3939388752914965,
+  "triangles": 2604.0
+ },
+ "v2/render-3d/plate": {
+  "calls": 20.0,
+  "max_ms": 0.4552910104393959,
+  "median_ms": 0.41114608757197857,
+  "occt": 1.0,
+  "p95_ms": 0.4552910104393959,
+  "total": 0.008260333677753806,
+  "triangles": 12.0
+ }
+}
