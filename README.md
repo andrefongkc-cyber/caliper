@@ -198,6 +198,7 @@ Read more in [docs/architecture.md](docs/architecture.md) and the
 | [0010](docs/adr/0010-checks-in-the-document.md) Checks (proposed) | Stored in the document, changed by commands like everything else |
 | [0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) The part (proposed) | A document is one part: features in order, sketches on planes (V2's first step) |
 | [0013](docs/adr/0013-solids-extrude-and-recomputing-only-what-changed.md) Solids (proposed) | Extrude as the first feature; solids worked out again only where something changed, never stored |
+| [0014](docs/adr/0014-persistent-naming-by-history.md) Naming (proposed) | Faces and edges named by what made them, never by position; a split name is refused, not guessed |
 
 ## Roadmap
 
