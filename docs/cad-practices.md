@@ -381,6 +381,7 @@ Quick looks where the value isn't a requirement. Use `measure_distance` for thos
 | `test-runs-andre/001-ball-bearing` | 2026-09-26 | Explicit layout; DOF per feature; constraints place geometry; check while pending |
 | `test-runs-andre/002-stress-plate-build` | 2026-09-27 | Repeated spacing; symmetry; datum and labels; reference dimensions; slots; each relationship once; DOF per feature; constraints place geometry; check while pending |
 | `test-runs-andre/003-stress-plate-rerun2` | 2026-09-28 | Repeated spacing and symmetry with `linear_pattern` and `mirror_entities`; datum dimensions; constraints place geometry (the star from a rough start); slots (C-2 again); reference dimensions |
+| `test-runs-andre/004-stress-plate-main` | 2026-09-30 | Datum dimensions to a construction frame (no extension past a fillet); `circular_pattern` for the star; slots with no workaround (C-2 fixed); checks stored with the proposal; reference dimensions |
 | 16-tooth gear (`docs/workplan/ai.md`, Layout first) | 2026-09-26 | The layout-first rule now in `CONVENTIONS`; constraints place geometry |
 | MCP stress tests (`docs/known-issues.md`, AI-1) | 2026-09-25 | Check while pending |
 
