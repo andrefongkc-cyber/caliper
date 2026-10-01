@@ -1,9 +1,34 @@
-Status: V2's F1 to F4 done on `shared/v2-milestone` (local, not pushed), and F7's one engine addition (`part.in_sketch`); ADRs 0011, 0013, and 0014 Proposed, for Lucas; next: F8 (V2's tests end to end)
+Status: V2's F1 to F8 done on `shared/v2-milestone` (local, not pushed): the milestone runs end to end, headlessly and through the window, on both kernels; ADRs 0011 to 0014 Proposed, for Lucas; next: Lucas's review, then a PR when Andre says
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## V2, F8: V2's tests, end to end (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+Done when every part of V2 has tests on both kernels, and the milestone runs end to end through the window: **met**. Each F item brought its own tests; F8 measured what they reach and filled the gaps.
+
+- [x] **The milestone, end to end, through the window** (`tests/app/test_v2_milestone.py`, on the analytic kernel and OCCT), each step clicked or typed: a 120 x 50 rectangle on XY; Extrude 10 from the toolbar, the depth typed; 60,000 mm³; the width typed as 140 in Properties, still in 3D; 70,000; undo by its key, 60,000; 3D to 2D by the switch, a dimension added; 2D to 3D, the same solid; saved, a new part, reopened, the same document and solid; and everything the window sent, replayed headlessly twice, giving the saved file's bytes both times. Each volume is checked in the engine's query and as the volume inside the mesh the 3D view draws. A 3D view that ignores changes fails it.
+- [x] **Coverage, measured** with `sys.monitoring` over the whole suite (no new dependency), V2's files: `graph.py` 98%, `features.py` 91%, `part.py` 94%, `triangulate.py` 100%, the kernels 94–99%, `view3d.py` 97%, `extrude.py` 98%, the Part panel 97%. What's left is mostly guards for states commands can't make (an extrude whose sketch is gone, a profile id that isn't geometry) and kernel failures.
+- [x] **Gaps filled**, each a test that reaches code no test did:
+  - deleting the extrude a cut builds on, or geometry an extrude names: the change applies, the extrude fails with the reason, and undo mends it (`tests/engine/test_extrude.py`);
+  - the graph's other edges: a cut reads the solid before it, a check reads what it measures, and a change reaching a feature by two paths (`tests/engine/test_recompute.py`);
+  - the recompute caches keep only their last few entries;
+  - a part cut away entirely: the 3D view draws nothing and says why (OCCT);
+  - double-clicking a sketch in the Part panel edits it; a depth that isn't a number is explained.
+- [x] **Where V2 is tested**, by area:
+  - The contract and file: `tests/engine/test_part.py`, `tests/engine/io/test_snapshot.py` (schema 3 → 4, byte for byte), the schema-4 golden `tests/engine/fixtures/extruded-plate.caliper`.
+  - Solids: `tests/engine/geometry/test_solid_conformance.py` (both kernels against formulas), `test_triangulate.py` (a property test: 60 cases a run, 5,000 once when it was written).
+  - Extrude, volume queries and checks, undo and redo: `tests/engine/test_extrude.py`.
+  - Recompute and the graph: `tests/engine/test_recompute.py`, which counts a kernel's work.
+  - Replay: `tests/engine/test_milestone.py`, byte for byte, and the bench case `extruded-plate-milestone`.
+  - Naming: `tests/engine/geometry/test_naming_spike.py` (OCCT).
+  - The 3D view and the switch: `tests/app/test_camera3d.py`, `test_view3d.py`.
+  - Sketch mode, the Part panel, and Extrude: `tests/app/test_sketch_mode.py`.
+  - The AI on a part: `tests/ai/test_sketches.py`, `tests/app/test_mcp.py`, `tests/app/test_assistant.py`.
+- [x] **The gate:** 1754 passed with OCCT, none skipped; 1688 passed and 54 skipped without it (what needs OCCT); lint, format, and types clean; the bench 10 of 10 on each kernel.
+- [x] **Performance**, saved as `bench/results/2026-10-01-v2-f8.json` and compared with F3's: the milestone's rebuild counts are unchanged (a width change makes one prism, a label move or undo none), and every timing is within noise. The window's share of Claude Desktop's stress-plate calls is about 3% higher, and its Accept 23 → 29 ms; profiled, V2's own panels take under 1 ms of that Accept. 3D frames: the plate 0.41 ms, 24 holes (2,604 triangles) 20 ms median.
 
 ## V2, F4: a persistent-naming spike (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 

@@ -1,4 +1,4 @@
-Status: V2's F7 on `shared/v2-milestone` (local, not pushed): the assistant and Claude Desktop draw in the sketch the user is editing, and an extrude with its check is labelled "Extrude"; N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: F8 (V2's tests end to end), then that run
+Status: V2 done on `shared/v2-milestone` (local, not pushed): the assistant and Claude Desktop draw in the sketch the user is editing, extrude, and check volumes, tested on both kernels; N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: that run
 
 # AI workplan
 

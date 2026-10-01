@@ -139,9 +139,9 @@ without growing the undo stack.
 Since V2's F1 ([ADR 0011](adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md),
 file schema 4), a document is one part:
 
-- **`Document.features`**, in order: the part's features, each with its id. Today that's
-  sketches, each placed on the XY, XZ, or YZ plane. An extrude is next (F3), and order is the
-  order features are recomputed in.
+- **`Document.features`**, in order: the part's features, each with its id: sketches, each
+  placed on the XY, XZ, or YZ plane, and extrudes (F3, below). Order is the order features
+  are recomputed in.
 - **`Document.entities`**, keyed by id as before: everything the sketches hold, plus the
   part's checks. Geometry names its sketch (`sketch`). A dimension or constraint is in the
   sketch of the geometry it refers to, and it can't reach into another sketch. Checks belong
@@ -170,6 +170,32 @@ or cut from, the part's one solid.
   reads only what comes before it, so the graph has no cycles.
 - **Commands never need a kernel.** Queries do: OCCT, or the analytic kernel in tests and the
   bench.
+
+## The app on a part: sketch mode and two views
+
+Since V2's F5 and F6, the app edits a part, not one sketch.
+
+- **The sketch being edited is UI state** (`DocumentSession.active_sketch`), like the
+  selection. With more than one sketch, a command that draws or extrudes and names no sketch
+  goes into it: `part.in_sketch`, in the engine, which the window, the in-app assistant, and
+  Claude Desktop's calls all use. With one sketch, every V1 file, commands go as they came.
+- **The canvas sees one sketch.** The session keeps a view of the document holding only the
+  edited sketch's entities (`sketch_view`, `sketch_queries`). The canvas, its tools, the
+  browser, and Select All read it, so nothing in another sketch can be picked by accident.
+  Commands still go to the whole document.
+- **Two views, one session.** A `QStackedWidget` holds the 2D canvas and the 3D view, behind a
+  2D/3D switch at the head of the toolbar. Switching changes nothing in the document, the
+  history, or the selection.
+- **The 3D view** ([ADR 0012](adr/0012-the-3d-viewport-our-own-renderer-first.md)) is our own
+  QPainter renderer, with no new dependency. It draws `Queries.mesh`, asked for only when it
+  shows a changed document, and keeps the last good solid on screen, with the reason, when a
+  feature fails. `viewport/camera3d.py` has no Qt.
+- **The Part panel** lists `Document.features` in order, with `feature_error` and the part's
+  volume, and opens a sketch for editing. Extrude is a panel over the view that sends one
+  `CreateExtrude`.
+- **Faces aren't named yet.** [ADR 0014](adr/0014-persistent-naming-by-history.md) records how
+  they will be, by history, from a spike in the tests; the first feature that refers to a face
+  adds it.
 
 ## The three records
 
@@ -372,11 +398,16 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the day-to-day workflow.
 - **`tests/engine/`:** engine behavior, with hypothesis property tests for geometry.
   `tests/engine/geometry/test_kernel_conformance.py` runs against every available kernel.
 - **`tests/app/`:** pytest-qt, run offscreen on macOS CI.
+- **V2's milestone, end to end:** `tests/engine/test_milestone.py` headlessly and
+  `tests/app/test_v2_milestone.py` through the window, each on the analytic kernel and OCCT:
+  a 120 x 50 plate extruded 10 mm, its width changed and undone, 2D and 3D in turn, saved,
+  reopened, and replayed to the same bytes. Tests that need OCCT skip without it; CI's app
+  job has none, so the app tests give the engine the analytic kernel.
 - **`bench/`:** end-to-end cases (a prompt or script, a reference model, and expectations).
   It exists before the AI layer so the AI has something to be measured against from day one.
 
 ## Deliberately not here
 
-Simulation, manufacturing, electronics, robotics, and 3D are out of scope for V1. There are
-no hooks or plugin points for them. Where they're headed is in [vision.md](vision.md);
+Simulation, manufacturing, electronics, and robotics are out of scope, and so is 3D beyond
+V2's sketches on planes and extrudes. There are no hooks or plugin points for them. Where they're headed is in [vision.md](vision.md);
 building for them now would be guessing.
