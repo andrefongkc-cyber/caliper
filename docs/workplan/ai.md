@@ -1,4 +1,4 @@
-Status: the N phase's AI side on `shared/n-phase` (local, not pushed): test 004 recorded over MCP from Claude Code (N9, in part), the live in-app assistant run blocked with no API key here (N11, AI-6 unverified); next: a Claude Desktop run on `main` and one live API request when a key is set
+Status: the N phase's AI side on `shared/n-phase` (PR #54): test 004 recorded over MCP from Claude Code (N9, in part), the live in-app assistant run blocked with no API key here (N11, AI-6 unverified); next: a Claude Desktop run on `main` and one live API request when a key is set
 
 # AI workplan
 

@@ -1,4 +1,4 @@
-Status: the N phase's app side done on `shared/n-phase` (local, not pushed): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: Lucas's review
+Status: the N phase's app side done on `shared/n-phase` (PR #54): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: Lucas's review
 
 # Shell workplan — Stream B
 
@@ -9,7 +9,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## The N phase, app side (branch `shared/n-phase`, 2026-09-30)
 
-Lucas hadn't started N6–N8 (nothing on `stream/shell` or in this file), so they were done here; the engine side is in [core.md](core.md#the-n-phase-finish-and-harden-2d-branch-sharedn-phase-2026-09-30-local-not-pushed).
+Lucas hadn't started N6–N8 (nothing on `stream/shell` or in this file), so they were done here; the engine side is in [core.md](core.md#the-n-phase-finish-and-harden-2d-branch-sharedn-phase-2026-09-30-pr-54).
 
 - [x] **N6, a review of the app changes in #51 and #52** (checks from the document, proposal checks, the card, Select All, the Sketch browser, the dashed carry-on). Fixed, each with a test that fails without it:
   - The card listed every check a proposal removed, one red line each, and nothing collapsed them: clearing the stress plate listed 12 and pushed Accept off the card. Two of each kind are named; more are counted in one line, the list in its tooltip
