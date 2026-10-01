@@ -12,6 +12,7 @@ from caliper.contracts.commands import (
     Command,
     CreateCheck,
     CreateCircle,
+    CreateLine,
     CreateRectangle,
     DeleteEntities,
     ModifyEntity,
@@ -382,3 +383,29 @@ def test_history_names_each_change_to_a_check() -> None:
         bus.execute(DeleteEntities(ids=(check,))).label,  # type: ignore[union-attr]
     ]
     assert labels == ["Create Check", "Edit Check", "Edit Check", "Delete Check"]
+
+
+def test_an_area_check_is_stored_without_a_kernel_but_not_an_open_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Found by N4's tests run without OCCT, as Linux CI and an app without the extra run:
+    # validation used this machine's default kernel, and refused every area check.
+    from caliper.engine.commands import handlers
+    from caliper.engine.queries import DocumentQueries
+
+    monkeypatch.setattr(handlers, "DocumentQueries", lambda doc: DocumentQueries(doc, kernel=None))
+    bus = Bus(kernel=None)
+    corners = [Point2(x=0, y=0), Point2(x=30, y=0), Point2(x=30, y=20), Point2(x=0, y=20)]
+    for a, b in zip(corners, [*corners[1:], corners[0]], strict=True):
+        bus.execute(CreateLine(start=a, end=b))
+    lines = tuple(EntityId(f"e{n}") for n in range(1, 5))
+    stored = bus.execute(CreateCheck(metric=Metric.AREA, expected=600.0, tolerance=0.01, ids=lines))
+    assert isinstance(stored, Applied)
+    result = bus.queries.check(bus.document.entities[stored.created_ids[0]])  # type: ignore[arg-type]
+    assert result.error is not None
+    assert result.error.code is ErrorCode.KERNEL_UNAVAILABLE  # measured where there's a kernel
+    open_ = bus.execute(
+        CreateCheck(metric=Metric.AREA, expected=1.0, tolerance=0.01, ids=lines[:3])
+    )
+    assert isinstance(open_, Rejected)
+    assert open_.errors[0].code is ErrorCode.PROFILE_NOT_CLOSED

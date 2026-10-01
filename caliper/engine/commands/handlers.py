@@ -301,11 +301,15 @@ def _create_dimension(document: Document, command: CreateDimension) -> Handled |
 
 def _check_errors(document: Document, entity: Entity) -> list[Error]:
     """Why a check can't be stored as it is: it must be one `Queries.check` can evaluate
-    now. It may fail; that's what it's for."""
+    now. It may fail; that's what it's for. A geometry kernel missing from this machine
+    isn't the check's fault: an area check of a profile is stored without OCCT, as it would be
+    with it, and measured wherever a kernel is (the profile itself is checked first)."""
     if not isinstance(entity, Expectation):
         return []
-    result = DocumentQueries(document).check(entity)
-    return [] if result.error is None else [result.error]
+    error = DocumentQueries(document).check(entity).error
+    if error is None or error.code is ErrorCode.KERNEL_UNAVAILABLE:
+        return []
+    return [error]
 
 
 def _relation_solve(document: Document, id: EntityId, *, new: bool) -> Request:
