@@ -1,4 +1,4 @@
-"""Document model: the entities that make up a Caliper project. Frozen for V1.
+"""Document model: a part, its features in order, and the entities its sketches hold.
 
 Conventions:
 - Lengths are millimetres and angles are degrees, both float.
@@ -20,6 +20,8 @@ format change on top of that (ADR 0005). V1.5 (`contracts/sketch-constraints`) a
 `Point`, the `construction` flag, curve features, `Constraint`, driving dimension values,
 and `AngleDimension` (file schema 2). C-1 (`contracts/checks-authors-labels`) moved
 `Expectation` here from the queries: a check is stored in the document (file schema 3).
+V2's F1 (ADR 0011) made the document a part: `Document.features` in order, `Sketch` on a
+`Plane`, and each geometry entity's `sketch` (file schema 4).
 """
 
 from collections.abc import Mapping
@@ -44,9 +46,54 @@ class Point2:
     y: float
 
 
+# --- Features ---------------------------------------------------------------------------
+# A document is one part: its features, in the order they are recomputed, each able to read
+# only the features before it (ADR 0011). A sketch is the first kind; an extrude comes next
+# (V2, F3). Features live in `Document.features`, not in `Document.entities`.
+
+
+class Plane(StrEnum):
+    """One of the part's three origin planes, with a sketch's x and y axes fixed on it.
+
+    | Plane | Sketch x | Sketch y | Normal (x cross y) |
+    | XY    | +X       | +Y       | +Z                 |
+    | XZ    | +X       | +Z       | -Y                 |
+    | YZ    | +Y       | +Z       | +X                 |
+
+    Every plane passes through the part's origin. Offset planes and faces come later.
+    """
+
+    XY = "xy"
+    XZ = "xz"
+    YZ = "yz"
+
+
+FIRST_SKETCH = EntityId("e0")
+"""The sketch a new part starts with, on XY. The engine allocates ids from 1, so `e0` is never
+handed out to anything else, and a V1 file migrates into it with its ids unchanged."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Sketch:
+    """A sketch placed on a plane. Its geometry names it (`sketch`); its dimensions and
+    constraints are in it through the geometry they refer to; its coordinates are 2D, along
+    the plane's axes."""
+
+    kind: ClassVar[str] = "sketch"
+    id: EntityId
+    """Unique across the document's features and entities."""
+    plane: Plane
+
+
+PartFeature = Sketch
+"""Every kind of part feature. V2's F3 adds `Extrude`."""
+
+
 # --- Geometry ---------------------------------------------------------------------------
 # `construction` geometry is real geometry: it is solved, constrained, dimensioned, and
 # picked like anything else. It is only left out of profiles (areas now, extrusions later).
+# `sketch` is the sketch the geometry is drawn in, and its coordinates are in that sketch's
+# plane. It can't be changed once the geometry exists (ADR 0011).
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -56,6 +103,7 @@ class Point:
     kind: ClassVar[str] = "point"
     position: Point2
     construction: bool = False
+    sketch: EntityId = FIRST_SKETCH
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -64,6 +112,7 @@ class Line:
     start: Point2
     end: Point2
     construction: bool = False
+    sketch: EntityId = FIRST_SKETCH
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -72,6 +121,7 @@ class Circle:
     center: Point2
     radius: float
     construction: bool = False
+    sketch: EntityId = FIRST_SKETCH
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -90,6 +140,7 @@ class Arc:
     start_angle: float
     sweep_angle: float
     construction: bool = False
+    sketch: EntityId = FIRST_SKETCH
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -106,6 +157,7 @@ class Rectangle:
     width: float
     height: float
     construction: bool = False
+    sketch: EntityId = FIRST_SKETCH
 
 
 Geometry = Point | Line | Circle | Arc | Rectangle
@@ -380,18 +432,30 @@ Entity = Geometry | Annotation | Constraint | Expectation
 # --- Document ---------------------------------------------------------------------------
 
 
+ONE_SKETCH: tuple[PartFeature, ...] = (Sketch(id=FIRST_SKETCH, plane=Plane.XY),)
+"""The features of a new part: one sketch on XY."""
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Document:
-    """An immutable snapshot of a project.
+    """An immutable snapshot of a project: one part (ADR 0011).
 
-    Iteration order of `entities` is unspecified. Anything needing an order
-    (serialization, tie-breaking) sorts by id. `next_id` drives id allocation and is part
-    of the document so replay allocates the same ids.
+    `entities` holds what the part's sketches hold (geometry, dimensions, constraints) and
+    the part's checks. Its iteration order is unspecified; anything needing an order
+    (serialization, tie-breaking) sorts by id. `features` holds the part's features in the
+    order they are recomputed. Ids are unique across both. `next_id` drives id allocation
+    and is part of the document so replay allocates the same ids.
+
+    `features` defaults to one sketch on XY, `FIRST_SKETCH`, which is what a V1 document
+    is. Code that builds a document from another one keeps the other's features
+    (`dataclasses.replace`).
     """
 
     entities: Mapping[EntityId, Entity]
     next_id: int
+    features: tuple[PartFeature, ...] = ONE_SKETCH
 
     @classmethod
     def empty(cls) -> Self:
+        """A new part: one sketch on XY, nothing drawn in it."""
         return cls(entities=MappingProxyType({}), next_id=1)

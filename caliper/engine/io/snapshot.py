@@ -6,20 +6,25 @@ by default, and `export` never writes it.
 
 import os
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 
 from caliper.contracts.commands import Command
-from caliper.contracts.document import Document, Entity, EntityId
-from caliper.contracts.errors import Error, LoadError
-from caliper.engine.commands.validation import build_entity, field_types, normalize_id
+from caliper.contracts.document import FIRST_SKETCH, Document, Entity, EntityId, PartFeature, Plane
+from caliper.contracts.errors import Error, ErrorCode, LoadError
+from caliper.engine.commands.validation import (
+    build_entity,
+    field_types,
+    normalize_enum,
+    normalize_id,
+)
 from caliper.engine.io import canonical
 from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import DecodeError, decode_command, decode_document, encode
 
 FORMAT = "caliper.document"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 UNITS: Mapping[str, str] = MappingProxyType({"angle": "deg", "length": "mm"})
 
 type Migration = Callable[[dict[str, object]], dict[str, object]]
@@ -59,7 +64,39 @@ def _v2_to_v3(data: dict[str, object]) -> dict[str, object]:
     return data
 
 
-MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2, 2: _v2_to_v3}
+_GEOMETRY_KINDS = frozenset({"point", "line", "circle", "arc", "rectangle"})
+
+
+def _v3_to_v4(data: dict[str, object]) -> dict[str, object]:
+    """V2's part (ADR 0011): features in order, and geometry in a sketch.
+
+    Everything a schema-3 file holds goes into one sketch on XY: `e0`, the sketch a new part
+    starts with, which the engine never allocates, so every id and `next_id` stay as they
+    were. A file that already used `e0` for something gets the next free `e{n}` instead, with
+    `next_id` moved past it, as allocating it would have.
+    """
+    document = data.get("document")
+    if not isinstance(document, dict) or not isinstance(document.get("entities"), dict):
+        return data  # malformed; decoding reports it with a path
+    entities: dict[object, object] = document["entities"]
+    next_id = document.get("next_id")
+    sketch, moved = str(FIRST_SKETCH), {}
+    if sketch in entities and isinstance(next_id, int) and not isinstance(next_id, bool):
+        number = next_id
+        while f"e{number}" in entities:
+            number += 1
+        sketch, moved = f"e{number}", {"next_id": number + 1}
+    placed = {
+        id: entity | {"sketch": sketch}
+        if isinstance(entity, dict) and entity.get("kind") in _GEOMETRY_KINDS
+        else entity
+        for id, entity in entities.items()
+    }
+    features = [{"id": sketch, "kind": "sketch", "plane": Plane.XY.value}]
+    return data | {"document": document | {"entities": placed, "features": features} | moved}
+
+
+MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4}
 """MIGRATIONS[n] upgrades the data of a schema-n file to schema n+1.
 
 Each migration is a pure function over raw JSON data and needs a fixture test: an old file
@@ -156,8 +193,10 @@ def _history(data: object) -> tuple[Command, ...]:
 
 
 def _validated(document: Document) -> Document:
-    """Normalize every entity and apply the same rules commands follow."""
+    """Normalize every feature and entity and apply the same rules commands follow."""
     errors: list[Error] = []
+    features = _validated_features(document, errors)
+    document = replace(document, features=features)
     entities: dict[EntityId, Entity] = {}
     for entity_id in sorted(document.entities):
         where = f"document.entities.{entity_id}"
@@ -176,4 +215,26 @@ def _validated(document: Document) -> Document:
         )
     if errors:
         raise LoadError("invalid document", errors)
-    return Document(entities=MappingProxyType(entities), next_id=document.next_id)
+    return replace(document, entities=MappingProxyType(entities))
+
+
+def _validated_features(document: Document, errors: list[Error]) -> tuple[PartFeature, ...]:
+    """Each feature's id valid, and unique across features and entities; a sketch's plane one
+    of the three."""
+    features: list[PartFeature] = []
+    seen: set[EntityId] = set()
+    for index, feature in enumerate(document.features):
+        where = f"document.features[{index}]"
+        found: list[Error] = []
+        id = normalize_id(feature.id, "id", found)
+        if not found and (id in seen or id in document.entities):
+            found.append(
+                Error(code=ErrorCode.ID_TAKEN, message=f"id {id!r} is used twice", field="id")
+            )
+        plane = normalize_enum(Plane, feature.plane, "plane", found)
+        seen.add(id)
+        features.append(replace(feature, id=id, plane=plane))
+        errors.extend(
+            Error(code=e.code, message=e.message, field=f"{where}.{e.field}") for e in found
+        )
+    return tuple(features)

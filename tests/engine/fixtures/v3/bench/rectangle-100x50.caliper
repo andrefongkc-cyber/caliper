@@ -9,21 +9,13 @@
         },
         "height": 50.0,
         "kind": "rectangle",
-        "sketch": "e0",
         "width": 100.0
       }
     },
-    "features": [
-      {
-        "id": "e0",
-        "kind": "sketch",
-        "plane": "xy"
-      }
-    ],
     "next_id": 2
   },
   "format": "caliper.document",
-  "schema_version": 4,
+  "schema_version": 3,
   "units": {
     "angle": "deg",
     "length": "mm"

@@ -8,8 +8,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e10": {
         "center": {
@@ -18,8 +17,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e100": {
         "kind": "constraint",
@@ -42,8 +40,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e102": {
         "construction": true,
@@ -52,7 +49,6 @@
           "y": 85.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 150.0,
           "y": 55.0
@@ -135,8 +131,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e109": {
         "construction": true,
@@ -145,7 +140,6 @@
           "y": 115.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 150.0,
           "y": 85.0
@@ -158,7 +152,6 @@
           "y": 25.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 90.0,
           "y": 25.0
@@ -241,8 +234,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e116": {
         "construction": true,
@@ -251,7 +243,6 @@
           "y": 55.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 180.0,
           "y": 25.0
@@ -348,8 +339,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e123": {
         "construction": true,
@@ -358,7 +348,6 @@
           "y": 85.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 180.0,
           "y": 55.0
@@ -441,8 +430,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e13": {
         "kind": "constraint",
@@ -465,7 +453,6 @@
           "y": 115.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 180.0,
           "y": 85.0
@@ -590,8 +577,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e18": {
         "construction": true,
@@ -600,7 +586,6 @@
           "y": 25.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 120.0,
           "y": 25.0
@@ -690,8 +675,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e25": {
         "construction": true,
@@ -700,7 +684,6 @@
           "y": 25.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 150.0,
           "y": 25.0
@@ -769,8 +752,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e30": {
         "kind": "constraint",
@@ -793,8 +775,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e32": {
         "construction": true,
@@ -803,7 +784,6 @@
           "y": 55.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 60.0,
           "y": 25.0
@@ -882,8 +862,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e39": {
         "construction": true,
@@ -892,7 +871,6 @@
           "y": 85.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 60.0,
           "y": 55.0
@@ -905,7 +883,6 @@
           "y": 25.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 60.0,
           "y": 25.0
@@ -988,8 +965,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e46": {
         "construction": true,
@@ -998,7 +974,6 @@
           "y": 115.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 60.0,
           "y": 85.0
@@ -1095,8 +1070,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e53": {
         "construction": true,
@@ -1105,7 +1079,6 @@
           "y": 55.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 90.0,
           "y": 25.0
@@ -1188,8 +1161,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e6": {
         "kind": "constraint",
@@ -1212,7 +1184,6 @@
           "y": 85.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 90.0,
           "y": 55.0
@@ -1295,8 +1266,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e67": {
         "construction": true,
@@ -1305,7 +1275,6 @@
           "y": 115.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 90.0,
           "y": 85.0
@@ -1398,8 +1367,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e74": {
         "construction": true,
@@ -1408,7 +1376,6 @@
           "y": 55.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 120.0,
           "y": 25.0
@@ -1505,8 +1472,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e81": {
         "construction": true,
@@ -1515,7 +1481,6 @@
           "y": 85.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 120.0,
           "y": 55.0
@@ -1598,8 +1563,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e88": {
         "construction": true,
@@ -1608,7 +1572,6 @@
           "y": 115.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 120.0,
           "y": 85.0
@@ -1705,8 +1668,7 @@
         },
         "construction": false,
         "kind": "circle",
-        "radius": 3.0,
-        "sketch": "e0"
+        "radius": 3.0
       },
       "e95": {
         "construction": true,
@@ -1715,7 +1677,6 @@
           "y": 55.0
         },
         "kind": "line",
-        "sketch": "e0",
         "start": {
           "x": 150.0,
           "y": 25.0
@@ -1778,17 +1739,10 @@
         "type": "parallel"
       }
     },
-    "features": [
-      {
-        "id": "e0",
-        "kind": "sketch",
-        "plane": "xy"
-      }
-    ],
     "next_id": 136
   },
   "format": "caliper.document",
-  "schema_version": 4,
+  "schema_version": 3,
   "units": {
     "angle": "deg",
     "length": "mm"

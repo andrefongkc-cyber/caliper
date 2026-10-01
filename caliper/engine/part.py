@@ -1,0 +1,108 @@
+"""The part around the sketches (ADR 0011): its features, which sketch an entity is in, and
+the rule that 2D work stays inside one sketch.
+
+A sketch is a feature, in `Document.features`, never an entity. Geometry names its sketch;
+a dimension or constraint is in the sketch of the geometry it refers to, all of which is in
+one sketch; a check belongs to the part.
+"""
+
+from collections.abc import Iterable
+
+from caliper.contracts.document import (
+    AngleDimension,
+    Arc,
+    Circle,
+    Constraint,
+    DistanceDimension,
+    Document,
+    EntityId,
+    Line,
+    PartFeature,
+    Point,
+    RadialDimension,
+    Rectangle,
+    Sketch,
+)
+from caliper.contracts.errors import Error, ErrorCode
+
+
+def feature(document: Document, id: EntityId) -> PartFeature | None:
+    """The feature with `id`, or None. A part has a handful, so a scan is fine."""
+    for each in document.features:
+        if each.id == id:
+            return each
+    return None
+
+
+def sketches(document: Document) -> tuple[EntityId, ...]:
+    """The part's sketches, in feature order."""
+    return tuple(each.id for each in document.features if isinstance(each, Sketch))
+
+
+def taken(document: Document, id: EntityId) -> bool:
+    """Whether `id` names an entity or a feature: ids are unique across both."""
+    return id in document.entities or feature(document, id) is not None
+
+
+def sketch_of(document: Document, id: EntityId) -> EntityId | None:
+    """The sketch an entity is in, or None for a check, a feature, or an unknown id."""
+    match document.entities.get(id):
+        case Point(sketch=sketch) | Line(sketch=sketch) | Circle(sketch=sketch):
+            return sketch
+        case Arc(sketch=sketch) | Rectangle(sketch=sketch):
+            return sketch
+        case DistanceDimension(a=ref) | AngleDimension(a=ref):
+            return _geometry_sketch(document, ref.entity)
+        case RadialDimension(target=target):
+            return _geometry_sketch(document, target)
+        case Constraint(refs=refs) if refs:
+            return _geometry_sketch(document, refs[0].entity)
+    return None
+
+
+def _geometry_sketch(document: Document, id: EntityId) -> EntityId | None:
+    match document.entities.get(id):
+        case Point(sketch=sketch) | Line(sketch=sketch) | Circle(sketch=sketch):
+            return sketch
+        case Arc(sketch=sketch) | Rectangle(sketch=sketch):
+            return sketch
+    return None
+
+
+def one_sketch(
+    document: Document, ids: Iterable[EntityId], *, field: str, what: str
+) -> Error | None:
+    """`sketch.mixed` when the entities among `ids` are in more than one sketch. Ids in no
+    sketch (checks, features, unknown ids) are left to the caller's own checks. `what` says
+    what they are for, as in "a constraint's references"."""
+    found = sorted({s for id in ids if (s := sketch_of(document, id)) is not None})
+    if len(found) < 2:
+        return None
+    return Error(
+        code=ErrorCode.SKETCH_MIXED,
+        message=f"{what} must be in one sketch, but these are in {', '.join(found)}",
+        field=field,
+        ids=tuple(EntityId(s) for s in found),
+    )
+
+
+def resolve_sketch(
+    document: Document, requested: EntityId | None, errors: list[Error]
+) -> EntityId | None:
+    """The sketch a create command draws in: `requested`, or the part's only sketch.
+
+    None, with `sketch.required` in `errors`, when nothing was requested and the part doesn't
+    have exactly one sketch. A requested sketch is returned as given; whether it exists is
+    checked with the entity, like every other reference."""
+    if requested is not None:
+        return requested
+    found = sketches(document)
+    if len(found) == 1:
+        return found[0]
+    message = (
+        "the part has no sketch to draw in; create one first"
+        if not found
+        else f"the part has {len(found)} sketches ({', '.join(found)}); say which in `sketch`"
+    )
+    errors.append(Error(code=ErrorCode.SKETCH_REQUIRED, message=message, field="sketch"))
+    return None

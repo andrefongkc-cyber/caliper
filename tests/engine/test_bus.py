@@ -22,6 +22,7 @@ from caliper.contracts.commands import (
     Rejected,
 )
 from caliper.contracts.document import (
+    FIRST_SKETCH,
     Arc,
     DistanceOrientation,
     Document,
@@ -63,7 +64,7 @@ def test_create_allocates_an_id_and_records_a_delta() -> None:
     bus = Bus()
     result = applied(bus.execute(rectangle()))
     assert result.created_ids == (E1,)
-    assert result.command == rectangle(id=E1)
+    assert result.command == rectangle(id=E1, sketch=FIRST_SKETCH)  # the only sketch, recorded
     assert result.label == "Create Rectangle"
     assert result.delta.added == {E1}
     assert bus.document.entities[E1] == Rectangle(corner=ORIGIN, width=100.0, height=50.0)
@@ -77,7 +78,7 @@ def test_ints_become_floats_in_the_document_and_the_resolved_command() -> None:
     assert isinstance(stored, Rectangle)
     assert type(stored.width) is float
     assert type(stored.corner.x) is float
-    assert result.command == rectangle(id=E1)
+    assert result.command == rectangle(id=E1, sketch=FIRST_SKETCH)
 
 
 @pytest.mark.parametrize(

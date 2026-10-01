@@ -8,6 +8,7 @@
           "y": 0.0
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 100.0,
           "y": 0.0
@@ -20,6 +21,7 @@
           "y": 80.0
         },
         "kind": "line",
+        "sketch": "e0",
         "start": {
           "x": 0.0,
           "y": 10.0
@@ -33,14 +35,22 @@
         "construction": false,
         "kind": "arc",
         "radius": 10.0,
+        "sketch": "e0",
         "start_angle": 180.0,
         "sweep_angle": 90.0
       }
     },
+    "features": [
+      {
+        "id": "e0",
+        "kind": "sketch",
+        "plane": "xy"
+      }
+    ],
     "next_id": 4
   },
   "format": "caliper.document",
-  "schema_version": 3,
+  "schema_version": 4,
   "units": {
     "angle": "deg",
     "length": "mm"

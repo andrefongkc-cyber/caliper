@@ -29,6 +29,7 @@ from caliper.contracts.commands import (
     Applied,
     Command,
     CreateCheck,
+    CreateSketch,
     DeleteEntities,
     Delta,
     ModifyEntity,
@@ -120,6 +121,10 @@ _FIELD_DESCRIPTIONS: dict[str | tuple[str, str], str] = {
         "True for layout geometry: centre lines and reference circles that other geometry is "
         "constrained and dimensioned to. It is solved like any geometry but is not part of the "
         "part's outline."
+    ),
+    "sketch": (
+        "The id of the sketch to draw in. Leave it out while the part has one sketch, which is "
+        "drawn in by default."
     ),
 }
 """What a command field is for, where its name and type don't say: by (command, field), or
@@ -310,10 +315,12 @@ REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN, patterns.CIRCULAR)
 DRAWING_TOOLS = (construct.ARC_THROUGH, construct.OUTLINE)
 
 COMMAND_TOOLS: Mapping[str, type[Command]] = {
-    kind: cls for kind, cls in COMMAND_KINDS.items() if cls is not CreateCheck
+    kind: cls for kind, cls in COMMAND_KINDS.items() if cls not in (CreateCheck, CreateSketch)
 }
-"""A tool for each command but `CreateCheck`: `run_check` measures a check before it stores it,
-and a check that can't be measured isn't stored, so the model has one way to check, not two."""
+"""A tool for each command but two. Not `CreateCheck`: `run_check` measures a check before it
+stores it, and a check that can't be measured isn't stored, so the model has one way to check,
+not two. Not `CreateSketch` yet: the app can't show a second sketch on its plane or pick one to
+draw in until it has sketch mode (V2's F6, ADR 0011), and the model has no more than the UI."""
 
 TOOLS: tuple[ToolSpec, ...] = (
     *(_command_spec(kind, cls) for kind, cls in COMMAND_TOOLS.items()),

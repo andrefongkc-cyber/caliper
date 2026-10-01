@@ -13,10 +13,12 @@ from caliper.contracts.commands import (
     CreateCheck,
     CreateConstraint,
     CreateRectangle,
+    CreateSketch,
     DeleteEntities,
     ModifyEntity,
 )
 from caliper.contracts.document import (
+    FIRST_SKETCH,
     ConstraintType,
     Document,
     EntityId,
@@ -62,8 +64,10 @@ def stored(workspace: Workspace) -> list[Expectation]:
 def test_every_command_is_a_tool_with_a_schema_for_its_fields() -> None:
     tools = {t.name: t for t in TOOLS}
     assert "create_check" not in tools  # run_check measures a check, then stores it (C-1)
+    # Not until the app has sketch mode and can show a sketch on its plane (ADR 0011, F6).
+    assert "create_sketch" not in tools
     for command in get_args(Command):
-        if command is CreateCheck:
+        if command in (CreateCheck, CreateSketch):
             continue
         tool = tools[command.kind]
         names = {f.name for f in dataclasses.fields(command)}
@@ -120,9 +124,12 @@ def test_a_command_tool_runs_the_command_and_reports_what_changed() -> None:
     assert outcome.content["changed"]["added"]["e1"]["width"] == 100.0  # type: ignore[index]
     rectangle = workspace.document.entities[E1]
     assert rectangle == Rectangle(corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0)
-    # The resolved command: ids filled in and ints made floats, as replay records it.
+    # The resolved command: ids and the sketch filled in and ints made floats, as replay
+    # records it.
     assert workspace.commands == (
-        CreateRectangle(corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0, id=E1),
+        CreateRectangle(
+            corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0, sketch=FIRST_SKETCH, id=E1
+        ),
     )
 
 

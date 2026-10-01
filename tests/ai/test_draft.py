@@ -2,7 +2,7 @@
 
 from caliper.ai.draft import Draft, Ended
 from caliper.contracts.commands import CreateCheck, CreateCircle, CreateRectangle
-from caliper.contracts.document import EntityId, Point2
+from caliper.contracts.document import FIRST_SKETCH, EntityId, Point2
 from caliper.engine.commands.bus import Bus
 from caliper.engine.io import snapshot
 
@@ -28,7 +28,13 @@ def test_a_change_starts_a_draft_and_leaves_the_document_alone() -> None:
     assert draft.base is document
     assert dict(document.entities) == {}
     assert draft.commands == (
-        CreateRectangle(corner=Point2(x=0.0, y=0.0), width=100.0, height=50.0, id=EntityId("e1")),
+        CreateRectangle(
+            corner=Point2(x=0.0, y=0.0),
+            width=100.0,
+            height=50.0,
+            sketch=FIRST_SKETCH,
+            id=EntityId("e1"),
+        ),
     )
     assert draft.label == "Create Rectangle"
 

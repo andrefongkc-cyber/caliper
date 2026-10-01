@@ -12,11 +12,15 @@ from types import MappingProxyType, NoneType, UnionType
 from typing import Any, Union, cast, get_args, get_origin, get_type_hints
 
 from caliper.contracts.commands import Command
-from caliper.contracts.document import Document, Entity, EntityId
+from caliper.contracts.document import Document, Entity, EntityId, PartFeature
 from caliper.engine.io.canonical import JSON
 
 ENTITY_KINDS: Mapping[str, type[Entity]] = {cls.kind: cls for cls in get_args(Entity)}
 COMMAND_KINDS: Mapping[str, type[Command]] = {cls.kind: cls for cls in get_args(Command)}
+FEATURE_KINDS: Mapping[str, type[PartFeature]] = {
+    cls.kind: cls for cls in (get_args(PartFeature) or (PartFeature,))
+}
+"""One kind until V2's F3 adds a second, which makes `PartFeature` a union."""
 
 
 class DecodeError(ValueError):
@@ -54,7 +58,7 @@ def encode(value: object) -> JSON:
 
 def decode_document(data: object, path: str = "document") -> Document:
     obj = _object(data, path)
-    _check_keys(obj, path, required={"entities", "next_id"}, optional=set())
+    _check_keys(obj, path, required={"entities", "features", "next_id"}, optional=set())
     entities_data = _object(obj["entities"], f"{path}.entities")
     next_id = obj["next_id"]
     if isinstance(next_id, bool) or not isinstance(next_id, int) or next_id < 1:
@@ -63,11 +67,21 @@ def decode_document(data: object, path: str = "document") -> Document:
         EntityId(key): decode_entity(value, f"{path}.entities.{key}")
         for key, value in entities_data.items()
     }
-    return Document(entities=MappingProxyType(entities), next_id=next_id)
+    features_data = obj["features"]
+    if not isinstance(features_data, list):
+        raise DecodeError(f"{path}.features", "expected a list")
+    features = tuple(
+        decode_feature(item, f"{path}.features[{i}]") for i, item in enumerate(features_data)
+    )
+    return Document(entities=MappingProxyType(entities), next_id=next_id, features=features)
 
 
 def decode_entity(data: object, path: str) -> Entity:
     return cast(Entity, _decode_tagged(data, path, ENTITY_KINDS))
+
+
+def decode_feature(data: object, path: str) -> PartFeature:
+    return cast(PartFeature, _decode_tagged(data, path, FEATURE_KINDS))
 
 
 def decode_command(data: object, path: str) -> Command:

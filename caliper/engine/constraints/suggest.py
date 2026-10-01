@@ -25,6 +25,7 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.queries import Suggestion
+from caliper.engine import part
 from caliper.engine.constraints.dimensions import frame
 from caliper.engine.constraints.relations import Match, match
 from caliper.engine.constraints.sketch import grouped, implied
@@ -77,6 +78,8 @@ def suggest(
         if key in existing or key in seen:
             continue
         seen.add(key)
+        if len({part.sketch_of(document, r.entity) for r in refs}) > 1:
+            continue  # a relation stays inside one sketch (ADR 0011)
         fitted = match(document, type_, refs)
         if not isinstance(fitted, Match):
             continue
