@@ -9,8 +9,10 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from caliper.app.agent.proposal import Plan
 from caliper.app.main_window import MainWindow
 from caliper.app.panels.checks import options
+from caliper.app.viewport.painter import ModelPainter
 from caliper.contracts.commands import (
     CreateCircle,
     CreateExtrude,
@@ -261,3 +263,30 @@ def test_with_one_sketch_the_size_checks_name_no_ids(window: MainWindow) -> None
     window.session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
     width = next(o for o in options(window.session) if o.label == "Sketch width")
     assert width.ids == ()  # the whole sketch, as a V1 file's check always said
+
+
+def test_a_proposal_is_drawn_only_where_it_lands_in_the_sketch_being_edited(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another sketch is on another plane: its proposed geometry would be drawn in the wrong
+    place on this one's canvas, so the ghost shows only the edited sketch's changes."""
+    window.new_sketch_actions[Plane.XZ].trigger()
+    second = window.session.active_sketch
+    plan = Plan(
+        label="Two Circles",
+        explanation="One in each sketch",
+        commands=(
+            CreateCircle(center=Point2(x=0, y=0), radius=5, sketch=FIRST_SKETCH),
+            CreateCircle(center=Point2(x=30, y=0), radius=7, sketch=second),
+        ),
+    )
+    assert not window.agent.propose(plan, window.session.document).errors
+    drawn: list[object] = []
+    real = ModelPainter.geometry
+    monkeypatch.setattr(
+        ModelPainter, "geometry", lambda self, entity: (drawn.append(entity), real(self, entity))
+    )
+    window.canvas.grab()
+    radii = {getattr(e, "radius", None) for e in drawn}
+    assert 7.0 in radii  # the second sketch's circle, where it lands
+    assert 5.0 not in radii  # not the first sketch's, on another plane
