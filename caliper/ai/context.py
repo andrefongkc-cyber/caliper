@@ -38,6 +38,7 @@ def describe(
     focus: Iterable[EntityId] = (),
     limit: int = 40,
     changes_since: Document | None = None,
+    editing: EntityId | None = None,
 ) -> dict[str, JSON]:
     queries = DocumentQueries(document, kernel=None)
     entities = document.entities
@@ -53,6 +54,12 @@ def describe(
         "kinds": dict(sorted(counts.items())),
         # The part's sketches (and, from V2's F3, other features), in order (ADR 0011).
         "features": [encode(feature) for feature in document.features],
+        # The sketch the user is editing: where drawing goes when it names none.
+        **(
+            {"editing": str(editing)}
+            if editing is not None and len(part.sketches(document)) > 1
+            else {}
+        ),
         "bounds": _bounds(queries.bounding_box()),
         "solve_status": {
             "state": status.state.value,

@@ -391,9 +391,10 @@ class AgentController(QObject):
         self.bar.input.clear()
         self.bar.set_busy(True)
         self.turn_started.emit(text)
-        document, selection, generation = (
+        document, selection, sketch, generation = (
             self.session.document,
             self.session.selection,
+            self.session.active_sketch,
             self._generation,
         )
         stop = self._stop = threading.Event()
@@ -402,7 +403,12 @@ class AgentController(QObject):
             result: Turn | Exception
             try:
                 result = assistant.ask(
-                    text, document, selection, on_step=self.step_done.emit, stop=stop.is_set
+                    text,
+                    document,
+                    selection,
+                    on_step=self.step_done.emit,
+                    stop=stop.is_set,
+                    sketch=sketch,
                 )
             except Exception as e:  # a bug in Caliper: show it rather than lose it
                 result = e
