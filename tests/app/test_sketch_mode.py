@@ -157,6 +157,19 @@ def test_selecting_a_feature_edits_it_in_properties(window: MainWindow) -> None:
     assert window.session.selection == {extrude}  # a feature stays selected through the change
 
 
+def test_double_clicking_a_sketch_row_edits_that_sketch(window: MainWindow, qtbot) -> None:  # type: ignore[no-untyped-def]
+    window.new_sketch_actions[Plane.XZ].trigger()
+    window.set_mode("3d")
+    tree = window.features.tree
+    rect = tree.visualItemRect(window.features.items[FIRST_SKETCH])
+    # A double-click is a click, then the second press: an item view needs both.
+    qtbot.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+    qtbot.mouseDClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+    assert window.session.active_sketch == FIRST_SKETCH
+    assert window.mode == "2d"  # a sketch is edited in 2D
+    assert window.features.items[FIRST_SKETCH].text(1) == "XY  ·  editing"
+
+
 # --- The Extrude form -------------------------------------------------------------------------
 
 
@@ -185,6 +198,17 @@ def test_extrude_explains_an_open_profile_and_stays_open(window: MainWindow) -> 
     assert len(window.session.document.features) == 1
     form.close_form()
     assert not form.isVisible()
+
+
+def test_a_depth_that_isnt_a_number_is_explained(window: MainWindow) -> None:
+    window.session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    window.extrude_action.trigger()
+    form = window.extrude_form
+    form.depth.setText("deep")
+    form.confirm.click()
+    assert form.isVisible()
+    assert form.error.text() == "Type a depth in mm"
+    assert len(window.session.document.features) == 1
 
 
 def test_extrude_takes_the_selected_profile(window: MainWindow) -> None:

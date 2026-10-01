@@ -21,7 +21,7 @@ from caliper.contracts.commands import (
     DeleteEntities,
     ModifyEntity,
 )
-from caliper.contracts.document import EntityId, Point2
+from caliper.contracts.document import EntityId, ExtrudeOperation, Point2
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import Point3
 from caliper.engine import features, geometry
@@ -141,6 +141,35 @@ def test_without_a_kernel_it_says_what_to_install(
     extruded(window)
     window.set_mode("3d")
     assert "occt" in (window.view3d.problem or "")
+
+
+def test_a_part_cut_away_entirely_says_so(window: MainWindow, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A cut through all of the solid leaves an empty one, which OCCT makes and the analytic
+    kernel can't: the view draws nothing and says why, rather than failing (F8)."""
+    occt = pytest.importorskip(
+        "caliper.engine.geometry.occt_kernel", reason="the occt extra isn't installed"
+    )
+    kernel = occt.OCCTKernel()
+    monkeypatch.setattr(geometry, "default_kernel", lambda: kernel)
+    features.forget()
+    (plate,) = window.session.execute(  # type: ignore[union-attr]
+        CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50)
+    ).created_ids
+    window.session.execute(CreateExtrude(depth=10.0, ids=(plate,)))
+    assert volume(window) == pytest.approx(60_000.0)
+    (block,) = window.session.execute(  # type: ignore[union-attr]
+        CreateRectangle(corner=Point2(x=-10, y=-10), width=200, height=100)
+    ).created_ids
+    window.session.execute(
+        CreateExtrude(depth=10.0, ids=(block,), operation=ExtrudeOperation.REMOVE)
+    )
+    assert volume(window) == pytest.approx(0.0, abs=1e-6)
+    window.set_mode("3d")
+    QApplication.processEvents()
+    assert window.view3d.mesh is not None
+    assert window.view3d.mesh.triangles == ()
+    assert "cut away" in (window.view3d.problem or "")
+    assert window.features.volume.text() == "0 mm³"
 
 
 def test_a_failing_extrude_keeps_the_last_solid_on_screen_with_the_reason(
