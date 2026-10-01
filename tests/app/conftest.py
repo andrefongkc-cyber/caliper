@@ -16,7 +16,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 HAVE_QT = all(importlib.util.find_spec(name) for name in ("PySide6", "pytestqt"))
-QT_FREE = {"test_viewport_math.py", "test_tokens.py"}
+QT_FREE = {"test_viewport_math.py", "test_tokens.py", "test_camera3d.py"}
 
 
 def pytest_configure(config: pytest.Config) -> None:

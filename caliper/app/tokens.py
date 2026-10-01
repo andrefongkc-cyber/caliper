@@ -45,6 +45,12 @@ class Palette:
     snap: str
     rubber_band_alpha: int
     """Opacity (0-255) of the accent fill inside a box selection."""
+    # 3D view (V2)
+    solid: str
+    """A part's solid, lit: faces turned away from the light darken towards a third of it."""
+    solid_edge: str
+    """The solid's edges where its faces meet at an angle."""
+    axis_z: str
 
 
 DARK = Palette(
@@ -73,6 +79,9 @@ DARK = Palette(
     dimension="#9fb4c8",
     snap="#e3b341",
     rubber_band_alpha=40,
+    solid="#a9b4c2",
+    solid_edge="#1b1c1f",
+    axis_z="#3b5f9a",
 )
 
 
