@@ -313,6 +313,37 @@ def test_deleting_a_sketch_deletes_the_extrude_that_reads_it_and_undo_restores_b
     assert [f.id for f in bus.document.features] == [E0]  # the sketch stays
 
 
+def test_deleting_what_an_extrude_needs_makes_it_fail_and_undo_mends_it() -> None:
+    """Allowed, as an edit that opens the profile is: deleting the extrude a cut builds on
+    leaves the cut with nothing to cut, and deleting geometry an extrude names leaves it a
+    name with nothing behind it. Each says why, and undo puts the solid back (F8)."""
+    bus = part()
+    outline = plate(bus)
+    hole = created(bus, CreateCircle(center=Point2(x=60.0, y=25.0), radius=5.0))
+    boss = created(bus, CreateExtrude(depth=10.0, ids=(outline,)))
+    cut = created(bus, CreateExtrude(depth=10.0, ids=(hole,), operation=ExtrudeOperation.REMOVE))
+    whole = solid(bus).volume
+    assert whole == pytest.approx(60_000.0 - math.pi * 25.0 * 10.0)
+
+    applied(bus.execute(DeleteEntities(ids=(boss,))))
+    error = bus.queries.feature_error(cut)
+    assert error is not None
+    assert (error.code, error.field) == (ErrorCode.VALUE_OUT_OF_RANGE, "operation")
+    assert "no solid before it" in error.message
+    assert bus.queries.solid_properties() == error
+    bus.undo()
+    assert solid(bus).volume == whole
+
+    applied(bus.execute(DeleteEntities(ids=(hole,))))
+    assert [f.id for f in bus.document.features] == [E0, boss, cut]  # the cut stays, failing
+    error = bus.queries.feature_error(cut)
+    assert error is not None
+    assert (error.code, error.ids) == (ErrorCode.ENTITY_NOT_FOUND, (hole,))
+    assert solid(bus, boss).volume == pytest.approx(60_000.0)  # the part before it stands
+    bus.undo()
+    assert solid(bus).volume == whole
+
+
 # --- Checks of volume ---------------------------------------------------------------------
 
 
