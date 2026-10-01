@@ -21,6 +21,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
+from caliper.engine import part
 from caliper.engine.document.delta import diff
 from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import encode
@@ -50,6 +51,8 @@ def describe(
         "units": "millimetres and degrees; y points up",
         "entity_count": len(entities),
         "kinds": dict(sorted(counts.items())),
+        # The part's sketches (and, from V2's F3, other features), in order (ADR 0011).
+        "features": [encode(feature) for feature in document.features],
         "bounds": _bounds(queries.bounding_box()),
         "solve_status": {
             "state": status.state.value,
@@ -93,6 +96,8 @@ def _entity(document: Document, queries: DocumentQueries, id: EntityId) -> JSON:
     entity = document.entities[id]
     data = encode(entity)
     assert isinstance(data, dict)
+    if len(part.sketches(document)) <= 1:
+        data.pop("sketch", None)  # every entity is in the one sketch: said once, in "features"
     summary: dict[str, JSON] = {"id": id, **data}
     if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
         measured = queries.dimension_value(id)
