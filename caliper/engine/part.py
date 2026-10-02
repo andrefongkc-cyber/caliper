@@ -8,6 +8,7 @@ one sketch; a check belongs to the part.
 
 from collections.abc import Iterable
 from dataclasses import replace
+from types import MappingProxyType
 
 from caliper.contracts.commands import (
     Command,
@@ -17,6 +18,7 @@ from caliper.contracts.commands import (
     CreateLine,
     CreatePoint,
     CreateRectangle,
+    CreateSketch,
 )
 from caliper.contracts.document import (
     AngleDimension,
@@ -88,6 +90,25 @@ def in_sketch(document: Document, command: Command, editing: EntityId | None) ->
     ):
         return replace(command, sketch=editing)
     return command
+
+
+DRAWING = (CreatePoint, CreateLine, CreateCircle, CreateArc, CreateRectangle)
+"""The commands that draw geometry in a sketch."""
+
+
+def no_sketch() -> Document:
+    """A part with nothing in it, not even a sketch: what the app's 3D tab starts from (ADR
+    0015), its planes to sketch on. `Document.empty()` stays the new part everywhere else."""
+    return Document(entities=MappingProxyType({}), next_id=1, features=())
+
+
+def first_sketch(document: Document, command: Command) -> CreateSketch | None:
+    """The sketch to make before `command`, when it draws in a part with no sketch and names
+    none: one on XY, the Top plane, where a new part's sketch always was. None otherwise, so
+    drawing in a part that has sketches goes as it came."""
+    if isinstance(command, DRAWING) and command.sketch is None and not sketches(document):
+        return CreateSketch(plane=Plane.XY)
+    return None
 
 
 def taken(document: Document, id: EntityId) -> bool:

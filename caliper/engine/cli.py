@@ -78,12 +78,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _replay(script_path: Path, output: Path | None, *, history: bool) -> int:
     try:
-        commands = script.load(script_path)
+        read = script.read(script_path.read_text(encoding="utf-8"))
     except (OSError, LoadError) as e:
         return _fail(str(e))
-    bus = Bus()
+    bus = Bus(read.start())
     resolved: list[Command] = []
-    for index, command in enumerate(commands):
+    for index, command in enumerate(read.commands):
         result = bus.execute(command)
         if isinstance(result, Rejected):
             for error in result.errors:

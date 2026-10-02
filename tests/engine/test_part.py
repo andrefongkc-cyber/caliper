@@ -403,6 +403,28 @@ def test_drawing_that_names_no_sketch_goes_into_the_one_being_edited() -> None:
     assert part.in_sketch(document, other, second) is other  # nothing to name
 
 
+def test_a_part_with_no_sketch_saves_reloads_and_takes_its_first_sketch_on_a_plane() -> None:
+    """The app's 3D tab starts here (ADR 0015): no sketch, just the planes to put one on."""
+    empty = part.no_sketch()
+    assert (empty.features, dict(empty.entities)) == ((), {})
+    assert snapshot.loads(snapshot.dumps(empty)) == empty
+    bus = Bus(empty)
+    (sketch,) = applied(bus.execute(CreateSketch(plane=Plane.YZ))).created_ids
+    assert part.sketches(bus.document) == (sketch,)
+    applied(bus.execute(CreateCircle(center=ORIGIN, radius=1.0)))  # its only sketch
+
+
+def test_drawing_in_a_part_with_no_sketch_first_makes_one_on_top() -> None:
+    """What Claude's tools do in an empty part: make the sketch a new part always had, on XY."""
+    circle = CreateCircle(center=ORIGIN, radius=1.0)
+    assert part.first_sketch(part.no_sketch(), circle) == CreateSketch(plane=Plane.XY)
+    assert part.first_sketch(Bus().document, circle) is None  # it has one
+    named = CreateCircle(center=ORIGIN, radius=1.0, sketch=E0)
+    assert part.first_sketch(part.no_sketch(), named) is None  # named: refused as it is
+    assert part.first_sketch(part.no_sketch(), CreateExtrude(depth=1.0)) is None  # draws nothing
+    assert set(part.DRAWING) == set(part.IN_A_SKETCH) - {CreateExtrude}
+
+
 def test_every_command_that_takes_a_sketch_is_filled_in() -> None:
     """A command added later with a `sketch` field must be in `IN_A_SKETCH`, or the window
     and the AI would refuse it in a part with two sketches."""
