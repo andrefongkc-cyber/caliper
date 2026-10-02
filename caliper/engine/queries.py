@@ -301,13 +301,7 @@ class DocumentQueries:
             return found
         kernel, solid = found
         try:
-            volume = kernel.volume(solid)
-            try:
-                box = kernel.bounding_box_3d(solid)
-            except KernelError as e:
-                if e.code is not ErrorCode.SELECTION_EMPTY:
-                    raise
-                box = None
+            volume, box = features.properties(kernel, solid)
         except KernelError as e:
             return Error(code=e.code, message=str(e), field="ids")
         return SolidProperties(volume=volume, bounding_box=box)
