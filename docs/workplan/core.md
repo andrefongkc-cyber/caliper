@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 and Perf-1 done (opening 10,000 entities 37.8 s → 0.50 s); next: Perf-2, one palette refilter per event-loop turn
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-2 done (open 10k 37.8 s → 0.50 s; selection change 6.6 → 2.7 ms); next: Perf-3, History and panel refreshes
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -54,7 +54,16 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   | Accepted stress plate redone | 21.3 ms | 15.4 ms |
 
   The bench's `ui/browser-rebuild` now forces a real rebuild, and `ui/open` counts the rows made. The skipped second rebuild still counts as a call.
-- [ ] Perf-2: one command-palette refilter per event-loop turn
+- [x] **Perf-2, one command-palette refresh per event-loop turn** (`caliper/app/palette.py`). The docked palette refiltered its whole list on every `QAction.changed`. A selection change updates a dozen constraint actions at once, so it refiltered 17 times. Now a zero-delay single-shot timer, owned by the palette, refreshes the list once when the event loop next turns, keeping the highlighted row as before. Typing still filters at once.
+  - `test_the_sidebar_greys_out_actions_as_they_become_unavailable` now waits for that turn.
+  - A new test checks one refresh for a selection that changes many actions; it fails on the old code with 19.
+
+  | | Perf-1 | Perf-2 (Perf-0 in brackets) |
+  |---|---|---|
+  | Selection change | 6.6 ms, 17 refilters | 2.69 ms, 1 |
+  | Tab round trip | 41.4 ms, 68 refilters (49.5 ms) | 18.8 ms, 2 |
+  | Startup (window after the first) | 25.1 ms, 51 refilters | 16.3 ms, 2 |
+  | Select All / an edit / undo | 6.3 / 13.0 / 10.9 ms | 5.9 / 13.2 / 10.8 ms (unchanged: not the palette) |
 - [ ] Perf-3: History incremental; one Checks and Part refresh per turn; solid properties cached per solid
 - [ ] Perf-4: solver evaluation, bit-identical
 - [ ] Perf-6: incremental picking grid
