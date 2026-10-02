@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0, the baseline, done; next: Perf-1. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 and Perf-1 done; next: Perf-2. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -32,7 +32,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] 3D-first, after F8 ([ADR 0015](docs/adr/0015-sketching-in-3d-from-the-parts-planes.md), Proposed; [shell.md](docs/workplan/shell.md)): the app starts in 3D on a part with its Top, Front, and Right planes; a sketch is made on a plane and edited in 3D facing it, with Finish and Cancel; the 2D tab is a sketch to test on, its own document and file; Claude works on the tab shown
   - [~] **Performance V2.2** (measured plan 2026-10-01 on `bf1dcc9`; [core.md](docs/workplan/core.md)): make what exists faster, solver bit-identical
     - [x] Perf-0: missing benchmarks and counters (`bench/perf_v22.py`); baseline `bench/results/2026-10-02-pv2.2-baseline.json`; two stale figures corrected
-    - [ ] Perf-1: sketch browser in linear time, one rebuild per document swap (open at 10k: 37.8 s)
+    - [x] Perf-1: sketch browser in linear time, one rebuild per document swap: open at 10k 37.8 s → 0.50 s, at 2k 1.49 s → 0.10 s; rebuild at 10k 17.9 s → 137 ms
     - [ ] Perf-2: one command-palette refilter per event-loop turn (selection change 6.6 ms, 17 refilters)
     - [ ] Perf-3: History incremental, one Checks/Part refresh per turn, solid properties cached per solid
     - [ ] Perf-4: solver evaluation, bit-identical (stress plate solve 441 ms)

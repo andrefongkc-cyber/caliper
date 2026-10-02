@@ -160,15 +160,21 @@ def _median_ms(samples: list[float]) -> float:
 
 
 def browser_rebuild() -> list[object]:
-    """The sketch browser filled from scratch, as opening, New, and a tab switch do."""
+    """The sketch browser filled from scratch, as opening, New, and a tab switch do. `rows_made`
+    counts the rows created; `inserts`, rows placed one at a time among the others."""
+    from caliper.app.panels import browser
     from caliper.app.panels.browser import SketchBrowser
 
     found = []
     for count, runs in ((2000, 3), (10000, 1)):
         _, window = _window_with(mixed(count))
         samples = []
-        with counting(SketchBrowser, "_insert") as inserts:
+        with (
+            counting(SketchBrowser, "_insert") as inserts,
+            counting(browser, "QTreeWidgetItem") as made,
+        ):
             for _ in range(runs):
+                window.browser._shown = None  # type: ignore[attr-defined]  # a real rebuild
                 started = time.perf_counter()
                 window.browser.rebuild()  # type: ignore[attr-defined]
                 samples.append(time.perf_counter() - started)
@@ -179,6 +185,7 @@ def browser_rebuild() -> list[object]:
                     "rebuild_ms": _median_ms(samples),
                     "rows": float(len(window.browser.items)),  # type: ignore[attr-defined]
                     "inserts": inserts[0] / runs,
+                    "rows_made": made[0] / runs,
                 },
             )
         )
@@ -191,6 +198,7 @@ def open_documents() -> list[object]:
     fits), paint. As File > Open does, without touching the user's recent-files list."""
     from perf import _window
 
+    from caliper.app.panels import browser
     from caliper.app.panels.browser import SketchBrowser
 
     found = []
@@ -200,9 +208,12 @@ def open_documents() -> list[object]:
         ("10000", mixed(10000)),
     ):
         text = snapshot.dumps(document)
-        with counting(SketchBrowser, "rebuild") as rebuilds:
+        with (
+            counting(SketchBrowser, "rebuild") as rebuilds,
+            counting(browser, "QTreeWidgetItem") as made,
+        ):
             app, window = _window()
-            rebuilds[0] = 0
+            rebuilds[0] = made[0] = 0
             started = time.perf_counter()
             opened = snapshot.loads(text)
             read = time.perf_counter() - started
@@ -214,7 +225,12 @@ def open_documents() -> list[object]:
         found.append(
             _result(
                 f"ui/open/{name}",
-                {"total_ms": 1e3 * took, "loads_ms": 1e3 * read, "browser_rebuilds": rebuilds[0]},
+                {
+                    "total_ms": 1e3 * took,
+                    "loads_ms": 1e3 * read,
+                    "browser_rebuilds": rebuilds[0],
+                    "rows_made": made[0],
+                },
             )
         )
         _dispose(window)
