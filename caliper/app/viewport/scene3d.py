@@ -162,32 +162,43 @@ class Scene:
             painter.drawText(QPointF(corner.x + 6, corner.y + 16), PLANE_NAMES[plane])
 
     def _solid(self, painter: QPainter, camera: Camera, width: float, height: float) -> None:
+        """The triangles facing the viewer, farthest first (the painter's algorithm), each
+        edge drawn just after the nearer of its two faces: a nearer face then covers the
+        stretch of it that's out of sight, as the top of a plate covers its hole's far edge."""
         mesh = self.mesh
         assert mesh is not None
         flat = [camera.project(p, width, height) for p in mesh.vertices]
-        drawn: list[tuple[float, int, float]] = []
+        depth: dict[int, float] = {}
+        light: dict[int, float] = {}
         for index, (a, b, c) in enumerate(mesh.triangles):
-            light = facing(self.normals[index], camera)
-            if light <= 0:
-                continue  # facing away: hidden behind the faces that face the viewer
-            drawn.append(((flat[a].depth + flat[b].depth + flat[c].depth) / 3, index, light))
-        drawn.sort()
+            lit = facing(self.normals[index], camera)
+            if lit > 0:  # facing away: hidden behind the faces that face the viewer
+                depth[index] = (flat[a].depth + flat[b].depth + flat[c].depth) / 3
+                light[index] = lit
+        # (depth, 0 for a face or 1 for an edge, which) so an edge comes after its face.
+        order: list[tuple[float, int, int]] = [(d, 0, i) for i, d in depth.items()]
+        for k, (_, _, left, right) in enumerate(self.creases):
+            seen = [depth[f] for f in (left, right) if f in depth]
+            if seen:
+                order.append((max(seen), 1, k))
+        order.sort()
         base = theme.SOLID
-        for _, index, light in drawn:
+        edge = _pen(theme.SOLID_EDGE, theme.GEOMETRY_WIDTH)
+        for _, kind, index in order:
+            if kind == 1:
+                p, q, _, _ = self.creases[index]
+                a, b = camera.project(p, width, height), camera.project(q, width, height)
+                painter.setPen(edge)
+                painter.drawLine(QPointF(a.x, a.y), QPointF(b.x, b.y))
+                continue
             a, b, c = mesh.triangles[index]
-            shade = AMBIENT + (1 - AMBIENT) * light
+            shade = AMBIENT + (1 - AMBIENT) * light[index]
             color = QColor.fromRgbF(
                 base.redF() * shade, base.greenF() * shade, base.blueF() * shade
             )
             painter.setPen(QPen(color, 0.75))  # covers the hairline seams between triangles
             painter.setBrush(color)
             painter.drawPolygon(QPolygonF([QPointF(flat[i].x, flat[i].y) for i in (a, b, c)]))
-        painter.setPen(_pen(theme.SOLID_EDGE, theme.GEOMETRY_WIDTH))
-        for p, q, left, right in self.creases:
-            if max(facing(self.normals[left], camera), facing(self.normals[right], camera)) <= 0:
-                continue
-            a, b = camera.project(p, width, height), camera.project(q, width, height)
-            painter.drawLine(QPointF(a.x, a.y), QPointF(b.x, b.y))
 
     def _sketches(
         self,
