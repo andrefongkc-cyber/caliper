@@ -1,8 +1,14 @@
-"""One open document: the bus, its file, and the UI state that goes with it.
+"""The open documents: the bus, its file, and the UI state that goes with each.
 
 The bus owns the document. The session owns what the document is not allowed to hold:
 selection, hover, the file path, and whether there are unsaved changes. Checks are in the
 document (C-1): the session only reads them out, and adds and removes them by command.
+
+Two documents are open at once (ADR 0015): the 3D tab's part, which starts with no sketch,
+and the 2D tab's sketch, for testing. One is shown at a time; `use` switches, as opening a
+file does, and each keeps its own file, undo history, and selection while the other shows.
+Everything that reads the session (the panels, the agent, Claude Desktop) works on the one
+shown.
 """
 
 import re
@@ -28,7 +34,7 @@ from caliper.contracts.commands import (
     Rejected,
     Transaction,
 )
-from caliper.contracts.document import Document, EntityId, Expectation, Ref, Sketch
+from caliper.contracts.document import Document, EntityId, Expectation, Plane, Ref, Sketch
 from caliper.contracts.queries import CheckResult, Queries
 from caliper.engine import part
 from caliper.engine.commands.bus import Bus
@@ -42,6 +48,37 @@ class Author(StrEnum):
 
     YOU = "You"
     AGENT = "Agent"
+
+
+class Space(StrEnum):
+    """Which open document is shown: the tab it's in."""
+
+    SKETCH = "2d"
+    """The 2D tab: a sketch to test on, a new part's one sketch on XY as V1 had."""
+    PART = "3d"
+    """The 3D tab: the part, from its planes."""
+
+
+def fresh(space: Space) -> Document:
+    """What File > New gives in `space`."""
+    return part.no_sketch() if space is Space.PART else Document.empty()
+
+
+@dataclass(slots=True)
+class _Held:
+    """A document open in the tab that isn't shown: what the session keeps for it."""
+
+    bus: CommandBus
+    saved: Document
+    path: Path | None = None
+    selection: frozenset[EntityId] = frozenset()
+    references: tuple[Ref, ...] = ()
+    history: list["HistoryEntry"] | None = None
+    history_position: int = 0
+    opened_steps: int = 0
+    last_measurement: tuple[Ref, Ref] | None = None
+    active: EntityId | None = None
+    plane: Plane | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +115,24 @@ class DocumentSession(QObject):
     """The sketch being edited changed (V2's sketch mode): the canvas shows another sketch."""
     """What the last rejected change named changed (`flagged`)."""
 
-    def __init__(self, bus: CommandBus | None = None, parent: QObject | None = None) -> None:
+    space_changed = Signal()
+    """The other tab's document is shown now (`space`)."""
+
+    def __init__(
+        self,
+        bus: CommandBus | None = None,
+        parent: QObject | None = None,
+        *,
+        part_bus: CommandBus | None = None,
+    ) -> None:
+        """`bus` is the 2D tab's document, shown first; `part_bus` the 3D tab's part, which
+        starts with no sketch."""
         super().__init__(parent)
+        self._space = Space.SKETCH
+        held = part_bus if part_bus is not None else Bus(fresh(Space.PART))
+        self._other = _Held(bus=held, saved=held.document, active=_last_sketch(held.document))
+        """The document in the tab that isn't shown."""
+        self._plane: Plane | None = None
         self._bus: CommandBus = bus if bus is not None else Bus()
         self._unsubscribe = self._bus.subscribe(self._on_change)
         self._saved: Document = self._bus.document
@@ -287,7 +340,10 @@ class DocumentSession(QObject):
         self._history = []
         self._history_position = 0
         self.last_measurement = None
-        self._active, self._view = _last_sketch(bus.document), None
+        self._active, self._view, self._plane = _last_sketch(bus.document), None, None
+        self._announce_replaced()
+
+    def _announce_replaced(self) -> None:
         self.history_changed.emit()
         self.checks_changed.emit()
         self.selection_changed.emit()
@@ -300,7 +356,65 @@ class DocumentSession(QObject):
         self.file_changed.emit()
 
     def new(self) -> None:
-        self.replace(Bus(), None)
+        self.replace(Bus(fresh(self._space)), None)
+
+    # --- The two tabs (ADR 0015) ------------------------------------------------------------
+
+    @property
+    def space(self) -> Space:
+        return self._space
+
+    def use(self, space: Space) -> None:
+        """Show the document of `space`'s tab. The other keeps its file, history, selection,
+        and sketch, untouched, until it's shown again."""
+        if space is self._space:
+            return
+        if self._transaction_depth:
+            raise RuntimeError("can't switch documents inside a transaction")
+        shown = self._held_now()
+        held = self._other
+        self._unsubscribe()
+        self._bus = held.bus
+        self._unsubscribe = held.bus.subscribe(self._on_change)
+        self._saved, self._path = held.saved, held.path
+        self._selection, self._references = held.selection, held.references
+        self._history = held.history if held.history is not None else []
+        self._history_position = held.history_position
+        self.opened_steps, self.last_measurement = held.opened_steps, held.last_measurement
+        self._active, self._plane, self._view = held.active, held.plane, None
+        self._hover, self._flagged = None, frozenset()
+        self._other, self._space = shown, space
+        self._announce_replaced()
+        self.space_changed.emit()
+
+    def _held_now(self) -> _Held:
+        return _Held(
+            bus=self._bus,
+            saved=self._saved,
+            path=self._path,
+            selection=self._selection,
+            references=self._references,
+            history=self._history,
+            history_position=self._history_position,
+            opened_steps=self.opened_steps,
+            last_measurement=self.last_measurement,
+            active=self._active,
+            plane=self._plane,
+        )
+
+    def unsaved(self) -> list[tuple[Space, Path | None]]:
+        """Each open document with unsaved changes, the one shown first, and its file."""
+        found = [(self._space, self._path)] if self.is_dirty else []
+        held = self._other
+        if held.bus.document != held.saved:
+            other = Space.PART if self._space is Space.SKETCH else Space.SKETCH
+            found.append((other, held.path))
+        return found
+
+    @property
+    def other_path(self) -> Path | None:
+        """The file of the document in the tab that isn't shown."""
+        return self._other.path
 
     def open(self, path: Path) -> None:
         """Raises `LoadError` (from caliper.engine.io.canonical) for a bad file; nothing changes."""
@@ -385,8 +499,23 @@ class DocumentSession(QObject):
         return self._selection
 
     def set_selection(self, ids: frozenset[EntityId]) -> None:
-        if ids != self._selection:
+        if ids != self._selection or (ids and self._plane is not None):
             self._selection = ids
+            if ids:
+                self._plane = None  # one thing is picked at a time: a plane or entities
+            self.selection_changed.emit()
+
+    @property
+    def picked_plane(self) -> Plane | None:
+        """The plane picked in the 3D view or the Part panel, to start a sketch on (ADR
+        0015). UI state like the selection, which picking one clears."""
+        return self._plane
+
+    def set_picked_plane(self, plane: Plane | None) -> None:
+        if plane != self._plane or (plane is not None and self._selection):
+            self._plane = plane
+            if plane is not None:
+                self._selection = frozenset()
             self.selection_changed.emit()
 
     @property
