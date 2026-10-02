@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 done (open 10k 37.8 s → 0.50 s; selection change 6.6 → 2.7 ms; a change after 2,000 8.9 → 1.1 ms); next: Perf-4, the solver's evaluation, bit-identical
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-6, the picking grid
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -79,7 +79,22 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   | 3D sketch edit over the 24-hole part | 36.6 ms, 3 volume calls | 34.1 ms, 0 |
   | Tab round trip | 49.5 ms (18.8 after Perf-2) | 17.4 ms |
   | A dimension edit / undo / redo (stress plate) | 13.0 / 10.9 / 11.0 ms | 12.9 / 10.6 / 10.5 ms (unchanged; one run read +13% and three reruns didn't) |
-- [ ] Perf-4: solver evaluation, bit-identical
+- [x] **Perf-4, the solver's evaluation: investigated, not landed.** The plan estimated −25–40% of solve time from three bit-identical steps; wall-clock measurement (no profiler) says the steps can't reach its ≥ 20% acceptance, so nothing was added.
+  - **Where solve time goes** (wall clock, warm runs):
+
+    | | Compiling equations | Evaluating | All of Newton | Redundancy check |
+    |---|---|---|---|---|
+    | Stress plate | 3–4% | 24–25% | 56% | 13% |
+    | 150-line chain | 4% | 11–13% | 19–22% | 62–64% |
+    | 12-point star | 12% | 8% | 10% | 80% |
+
+    The profiler had overstated the many tiny Dual operations.
+  - **(a) A per-evaluation memo of `Frame.point`:** no gain; the dict costs what it saves (stress plate 605 → 615–638 ms).
+  - **(c) Skipping the exact multiplies by ±1 in `ad._combine`:** bit-identical (`1.0 * d` is `d`, `x + -1.0 * d` is `x - d`) but within noise (stress plate 593 → 598 ms; chain 2.9 s either way). Reverted.
+  - **(b) Caching compiled equations across solves:** not built. At most 3–4% of the stress plate and the chain, 12% of the star, and the cache would have to follow the joints tangent equations read.
+  - **What would pay** is in the redundancy check (Perf-5) and Newton's linear algebra (architectural, A2).
+  - **Kept:** `tests/engine/constraints/test_solver_output.py`, which pins the fast solver's exact output: every document after every command, and every outcome, of the three recorded sessions, the 150-line chain, and the grid, mirror, and star repeats. N1 pins only the reference solver. Perf-5 is held to it.
+  - **Found on the way:** this Mac throttles under sustained single-core load. The same stress-plate replay ran 591, 597, 600, 637, 718, 960, then 1,774 ms in one process, with flat memory (55 MB) and identical call counts, and 685 ms again after a 20 s pause. It isn't Caliper. Small before/after differences need pauses or interleaved runs to be believed.
 - [ ] Perf-6: incremental picking grid
 - [ ] Perf-7: per-class decoders for file loading
 - [ ] Perf-5: redundancy check rank update (C-6), spike-gated
