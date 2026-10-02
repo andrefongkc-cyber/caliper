@@ -12,7 +12,15 @@ list current as actions become available, and running something resets it instea
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QEvent, QModelIndex, QObject, QPersistentModelIndex, QRect, Qt
+from PySide6.QtCore import (
+    QEvent,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    QRect,
+    Qt,
+    QTimer,
+)
 from PySide6.QtGui import QAction, QKeyEvent, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -94,6 +102,13 @@ class CommandPalette(QFrame):
         self.form_fields: dict[str, QLineEdit] = {}
         self.return_focus: QWidget | None = None
         """Where keyboard focus goes when the palette closes, usually the canvas."""
+        self._actions_timer = QTimer(self)
+        """Docked: refreshes the list once after the actions that changed in one event-loop
+        turn. A selection change updates a dozen constraint actions together; refreshing for
+        each was 17 full refilters (Performance V2.2, Perf-2)."""
+        self._actions_timer.setSingleShot(True)
+        self._actions_timer.setInterval(0)
+        self._actions_timer.timeout.connect(self._show_actions)
 
         name = "command-panel" if docked else "command-palette"
         self.setObjectName(name)
@@ -175,7 +190,12 @@ class CommandPalette(QFrame):
         ] + [Entry(spec.title, _parameters(spec), spec=spec) for spec in command_specs()]
 
     def _actions_changed(self) -> None:
-        """Docked: keep enabled states current, and the highlighted row where it was."""
+        """Docked: an action's state changed. The list catches up when the event loop next
+        turns, once for every action that changed meanwhile."""
+        self._actions_timer.start()
+
+    def _show_actions(self) -> None:
+        """Keep enabled states current, and the highlighted row where it was."""
         if self.stack.currentIndex() != 0:
             return
         current = self.results.currentItem()
