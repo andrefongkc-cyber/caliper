@@ -28,6 +28,7 @@ from caliper.contracts.document import (
     AngleDimension,
     Constraint,
     DistanceDimension,
+    Document,
     Entity,
     EntityId,
     Expectation,
@@ -67,6 +68,11 @@ class SketchBrowser(QTreeWidget):
         self._value_widths: dict[str, int] = {}
         """Text width of each row's value (and each group's count), keyed by id or group name."""
         self.groups: dict[str, QTreeWidgetItem] = {}
+        self._keys: dict[str, list[tuple[str, int, str]]] = {name: [] for name in GROUPS}
+        """Each group's rows' sort keys, in row order: where a new row goes is a bisect here,
+        not a read of every row back from Qt (Performance V2.2, Perf-1)."""
+        self._shown: tuple[Document, EntityId | None] | None = None
+        """The document and sketch the rows show, so a second rebuild for them is skipped."""
         for name in GROUPS:
             group = QTreeWidgetItem(["", ""])
             group.setData(0, GROUP_ROLE, name)
@@ -92,27 +98,50 @@ class SketchBrowser(QTreeWidget):
         self.rebuild()
 
     def rebuild(self) -> None:
+        """Every row again, for another document or sketch. Opening one runs this twice
+        (`document_replaced`, then `active_sketch_changed`); the second finds the rows already
+        showing it."""
+        document = self.session.sketch_view
+        shown = (document, self.session.active_sketch)
+        if self._shown is not None and self._shown[0] is document and self._shown[1] == shown[1]:
+            self._pull_selection()
+            return
         blocker = QSignalBlocker(self)
         for group in self.groups.values():
             group.takeChildren()
         self.items = {}
         self._value_widths = {}
-        document = self.session.sketch_view
-        for id in sorted(document.entities, key=_natural):
-            self._insert(id)
+        rows: dict[str, list[QTreeWidgetItem]] = {name: [] for name in GROUPS}
+        self._keys = {name: [] for name in GROUPS}
+        queries = self.session.sketch_queries
+        for id in sorted(document.entities, key=_natural):  # in order: each row appends
+            entity = document.entities[id]
+            if isinstance(entity, Expectation):
+                continue  # checks are listed in the Checks panel
+            name = _group(entity)
+            rows[name].append(self._item(id, queries))
+            self._keys[name].append(_natural(id))
+        for name, items in rows.items():
+            self.groups[name].addChildren(items)
+        self._shown = shown
         self._update_groups()
         del blocker
         self._pull_selection()
 
     def _apply(self, change: Change) -> None:
         """Update only what the change touched, and the dimensions measuring it."""
-        blocker = QSignalBlocker(self)
         delta, document = change.delta, self.session.sketch_view
+        if self._shown is not None and self._shown[0] is document:
+            return  # rebuilt for this very document already (its sketch was just deleted)
+        blocker = QSignalBlocker(self)
         for id in delta.removed | {i for i in delta.modified if i not in document.entities}:
             item = self.items.pop(id, None)
             self._value_widths.pop(id, None)
             if item is not None and item.parent() is not None:
-                item.parent().removeChild(item)
+                group = item.parent()
+                keys = self._keys[group.data(0, GROUP_ROLE)]
+                del keys[bisect.bisect_left(keys, _natural(id))]
+                group.removeChild(item)
         for id in sorted(delta.added & document.entities.keys(), key=_natural):
             self._insert(id)
         queries = self.session.sketch_queries
@@ -123,6 +152,7 @@ class SketchBrowser(QTreeWidget):
             for id, entity in document.entities.items():
                 if id not in delta.modified and id in self.items and measures(entity, changed):
                     self._fill(self.items[id], id, queries)
+        self._shown = (document, self.session.active_sketch)
         self._update_groups()
         del blocker
         self._pull_selection()
@@ -131,15 +161,20 @@ class SketchBrowser(QTreeWidget):
         entity = self.session.sketch_view.entities[id]
         if isinstance(entity, Expectation):
             return  # checks are listed in the Checks panel
-        group = self.groups[_group(entity)]
+        name = _group(entity)
+        key, keys = _natural(id), self._keys[name]
+        index = bisect.bisect(keys, key)
+        keys.insert(index, key)
+        self.groups[name].insertChild(index, self._item(id, self.session.sketch_queries))
+
+    def _item(self, id: EntityId, queries: Queries) -> QTreeWidgetItem:
         item = QTreeWidgetItem()
         item.setData(0, ID_ROLE, id)
         item.setForeground(1, theme.TEXT_DIM)
         item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._fill(item, id, self.session.sketch_queries)
-        keys = [_natural(group.child(i).data(0, ID_ROLE)) for i in range(group.childCount())]
-        group.insertChild(bisect.bisect(keys, _natural(id)), item)
+        self._fill(item, id, queries)
         self.items[id] = item
+        return item
 
     def _fill(self, item: QTreeWidgetItem, id: EntityId, queries: Queries) -> None:
         entity = self.session.sketch_view.entities[id]

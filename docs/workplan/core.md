@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 done, the baseline saved (`bench/results/2026-10-02-pv2.2-baseline.json`); next: Perf-1, the sketch browser in linear time
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 and Perf-1 done (opening 10,000 entities 37.8 s → 0.50 s); next: Perf-2, one palette refilter per event-loop turn
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -38,7 +38,22 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   | 3D frame, 2,604 / 8,652 / 20,748 triangles | 22.4 / 68 / 166 ms; scene 13.6 / 46 / 138 ms; 8,641 axes per frame at 2,604 |
   | 3D sketch edit over the 24-hole part | 43 ms: 1 scene build, 3 volume calls per edit |
   | CLI replay, stress plate | 0.72 s |
-- [ ] Perf-1: the sketch browser in linear time, one rebuild per document swap
+- [x] **Perf-1, the sketch browser in linear time** (`caliper/app/panels/browser.py`). Each row was placed by reading every row of its group back from Qt and bisecting, so filling the browser was quadratic, and opening a document filled it twice (`document_replaced`, then `active_sketch_changed`). Now:
+  - a rebuild makes the rows in order and adds each group's in one call;
+  - the browser keeps each group's sort keys, so a new row is a bisect;
+  - a second rebuild for the same document and sketch is skipped, and so is applying a change to rows already showing its document (it could list a row twice when a deleted sketch's rebuild ran first).
+
+  Rows, order, groups, counts, collapse, selection and value widths are unchanged: `tests/app/test_browser_rows.py` checks the rows against a fresh listing after random creates, edits, deletes, dimensions, constraints, construction toggles, undo, redo and transactions.
+
+  | | Perf-0 | Perf-1 |
+  |---|---|---|
+  | Browser rebuild, 2,000 / 10,000 entities | 755 ms / 17.9 s | 24.7 ms / 137 ms |
+  | Open 10,000 / 2,000 / stress plate | 37.8 s / 1.49 s / 53 ms | 0.50 s / 0.10 s / 45 ms |
+  | Rows made per open | 2 per entity (510 on the stress plate) | 1 (255) |
+  | Tab round trip | 49.5 ms | 41.4 ms |
+  | Accepted stress plate redone | 21.3 ms | 15.4 ms |
+
+  The bench's `ui/browser-rebuild` now forces a real rebuild, and `ui/open` counts the rows made. The skipped second rebuild still counts as a call.
 - [ ] Perf-2: one command-palette refilter per event-loop turn
 - [ ] Perf-3: History incremental; one Checks and Part refresh per turn; solid properties cached per solid
 - [ ] Perf-4: solver evaluation, bit-identical
