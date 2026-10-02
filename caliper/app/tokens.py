@@ -51,6 +51,10 @@ class Palette:
     solid_edge: str
     """The solid's edges where its faces meet at an angle."""
     axis_z: str
+    plane: str
+    """The part's Top, Front, and Right planes, their edges and names (ADR 0015)."""
+    plane_alpha: int
+    """Opacity (0-255) of a plane's fill: a hint of the plane, the part seen through it."""
 
 
 DARK = Palette(
@@ -82,6 +86,8 @@ DARK = Palette(
     solid="#a9b4c2",
     solid_edge="#1b1c1f",
     axis_z="#3b5f9a",
+    plane="#6f9fe0",
+    plane_alpha=22,
 )
 
 

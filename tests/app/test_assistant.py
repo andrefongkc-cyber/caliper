@@ -15,6 +15,7 @@ from caliper.app.panels.assistant import step_text
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateRectangle
 from caliper.contracts.document import FIRST_SKETCH, EntityId, Plane, Point2, Rectangle
+from tests.app.parts import plate, sketch_on
 
 E1 = EntityId("e1")
 
@@ -114,13 +115,13 @@ def test_the_assistant_draws_into_the_sketch_the_user_is_editing(window, qtbot) 
     window.agent.set_assistant(
         Assistant(Watching([calls(("create_circle", CIRCLE)), Reply(text="Done.")]))
     )
-    window.new_sketch_actions[Plane.XZ].trigger()
-    second = window.session.active_sketch
+    plate(window)  # in the 3D tab, the part: a sketch on Top
+    second = sketch_on(window, Plane.XZ)
     ask(window, qtbot, "a circle")
     assert seen, window.assistant_log.lines()
     assert f'"editing": "{second}"' in seen[0]
     window.proposal_card.accept_button.click()
-    (circle,) = window.session.document.entities
+    (circle,) = [i for i, e in window.session.document.entities.items() if e.kind == "circle"]
     assert window.session.queries.sketch_of(circle) == second
 
 

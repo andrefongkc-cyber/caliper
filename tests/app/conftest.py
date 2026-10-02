@@ -123,7 +123,7 @@ if HAVE_QT:
         if app.styleSheet() != theme.STYLESHEET:  # restyling every live widget is slow
             theme.apply(app)
         session = DocumentSession(bus)
-        window = MainWindow(session)
+        window = MainWindow(session, mode="2d")  # the 2D sketcher; the 3D tab starts its own part
         session.setParent(window)
         qtbot.addWidget(window)
         window.resize(1000, 700)

@@ -1,70 +1,63 @@
-"""The 3D view (V2's F5, ADR 0012): the part's solid, drawn from its mesh.
+"""The 3D view (V2's F5, ADR 0012, ADR 0015): the part, from its planes up.
 
-It reads the same document as the 2D canvas, through the session's queries
-(`Queries.mesh`, `Queries.solid_properties`), and holds no model of its own. Switching
-views changes what's shown, never the document. The mesh is asked for only when the view
-is showing and the document has changed since; the engine keeps solids and meshes by identity
-(ADR 0013), so asking again costs little.
+It shows the part's origin and its Top, Front, and Right planes, its sketches on their
+planes, and its solid (`scene3d`). It reads the session's queries (`Queries.mesh`,
+`Queries.solid_properties`) and holds no model of its own. The mesh is asked for only when
+the view is showing and the document has changed since; the engine keeps solids and meshes
+by identity (ADR 0013), so asking again costs little.
 
-Drawn with QPainter, no GPU: the triangles facing the viewer, nearest last (the painter's
-algorithm), each lit by a light at the viewer, then the edges where faces meet at an angle.
-That is enough for parts made of extrusions; a larger part, or one that needs exact hiding
-of crossing faces, is where a GPU renderer would take over (ADR 0012).
-
-Left drag orbits, right or middle drag (or Shift with left) pans, the wheel zooms about the
-pointer, and F fits the part. The camera is UI state.
+A click picks a plane or a sketch, which is what Sketch and Extrude act on; a double-click on
+one asks to sketch on it or edit it. A left drag orbits, a right or middle drag (or Shift with
+a left drag) pans, the wheel zooms about the pointer, and F fits. The camera is UI state.
 """
 
 import math
 import time
 from collections import deque
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (
-    QColor,
-    QKeyEvent,
-    QMouseEvent,
-    QPainter,
-    QPaintEvent,
-    QPen,
-    QPolygonF,
-    QWheelEvent,
-)
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QWheelEvent
 from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
-from caliper.app.session import DocumentSession
-from caliper.app.viewport.camera3d import Camera, facing, normal
+from caliper.app.session import DocumentSession, Space
+from caliper.app.viewport.camera3d import Camera
+from caliper.app.viewport.scene3d import Picked, Scene
+from caliper.contracts.document import Extrude, Plane, Sketch
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import Mesh, Point3
 
-CREASE_DEGREES = 25.0
-"""Faces meeting at more than this show the edge between them."""
-AMBIENT = 1 / 3
-"""How much light a face turned away from the light still gets."""
+DRAG_PX = 3.0
+"""A press that moves less than this before its release is a click, not an orbit."""
 
 
 class View3D(QWidget):
+    open_requested = Signal(object)
+    """A double-click on a plane (a `Plane`) or a sketch (its id): sketch on it, or edit it."""
+
     def __init__(self, session: DocumentSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.session = session
         self.camera = Camera()
+        self.scene = Scene()
         self.mesh: Mesh | None = None
-        """What's drawn: the solid's mesh, or the last good one while the part fails."""
+        """The solid's mesh, or the last good one while the part fails."""
         self.problem: str | None = None
         """Why there's no solid, or why the one shown is out of date."""
         self.frame_ms: deque[float] = deque(maxlen=120)
         """How long the last frames took to draw, in milliseconds."""
-        self._normals: list[Point3] = []
-        self._creases: list[tuple[Point3, Point3, int, int]] = []
         self._stale = True
         self._fit = True
+        self._space = session.space
         self._drag: tuple[Qt.MouseButton, QPointF, bool] | None = None
+        self._pressed: QPointF | None = None
+        """Where a left press was, until it moves far enough to be an orbit."""
         self.setObjectName("view-3d")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(200, 150)
         session.document_changed.connect(self._changed)
         session.document_replaced.connect(self._replaced)
+        session.selection_changed.connect(self.update)
 
     # --- What's drawn -------------------------------------------------------------------
 
@@ -75,7 +68,12 @@ class View3D(QWidget):
             self.update()
 
     def _replaced(self) -> None:
-        self.mesh, self._fit = None, True
+        """Another document: fit it, unless it's only the 2D tab's coming and going, which
+        leaves the part as it was."""
+        space = self.session.space
+        if space is Space.PART and self._space is Space.PART:
+            self.mesh, self._fit = None, True
+        self._space = space
         self._changed()
 
     def refresh(self) -> None:
@@ -83,6 +81,20 @@ class View3D(QWidget):
         if not self._stale:
             return
         self._stale = False
+        document = self.session.document
+        self.problem = None
+        if not any(isinstance(f, Extrude) for f in document.features):
+            self.mesh = None
+            if not any(isinstance(f, Sketch) for f in document.features):
+                self.problem = "Pick a plane and press Sketch, or double-click a plane"
+        else:
+            self._solid()
+        self.scene = Scene.of(document, self.mesh)
+        if self._fit:
+            self.camera = self.camera.fitted(self.scene.box(), self.width(), self.height())
+            self._fit = False
+
+    def _solid(self) -> None:
         queries = self.session.queries
         solid = queries.solid_properties()
         if isinstance(solid, Error):
@@ -90,7 +102,7 @@ class View3D(QWidget):
             return
         box = solid.bounding_box
         if box is None:
-            self._show(Mesh(vertices=(), triangles=()))
+            self.mesh = Mesh(vertices=(), triangles=())
             self.problem = "The part's solid is empty: everything was cut away"
             return
         size = math.dist((box.x_min, box.y_min, box.z_min), (box.x_max, box.y_max, box.z_max))
@@ -98,31 +110,17 @@ class View3D(QWidget):
         if isinstance(mesh, Error):
             self._failed(mesh)
             return
-        self._show(mesh)
-        self.problem = None
-        if self._fit:
-            self.camera = self.camera.fitted(box, self.width(), self.height())
-            self._fit = False
+        self.mesh = mesh
 
     def _failed(self, error: Error) -> None:
         if error.code is ErrorCode.SELECTION_EMPTY:
-            self._show(None)
-            self.problem = "No solid yet: draw a closed profile and extrude it"
+            self.mesh = None
         elif error.code is ErrorCode.KERNEL_UNAVAILABLE:
-            self._show(None)
+            self.mesh = None
             self.problem = "Solids need a geometry kernel: uv sync --extra occt"
         else:
             # The last good solid stays on screen, marked out of date (core.md, item 5).
             self.problem = f"Showing the last solid that worked out. {error.message}"
-
-    def _show(self, mesh: Mesh | None) -> None:
-        self.mesh = mesh
-        self._normals, self._creases = [], []
-        if mesh is None:
-            return
-        v = mesh.vertices
-        self._normals = [normal(v[a], v[b], v[c]) for a, b, c in mesh.triangles]
-        self._creases = _creases(mesh, self._normals)
 
     def fit(self) -> None:
         self._fit = True
@@ -134,17 +132,31 @@ class View3D(QWidget):
         self.refresh()
         super().showEvent(event)  # type: ignore[arg-type]
 
+    def paint_scene(
+        self, painter: QPainter, camera: Camera, width: float, height: float, **options: object
+    ) -> None:
+        """The scene as `camera` sees it: for the canvas behind a sketch edited in 3D."""
+        self.refresh()
+        painter.fillRect(QRectF(0, 0, width, height), theme.CANVAS)
+        self.scene.paint(painter, camera, width, height, **options)  # type: ignore[arg-type]
+        self.paint_triad(painter, camera, height)
+
     # --- Drawing ------------------------------------------------------------------------
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         started = time.perf_counter()
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), theme.CANVAS)
         width, height = self.width(), self.height()
-        self._axes(painter)
-        if self.mesh is not None and self.mesh.triangles:
-            self._solid(painter, width, height)
+        painter.fillRect(self.rect(), theme.CANVAS)
+        self.scene.paint(
+            painter,
+            self.camera,
+            width,
+            height,
+            picked=self.session.picked_plane,
+            selected=self.session.selection,
+        )
+        self.paint_triad(painter, self.camera, height)
         if self.problem:
             painter.setPen(theme.TEXT_DIM)
             painter.setFont(theme.font())
@@ -153,40 +165,11 @@ class View3D(QWidget):
         painter.end()
         self.frame_ms.append(1e3 * (time.perf_counter() - started))
 
-    def _solid(self, painter: QPainter, width: int, height: int) -> None:
-        mesh, camera = self.mesh, self.camera
-        assert mesh is not None
-        flat = [camera.project(p, width, height) for p in mesh.vertices]
-        drawn: list[tuple[float, int, float]] = []
-        for index, (a, b, c) in enumerate(mesh.triangles):
-            light = facing(self._normals[index], camera)
-            if light <= 0:
-                continue  # facing away: hidden behind the faces that face the viewer
-            drawn.append(((flat[a].depth + flat[b].depth + flat[c].depth) / 3, index, light))
-        drawn.sort()
-        base = theme.SOLID
-        for _, index, light in drawn:
-            a, b, c = mesh.triangles[index]
-            shade = AMBIENT + (1 - AMBIENT) * light
-            color = QColor.fromRgbF(
-                base.redF() * shade, base.greenF() * shade, base.blueF() * shade
-            )
-            painter.setPen(QPen(color, 0.75))  # covers the hairline seams between triangles
-            painter.setBrush(color)
-            painter.drawPolygon(QPolygonF([QPointF(flat[i].x, flat[i].y) for i in (a, b, c)]))
-        pen = QPen(theme.SOLID_EDGE, theme.GEOMETRY_WIDTH)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        for p, q, left, right in self._creases:
-            if max(facing(self._normals[left], camera), facing(self._normals[right], camera)) <= 0:
-                continue
-            a, b = camera.project(p, width, height), camera.project(q, width, height)
-            painter.drawLine(QPointF(a.x, a.y), QPointF(b.x, b.y))
-
-    def _axes(self, painter: QPainter) -> None:
+    @staticmethod
+    def paint_triad(painter: QPainter, camera: Camera, height: float) -> None:
         """A small triad in the corner: X, Y, and Z as the camera sees them."""
-        right, up, _ = self.camera.axes()
-        origin = QPointF(36, self.height() - 36)
+        right, up, _ = camera.axes()
+        origin = QPointF(36, height - 36)
         for axis, color in (
             (Point3(x=1.0, y=0.0, z=0.0), theme.AXIS_X),
             (Point3(x=0.0, y=1.0, z=0.0), theme.AXIS_Y),
@@ -194,9 +177,23 @@ class View3D(QWidget):
         ):
             x = axis.x * right.x + axis.y * right.y + axis.z * right.z
             y = axis.x * up.x + axis.y * up.y + axis.z * up.z
-            pen = QPen(color, 2.0)
-            painter.setPen(pen)
+            painter.setPen(QPen(color, 2.0))
             painter.drawLine(origin, QPointF(origin.x() + 22 * x, origin.y() - 22 * y))
+
+    # --- Picking ------------------------------------------------------------------------
+
+    def pick(self, x: float, y: float) -> Picked:
+        self.refresh()
+        return self.scene.pick(self.camera, self.width(), self.height(), x, y)
+
+    def _choose(self, found: Picked) -> None:
+        if isinstance(found, Plane):
+            self.session.set_picked_plane(found)
+        elif found is None:
+            self.session.set_picked_plane(None)
+            self.session.set_selection(frozenset())
+        else:
+            self.session.set_selection(frozenset({found}))
 
     # --- Moving the camera --------------------------------------------------------------
 
@@ -206,12 +203,18 @@ class View3D(QWidget):
             Qt.MouseButton.MiddleButton,
         ) or bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         self._drag = (event.button(), event.position(), panning)
+        self._pressed = event.position() if event.button() == Qt.MouseButton.LeftButton else None
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if self._drag is None:
             return
         button, last, panning = self._drag
+        if self._pressed is not None:
+            moved = event.position() - self._pressed
+            if math.hypot(moved.x(), moved.y()) < DRAG_PX:
+                return  # still a click
+            self._pressed = None
         delta = event.position() - last
         if panning:
             self.camera = self.camera.panned(delta.x(), delta.y())
@@ -221,8 +224,21 @@ class View3D(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        self._drag = None
+        if self._pressed is not None and event.button() == Qt.MouseButton.LeftButton:
+            at = event.position()
+            self._choose(self.pick(at.x(), at.y()))
+        self._drag, self._pressed = None, None
         event.accept()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            at = event.position()
+            found = self.pick(at.x(), at.y())
+            if found is not None:
+                self._choose(found)
+                self.open_requested.emit(found)
+                return
+        super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         steps = event.angleDelta().y() / 120
@@ -239,30 +255,3 @@ class View3D(QWidget):
             self.fit()
             return
         super().keyPressEvent(event)
-
-
-def _creases(mesh: Mesh, normals: list[Point3]) -> list[tuple[Point3, Point3, int, int]]:
-    """Edges where two triangles meet at more than `CREASE_DEGREES`, or a triangle meets none:
-    the part's own edges, not the mesh's. Faces don't share vertices, so edges are matched by
-    where their ends are."""
-    limit = math.cos(math.radians(CREASE_DEGREES))
-    seen: dict[tuple[tuple[float, ...], tuple[float, ...]], tuple[Point3, Point3, int]] = {}
-    found: list[tuple[Point3, Point3, int, int]] = []
-    v = mesh.vertices
-    for index, triangle in enumerate(mesh.triangles):
-        for i, j in ((0, 1), (1, 2), (2, 0)):
-            p, q = v[triangle[i]], v[triangle[j]]
-            key = tuple(sorted((_key(p), _key(q))))
-            other = seen.pop(key, None)  # type: ignore[arg-type]
-            if other is None:
-                seen[key] = (p, q, index)  # type: ignore[index]
-                continue
-            n, m = normals[index], normals[other[2]]
-            if n.x * m.x + n.y * m.y + n.z * m.z < limit:
-                found.append((p, q, index, other[2]))
-    found += [(p, q, index, index) for p, q, index in seen.values()]  # open edges
-    return found
-
-
-def _key(p: Point3) -> tuple[float, ...]:
-    return (round(p.x, 6), round(p.y, 6), round(p.z, 6))

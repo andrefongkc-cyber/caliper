@@ -43,6 +43,9 @@ RUBBER_BAND = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), P.rubber_band_
 SOLID = QColor(P.solid)
 SOLID_EDGE = QColor(P.solid_edge)
 AXIS_Z = QColor(P.axis_z)
+PLANE = QColor(P.plane)
+PLANE_FILL = QColor(PLANE.red(), PLANE.green(), PLANE.blue(), P.plane_alpha)
+PICKED_PLANE_FILL = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 2 * P.plane_alpha)
 
 GUIDE_WIDTH = STROKE.guide
 GEOMETRY_WIDTH = STROKE.geometry
@@ -91,6 +94,12 @@ QSplitter#browser-split::handle {{ background: {P.border}; }}
 QFrame#extrude-form {{ background: {P.panel}; border: 1px solid {P.border};
     border-radius: {r.control}px; }}
 QLabel#extrude-title {{ color: {P.ink}; font-weight: {TYPE.heading_weight}; }}
+QFrame#sketch-bar {{ background: {P.panel}; border: 1px solid {P.border};
+    border-radius: {r.control}px; }}
+QLabel#sketch-bar-title {{ color: {P.ink}; font-weight: {TYPE.heading_weight}; }}
+QLabel#sketch-bar-hint {{ color: {P.ink_dim}; font-size: 11px; }}
+QPushButton#finish-sketch {{ background: {P.accent}; color: {P.ink_on_accent};
+    border-color: {P.accent}; }}
 QSplitter#browser-split::handle:vertical {{ height: 1px; }}
 QToolBar::separator {{ background: {P.border}; width: 1px; margin: {s.xs}px {s.s}px; }}
 QDockWidget::title {{ background: {P.window}; padding: {s.xs}px {s.m}px; text-align: left;

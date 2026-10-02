@@ -46,6 +46,7 @@ from caliper.app.viewport.annotations import (
     label_spot,
     paint_annotations,
 )
+from caliper.app.viewport.backdrop import Backdrop
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.highlight import paint_references
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
@@ -69,6 +70,8 @@ PICK_RADIUS_PX = 6.0
 WHEEL_ZOOM_BASE = 1.0015
 """Zoom factor per unit of wheel angle delta (120 units = one notch ≈ 20%)."""
 SETTLE_MS = 150
+ORBIT_PX = 3.0
+"""A right press that moves less than this is a right click (cancel), not an orbit."""
 """How long the view must stay still after a pan or zoom before the sketch is redrawn."""
 MAX_GRID_LINES = 600
 DEFAULT_VIEW_MM = 250.0
@@ -77,8 +80,13 @@ DEFAULT_VIEW_MM = 250.0
 _GEOMETRY = GEOMETRY_TYPES
 
 
+ORBITED_HINT = "Turned away from the sketch: press N to face it and keep drawing"
+
+
 class Canvas(QWidget):
     cursor_moved = Signal(object)
+    orbited = Signal()
+    """A right drag turned the view away from the sketch being edited in 3D."""
     """Model position under the pointer (a Point2), or None when the pointer leaves."""
 
     def __init__(
@@ -114,6 +122,12 @@ class Canvas(QWidget):
         self.proposal: Callable[[], Proposal | None] = lambda: None
         """The agent proposal to preview, if any; set by the main window."""
         self.reject_proposal: Callable[[], None] = lambda: None
+        self.backdrop: Backdrop | None = None
+        """The part behind a sketch edited in 3D (ADR 0015); None in the 2D tab."""
+        self._orbit_from: QPointF | None = None
+        self._orbit_press: QPointF | None = None
+        """Where a right press was, until it moves far enough to orbit."""
+        self._layer_scene: object = None
         self._layer: QPixmap | None = None
         self._layer_view: tuple[float, float, float] | None = None
         """(scale, origin_x, origin_y) the layer was drawn at."""
@@ -536,6 +550,12 @@ class Canvas(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self.setFocus()
         button = event.button()
+        backdrop = self.backdrop
+        if backdrop is not None and (button == Qt.MouseButton.RightButton or not backdrop.facing):
+            # A right drag orbits; orbited away from the sketch, every drag moves the camera.
+            self._orbit_from = event.position()
+            self._orbit_press = event.position() if backdrop.facing else None
+            return
         if button == Qt.MouseButton.MiddleButton or (
             button == Qt.MouseButton.LeftButton and self._space
         ):
@@ -549,6 +569,8 @@ class Canvas(QWidget):
             self.controller.escape()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self.backdrop is not None and not self.backdrop.facing:
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self.controller.active.name == SELECT
@@ -560,6 +582,37 @@ class Canvas(QWidget):
         # Qt delivers a fast second click as a double-click instead of a press. Click-click
         # tools need it as a press.
         self.mousePressEvent(event)
+
+    def _orbit(self, event: QMouseEvent) -> None:
+        backdrop, last = self.backdrop, self._orbit_from
+        assert backdrop is not None
+        assert last is not None
+        if self._orbit_press is not None:
+            moved = event.position() - self._orbit_press
+            if (moved.x() ** 2 + moved.y() ** 2) ** 0.5 < ORBIT_PX:
+                return  # still a right click
+            self._orbit_press = None
+            self.controller.cancel_operation()
+            self.session.set_hover(None)
+            backdrop.orbit(self.view, self.width(), self.height())
+            self.orbited.emit()
+        delta = event.position() - last
+        self._orbit_from = event.position()
+        assert backdrop.free is not None
+        panning = bool(event.buttons() & Qt.MouseButton.MiddleButton) or bool(
+            event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        )
+        if panning:
+            backdrop.free = backdrop.free.panned(delta.x(), delta.y())
+        else:
+            backdrop.free = backdrop.free.orbited(delta.x(), delta.y())
+        self.update()
+
+    def face(self) -> None:
+        """Look straight at the sketch again after orbiting, to keep drawing (N)."""
+        if self.backdrop is not None and not self.backdrop.facing:
+            self.backdrop.face(self.view, self.width(), self.height())
+            self._view_jumped()
 
     def edit_at(self, pointer: Pointer, at: QPoint) -> bool:
         """Open the entry on the dimension under the pointer. False if there's none."""
@@ -581,6 +634,11 @@ class Canvas(QWidget):
         return True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._orbit_from is not None and self.backdrop is not None:
+            self._orbit(event)
+            return
+        if self.backdrop is not None and not self.backdrop.facing:
+            return  # nothing to draw on until the view faces the sketch again
         if self._pan_from is not None:
             delta = event.position() - self._pan_from
             self._pan_from = event.position()
@@ -605,6 +663,11 @@ class Canvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._orbit_from is not None:
+            if self._orbit_press is not None:  # a right click, not a drag: cancel, as ever
+                self.controller.escape()
+            self._orbit_from = self._orbit_press = None
+            return
         if self._pan_from is not None and event.button() in (
             Qt.MouseButton.MiddleButton,
             Qt.MouseButton.LeftButton,
@@ -626,6 +689,17 @@ class Canvas(QWidget):
                 self.entry.fields[0].selectAll()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+        backdrop = self.backdrop
+        if backdrop is not None and backdrop.free is not None:
+            steps = event.angleDelta().y() / 120
+            if steps:
+                at = event.position()
+                backdrop.free = backdrop.free.zoomed(
+                    1.15**steps, (at.x(), at.y()), (self.width(), self.height())
+                )
+                self.update()
+            event.accept()
+            return
         pixels = event.pixelDelta()
         trackpad = not pixels.isNull() and (
             event.device().type() == QInputDevice.DeviceType.TouchPad
@@ -694,6 +768,16 @@ class Canvas(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         qp = QPainter(self)
+        backdrop = self.backdrop
+        if backdrop is not None and not backdrop.facing:
+            # Orbited away: the part as the free camera sees it, the sketch on its plane.
+            backdrop.paint(qp, self.view, self.width(), self.height())
+            qp.setPen(theme.TEXT_DIM)
+            qp.setFont(theme.font())
+            box = QRectF(0, self.height() - 40, self.width(), 32)
+            qp.drawText(box, Qt.AlignmentFlag.AlignCenter, ORBITED_HINT)
+            qp.end()
+            return
         self._paint_static(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter = ModelPainter(qp, self.view)
@@ -773,6 +857,7 @@ class Canvas(QWidget):
             and self._layer_view is not None
             and self._layer_document is self.session.sketch_view
             and self._layer_frame == self._frame_key()
+            and self._layer_scene == self._scene_key()
         ):
             scale, origin_x, origin_y = self._layer_view
             k = self.view.scale / scale
@@ -797,17 +882,22 @@ class Canvas(QWidget):
         view_key = (view.scale, view.origin_x, view.origin_y)
         frame = self._frame_key()
         document = self.session.sketch_view
+        scene = self._scene_key()
         if (
             self._layer is not None
             and self._layer_view == view_key
             and self._layer_frame == frame
             and self._layer_document is document
+            and self._layer_scene == scene
         ):
             return self._layer
         layer = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
         layer.setDevicePixelRatio(ratio)
         qp = QPainter(layer)
-        qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
+        if self.backdrop is not None:
+            self.backdrop.paint(qp, view, self.width(), self.height())  # the part, behind
+        else:
+            qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
         if self.show_grid:
             self._paint_grid(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -844,8 +934,15 @@ class Canvas(QWidget):
             self._paint_glyphs(qp, self.constraint_glyphs, {id: theme.ERROR for id in failed})
         qp.end()
         self._layer, self._layer_view, self._layer_frame = layer, view_key, frame
-        self._layer_document = document
+        self._layer_document, self._layer_scene = document, scene
         return layer
+
+    def _scene_key(self) -> object:
+        """What the backdrop shows besides the sketch: the whole part, from where."""
+        backdrop = self.backdrop
+        if backdrop is None:
+            return None
+        return (id(backdrop), backdrop.plane, backdrop.sketch, self.session.document)
 
     def _paint_glyphs(
         self, qp: QPainter, laid_out: list[glyphs.Glyph], colours: dict[EntityId, QColor]
