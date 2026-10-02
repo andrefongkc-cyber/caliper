@@ -1,9 +1,51 @@
-Status: V2's F1 to F8 done on `shared/v2-milestone`, and the engine's part of 3D-first on `shared/v2-3d-sketching` (a part with no sketch, script schema 2); all local, not pushed; ADRs 0011 to 0015 Proposed, for Lucas; next: Lucas's review
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 done, the baseline saved (`bench/results/2026-10-02-pv2.2-baseline.json`); next: Perf-1, the sketch browser in linear time
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## Performance V2.2 (branch `shared/performance-v2.2`, stacked on `shared/v2-3d-sketching`, 2026-10-02; local, not pushed)
+
+The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): make what Caliper already does faster, with no change to what it does. Solver changes stay bit-identical (Andre's choice); the 3D render fixes come last, on the current renderer. Each phase is one commit, judged against the Perf-0 baseline with `bench/perf.py --compare bench/results/2026-10-02-pv2.2-baseline.json`.
+
+- [x] **Perf-0, the missing benchmarks and a baseline.** `bench/perf_v22.py` adds 31 results to `bench/perf.py` (67 in all), each with the count of work the plan names, taken by wrapping the function for the run only:
+  - the window: opening a document (stress plate, 2,000, 10,000 entities), the sketch browser filled from scratch, a selection change and Select All (palette refilters), a tab round trip (refilters, browser and Part-panel rebuilds, scene builds), startup, a dimension edit (History, Checks, and Part-panel refreshes), undo and redo, the accepted stress plate undone and redone, one change after 2,000 recorded ones, and the first pointer move after an edit (grid builds) against a steady one;
+  - files (stress plate and 10,000 entities, with type-hint lookups) and the command-line replay (schema 1 and 2, in a new process);
+  - the solver's counts over the stress plate and the 150-line chain (Duals, rule matches, point lookups, Newton solves, rows factored, redundancy checks);
+  - recompute over ten extrudes (prisms and unions rebuilt when the first, the last, and a label change);
+  - 3D frames at 2,604, 8,652, and 20,748 triangles (scene build, camera axes per frame), an orbit (scenes built: 0), and a line drawn in a 3D sketch with the 24-hole part behind it (scene builds and volume calls per edit);
+  - Claude Desktop's stress plate in the 3D tab.
+
+  `tests/test_perf_bench.py` keeps the module importable. Two stale figures corrected: F8's Accept (saved runs: 23.3 → 23.7 ms, not "23 → 29"), and ADR 0015's frame cost (about 0.4 ms on both parts, not 3 ms on the 24-hole plate, since the hidden-edge fix). The `many_checks` docstring no longer claims a Checks-panel timing.
+
+  The baseline, the numbers the phases below are judged on:
+
+  | Case | Baseline |
+  |---|---|
+  | Open 10,000 / 2,000 entities / stress plate | 37.8 s / 1.56 s / 75 ms; 2 browser rebuilds each |
+  | Browser rebuild, 2,000 / 10,000 | 755 ms / 18.8 s |
+  | Selection change / Select All (stress plate) | 6.6 ms, 17 refilters / 6.1 ms, 2 |
+  | Tab round trip | 48.8 ms: 68 refilters, 4 browser and 9 Part-panel rebuilds, 3 scene builds |
+  | Startup (window after the first) | 24.5 ms, 51 refilters |
+  | Dimension edit / undo / redo (stress plate) | 12.8 / 10.9 / 10.7 ms |
+  | Accepted stress plate undone / redone | 3.9 / 20.9 ms (265 inserts) |
+  | One change after 2,000 | 8.9 ms |
+  | First / steady pointer move, 10,000 | 10.0 / 0.21 ms; 1 grid build per edit |
+  | Files: loads, 10,000 / stress plate | 196 / 6.8 ms (23,001 / 744 type-hint lookups) |
+  | Solver: stress plate | solve 441 ms; 577 k Duals, 8,767 matches, 133 k point lookups |
+  | Solver: chain-150 / star-12 | 2.62 s, p95 35 ms / 333 ms a call |
+  | 3D frame, 2,604 / 8,652 / 20,748 triangles | 22.4 / 68 / 166 ms; scene 13.6 / 46 / 138 ms; 8,641 axes per frame at 2,604 |
+  | 3D sketch edit over the 24-hole part | 43 ms: 1 scene build, 3 volume calls per edit |
+  | CLI replay, stress plate | 0.72 s |
+- [ ] Perf-1: the sketch browser in linear time, one rebuild per document swap
+- [ ] Perf-2: one command-palette refilter per event-loop turn
+- [ ] Perf-3: History incremental; one Checks and Part refresh per turn; solid properties cached per solid
+- [ ] Perf-4: solver evaluation, bit-identical
+- [ ] Perf-6: incremental picking grid
+- [ ] Perf-7: per-class decoders for file loading
+- [ ] Perf-5: redundancy check rank update (C-6), spike-gated
+- [ ] Perf-8: the 3D render path on the current renderer
 
 ## 3D-first, the engine's part (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
 
@@ -37,7 +79,7 @@ Done when every part of V2 has tests on both kernels, and the milestone runs end
   - Sketch mode, the Part panel, and Extrude: `tests/app/test_sketch_mode.py`.
   - The AI on a part: `tests/ai/test_sketches.py`, `tests/app/test_mcp.py`, `tests/app/test_assistant.py`.
 - [x] **The gate:** 1754 passed with OCCT, none skipped; 1688 passed and 54 skipped without it (what needs OCCT); lint, format, and types clean; the bench 10 of 10 on each kernel.
-- [x] **Performance**, saved as `bench/results/2026-10-01-v2-f8.json` and compared with F3's: the milestone's rebuild counts are unchanged (a width change makes one prism, a label move or undo none), and every timing is within noise. The window's share of Claude Desktop's stress-plate calls is about 3% higher, and its Accept 23 → 29 ms; profiled, V2's own panels take under 1 ms of that Accept. 3D frames: the plate 0.41 ms, 24 holes (2,604 triangles) 20 ms median.
+- [x] **Performance**, saved as `bench/results/2026-10-01-v2-f8.json` and compared with F3's: the milestone's rebuild counts are unchanged (a width change makes one prism, a label move or undo none), and every timing is within noise. In the saved runs, the window's share of Claude Desktop's stress-plate calls is 8% higher (0.710 → 0.766 s) and its Accept 23.3 → 23.7 ms; profiled, V2's own panels take under 1 ms of that Accept. (Corrected 2026-10-02: an earlier "about 3%, Accept 23 → 29 ms" came from reruns, not the saved files.) 3D frames: the plate 0.41 ms, 24 holes (2,604 triangles) 20 ms median.
 
 ## V2, F4: a persistent-naming spike (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 
