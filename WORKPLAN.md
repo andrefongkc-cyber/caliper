@@ -1,4 +1,4 @@
-Status: V2's F1 to F8 done on `shared/v2-milestone`, and 3D-first on `shared/v2-3d-sketching` (ADR 0015: start in 3D from the planes, sketch in 3D, the 2D tab a test sketch with its own file); all local, not pushed; ADRs 0011 to 0015 Proposed, for Lucas; next: Andre tries it, Lucas's review; N9's Claude Desktop run still open
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0, the baseline, done; next: Perf-1. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -30,6 +30,16 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] F7, the contract reviewed from the app's side ([shell.md](docs/workplan/shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): no contract change needed; four app bugs found and fixed (the assistant's and Claude Desktop's drawing with two sketches, the sketch-size checks, the proposal preview, an extrude's label). ADR 0011's questions answered as built; Lucas to confirm
     - [x] F8, V2's tests ([core.md](docs/workplan/core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): the milestone end to end through the window on both kernels, from the rectangle to a byte-identical headless replay, with the 3D view's mesh measured at each step; coverage of V2's files measured (91–100%) and the gaps filled. 1754 passed with OCCT; 1688 passed and 54 skipped without it
     - [x] 3D-first, after F8 ([ADR 0015](docs/adr/0015-sketching-in-3d-from-the-parts-planes.md), Proposed; [shell.md](docs/workplan/shell.md)): the app starts in 3D on a part with its Top, Front, and Right planes; a sketch is made on a plane and edited in 3D facing it, with Finish and Cancel; the 2D tab is a sketch to test on, its own document and file; Claude works on the tab shown
+  - [~] **Performance V2.2** (measured plan 2026-10-01 on `bf1dcc9`; [core.md](docs/workplan/core.md)): make what exists faster, solver bit-identical
+    - [x] Perf-0: missing benchmarks and counters (`bench/perf_v22.py`); baseline `bench/results/2026-10-02-pv2.2-baseline.json`; two stale figures corrected
+    - [ ] Perf-1: sketch browser in linear time, one rebuild per document swap (open at 10k: 37.8 s)
+    - [ ] Perf-2: one command-palette refilter per event-loop turn (selection change 6.6 ms, 17 refilters)
+    - [ ] Perf-3: History incremental, one Checks/Part refresh per turn, solid properties cached per solid
+    - [ ] Perf-4: solver evaluation, bit-identical (stress plate solve 441 ms)
+    - [ ] Perf-6: incremental picking grid (first move after an edit at 10k: 10 ms)
+    - [ ] Perf-7: per-class decoders for file loading (10k entities: 196 ms)
+    - [ ] Perf-5: redundancy check rank update (C-6), spike-gated (star-12: 333 ms)
+    - [ ] Perf-8: the 3D render path on the current renderer (2,604 triangles: 22 ms a frame)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)
