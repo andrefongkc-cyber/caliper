@@ -44,8 +44,8 @@ _CONSTRUCTION = {
 }
 _SKETCH = {
     "type": "string",
-    "description": "The sketch to draw in, as for the create tools. Leave it out while the part "
-    "has one sketch.",
+    "description": "The sketch to draw in, as for the create tools. Leave it out to draw in the "
+    "sketch the user is editing; in a part with no sketch, one is made on XY.",
 }
 
 ARC_THROUGH = ToolSpec(

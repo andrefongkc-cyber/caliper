@@ -17,7 +17,7 @@ resolved commands, replayable on the original document to reach exactly the same
 
 import inspect
 from collections.abc import Callable, Mapping
-from dataclasses import MISSING, dataclass, fields
+from dataclasses import MISSING, dataclass, fields, replace
 from enum import StrEnum
 from types import NoneType, UnionType
 from typing import Union, get_args, get_origin, get_type_hints
@@ -125,8 +125,9 @@ _FIELD_DESCRIPTIONS: dict[str | tuple[str, str], str] = {
         "part's outline."
     ),
     "sketch": (
-        "The id of the sketch to draw in. Leave it out while the part has one sketch, which is "
-        "drawn in by default."
+        "The id of the sketch to draw in. Leave it out to draw in the sketch the user is "
+        "editing, or the part's only sketch; in a part with no sketch yet, one is made on XY "
+        "(the Top plane)."
     ),
 }
 """What a command field is for, where its name and type don't say: by (command, field), or
@@ -415,7 +416,11 @@ class Workspace:
         """For the undo menu: the single change's own label, or one for several. A check goes
         with what it checks, so checks count only when there's nothing else: a rectangle and
         its check is "Create Rectangle"."""
-        shapes = [a.label for a in self._applied if not _about_checks(a.delta)]
+        shapes = [
+            a.label
+            for a in self._applied
+            if not _about_checks(a.delta) and not isinstance(a.command, CreateSketch)
+        ]
         labels = shapes or list(self.labels)
         return labels[0] if len(labels) == 1 else "Assistant Changes"
 
@@ -446,7 +451,11 @@ class Workspace:
             command = decode_command({**arguments, "kind": kind}, kind)
         except (DecodeError, TypeError, ValueError) as e:
             raise _ToolError({"error": str(e)}) from e
-        result = self._execute(self._in_sketch(command))
+        command = self._in_sketch(command)
+        sketch = part.first_sketch(self.document, command)
+        if sketch is not None:
+            return self._drawn_in_new_sketch(sketch, command)
+        result = self._execute(command)
         if result is None:
             return {"applied": True, "changed": "nothing: the document already was that way"}
         # No echo of the command: what it created and changed, in stored form, says all the
@@ -457,6 +466,32 @@ class Workspace:
             "created": [str(id) for id in result.created_ids],
             "changed": _changes(result.delta),
         }
+
+    def _drawn_in_new_sketch(self, sketch: CreateSketch, command: Command) -> JSON:
+        """`command` in a part with no sketch (the app's 3D tab starts with none): a sketch on
+        XY first, then `command` in it, as one call that one undo takes back."""
+        made = self._made_sketch(sketch)
+        (id,) = made.created_ids
+        assert isinstance(command, part.DRAWING)
+        result = self._bus.execute(replace(command, sketch=id))
+        if isinstance(result, Rejected):
+            self._bus.undo()
+            raise _ToolError({"rejected": [_error(e) for e in result.errors]})
+        assert isinstance(result, Applied)
+        self._applied += [made, result]
+        self._calls.append((2, result.label))
+        return {
+            "applied": True,
+            "label": result.label,
+            "created": [str(id) for id in result.created_ids],
+            "sketch": f"{id}, made on XY (the Top plane): the part had no sketch to draw in",
+            "changed": _changes(result.delta),
+        }
+
+    def _made_sketch(self, sketch: CreateSketch) -> Applied:
+        made = self._bus.execute(sketch)
+        assert isinstance(made, Applied)  # a sketch on a plane is always allowed
+        return made
 
     def _execute(self, command: Command) -> Applied | None:
         """Run one command as a call of its own, which undo takes back; None if it changed
@@ -480,7 +515,14 @@ class Workspace:
         steps: list[Applied] = []
 
         def run(command: Command) -> Applied:
-            result = self._bus.execute(self._in_sketch(command))
+            command = self._in_sketch(command)
+            sketch = part.first_sketch(self.document, command)
+            if sketch is not None:  # a drawing tool in a part with no sketch
+                made = self._made_sketch(sketch)
+                steps.append(made)
+                assert isinstance(command, part.DRAWING)
+                command = replace(command, sketch=made.created_ids[0])
+            result = self._bus.execute(command)
             if isinstance(result, Rejected):
                 raise patterns.PatternError(
                     {

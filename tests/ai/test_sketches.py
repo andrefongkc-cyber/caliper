@@ -164,3 +164,37 @@ def test_an_extrude_names_the_change_though_a_check_comes_with_it() -> None:
     volume = call("run_check", metric="volume", expected=1.0, tolerance=1e9)
     assert not workspace.call(volume).is_error
     assert workspace.label == "Extrude"
+
+
+def test_drawing_in_a_part_with_no_sketch_makes_one_on_top_in_the_same_call() -> None:
+    """The app's 3D tab starts with no sketch (ADR 0015). Claude's first drawing makes one on
+    XY, as a new part always had, and one undo takes both back."""
+    empty = part.no_sketch()
+    workspace = Workspace(empty)
+    outcome = workspace.call(call("create_circle", center={"x": 0.0, "y": 0.0}, radius=3.0))
+    assert not outcome.is_error, outcome.content
+    sketch, circle = workspace.commands
+    assert isinstance(sketch, CreateSketch)
+    assert sketch.plane is Plane.XY
+    assert isinstance(circle, CreateCircle)
+    assert circle.sketch == sketch.id
+    assert "the part had no sketch" in outcome.content["sketch"]  # type: ignore[index]
+    assert workspace.label == "Create Circle"  # the sketch goes with what's drawn in it
+    assert not workspace.call(call("undo")).is_error
+    assert workspace.document == empty
+
+
+def test_a_drawing_tool_in_a_part_with_no_sketch_makes_one_sketch() -> None:
+    workspace = Workspace(part.no_sketch())
+    points = [{"x": 0.0, "y": 0.0}, {"x": 5.0, "y": 0.0}, {"x": 5.0, "y": 5.0}]
+    outcome = workspace.call(call("create_outline", points=points, closed=True))
+    assert not outcome.is_error, outcome.content
+    assert len(part.sketches(workspace.document)) == 1
+    assert sum(isinstance(c, CreateSketch) for c in workspace.commands) == 1
+
+
+def test_an_extrude_in_a_part_with_no_sketch_is_refused() -> None:
+    workspace = Workspace(part.no_sketch())
+    outcome = workspace.call(call("create_extrude", depth=3.0))
+    assert outcome.is_error
+    assert workspace.document == part.no_sketch()
