@@ -98,8 +98,9 @@ sketch on XY. Byte-identical replay (invariant 4) holds for both tabs.
 - Switching tabs while Claude has a proposal withdraws it, and Claude is told the document
   changed.
 - The planes grow with the part, to about its size, so they don't swamp a small one.
-- Drawing the planes and sketches costs the 3D view about half a millisecond a frame on the
-  plate, and three on a plate with 24 holes (bench `v2/render-3d`).
+- Drawing the planes and sketches costs the 3D view about half a millisecond a frame, on the
+  plate (0.41 → 0.82 ms) and on a plate with 24 holes (19.4 → 19.8 ms), against F8's saved
+  run (bench `v2/render-3d`, 2026-10-02).
 
 ## Alternatives considered
 
