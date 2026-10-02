@@ -37,13 +37,14 @@ from caliper.app.agent.timing import RunTimer, Timing, markdown
 from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.panels.timing import time_left
 from caliper.app.session import Author
-from caliper.contracts.commands import CreateCircle, CreateRectangle
+from caliper.contracts.commands import CreateCircle, CreateRectangle, CreateSketch
 from caliper.contracts.document import Circle, EntityId, Extrude, Plane, Point2, Rectangle
-from caliper.engine import features, geometry
+from caliper.engine import features, geometry, part
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from caliper.engine.io import snapshot
+from tests.app.parts import plate, sketch_on
 
 E1 = EntityId("e1")
 RECTANGLE = {"corner": {"x": 0, "y": 0}, "width": 100, "height": 50}
@@ -164,21 +165,53 @@ def test_undoing_all_of_it_withdraws_the_proposal(served, qtbot) -> None:
 
 
 def test_claude_desktop_draws_into_the_sketch_the_user_is_editing(served, qtbot) -> None:
-    """With two sketches, a call that names none goes where the user is drawing (V2's F7),
-    as the window's own tools do, rather than being refused for leaving the sketch out."""
+    """Claude works on the tab the user is in (ADR 0015). In the part, with two sketches, a
+    call that names none goes into the sketch open in 3D, reviewed facing it over the part."""
     window, session = served, served.session
-    session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=40, height=20))
-    window.new_sketch_actions[Plane.XZ].trigger()
-    second = session.active_sketch
+    plate(window)  # Sketch 1, on Top
+    second = sketch_on(window, Plane.XZ)
     response = call(window, qtbot, "create_circle", CIRCLE)
     assert not response.is_error, response.content
     (command,) = window.agent.proposal.plan.commands
     assert isinstance(command, CreateCircle)
     assert command.sketch == second
     assert call(window, qtbot, "inspect_document").content["editing"] == second
+    assert window.canvas.backdrop is not None
+    assert window.canvas.backdrop.plane is Plane.XZ
     window.proposal_card.accept_button.click()
-    circle = command.id
-    assert session.queries.sketch_of(circle) == second
+    assert session.queries.sketch_of(command.id) == second
+    assert window.sketch_open == second  # still open, to keep going
+
+
+def test_claude_desktop_in_a_part_with_no_sketch_makes_one_on_top_and_shows_it_there(
+    served, qtbot
+) -> None:
+    window, session = served, served.session
+    window.set_mode("3d")
+    response = call(window, qtbot, "create_rectangle", RECTANGLE)
+    assert not response.is_error, response.content
+    made, rectangle = window.agent.proposal.plan.commands
+    assert isinstance(made, CreateSketch)
+    assert made.plane is Plane.XY
+    assert isinstance(rectangle, CreateRectangle)
+    assert session.document == part.no_sketch()  # a proposal: nothing yet
+    # Reviewed facing the plane of the sketch it makes, over the part.
+    assert window.views.currentWidget() is window.canvas
+    assert window.canvas.backdrop is not None
+    assert window.canvas.backdrop.plane is Plane.XY
+    assert window.proposal_card.isVisible()
+    assert window.proposal_card.title.text() == "Create Rectangle"
+    window.proposal_card.accept_button.click()
+    assert window.sketch_open == made.id  # accepted: the new sketch, open to go on with
+    window.finish_sketch()
+    window.undo_action.trigger()  # one step: the sketch and what's in it
+    assert session.document == part.no_sketch()
+    # Rejected instead: back to the part, nothing made.
+    call(window, qtbot, "create_rectangle", RECTANGLE)
+    window.proposal_card.reject_button.click()
+    assert window.views.currentWidget() is window.view3d
+    assert window.canvas.backdrop is None
+    assert session.document == part.no_sketch()
 
 
 def test_an_extrude_from_claude_desktop_is_proposed_accepted_and_undone_as_one_step(
@@ -189,12 +222,16 @@ def test_an_extrude_from_claude_desktop_is_proposed_accepted_and_undone_as_one_s
     monkeypatch.setattr(geometry, "default_kernel", FakeKernel)
     features.forget()
     window, session = served, served.session
+    sketch_on(window)
     session.execute(CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    window.finish_sketch()
     response = call(window, qtbot, "create_extrude", {"depth": 10})
     assert not response.is_error, response.content
     volume = {"metric": "volume", "expected": 60000, "tolerance": 0.001}
     assert not call(window, qtbot, "run_check", volume).is_error
     assert window.proposal_card.title.text() == "Extrude"
+    assert window.views.currentWidget() is window.view3d  # nothing drawn: reviewed in 3D
+    assert window.proposal_card.isVisible()  # in the 3D view, where it's seen
     (check,) = window.agent.proposal.checks
     assert check.after.passed
     assert len(session.document.features) == 1  # nothing yet: it's a proposal
@@ -202,7 +239,7 @@ def test_an_extrude_from_claude_desktop_is_proposed_accepted_and_undone_as_one_s
     assert isinstance(session.document.features[1], Extrude)
     assert session.queries.solid_properties().volume == pytest.approx(60_000.0)
     window.undo_action.trigger()
-    assert len(session.document.features) == 1
+    assert len(session.document.features) == 1  # the sketch stays
     assert not session.checks
 
 

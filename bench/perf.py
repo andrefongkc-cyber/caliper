@@ -239,7 +239,7 @@ def _window() -> tuple[object, object]:
 
     app = QApplication.instance() or QApplication([])
     theme.apply(app)  # type: ignore[arg-type]
-    window = MainWindow()
+    window = MainWindow(mode="2d")  # the sessions are 2D sketches, recorded in the 2D tab
     window.resize(1280, 800)
     window.show()
     app.processEvents()
@@ -729,10 +729,11 @@ def render_3d() -> list[Result]:
         ),
     ):
         features.forget()
+        window.set_mode("3d")  # type: ignore[attr-defined]
+        # The 3D tab's part, with a sketch on Top to build in: as F5 measured it.
         window.session.replace(Bus(), None)  # type: ignore[attr-defined]
         for command in (*build, CreateExtrude(depth=10.0)):
             window.session.execute(command)  # type: ignore[attr-defined]
-        window.set_mode("3d")  # type: ignore[attr-defined]
         app.processEvents()  # type: ignore[attr-defined]
         view = window.view3d  # type: ignore[attr-defined]
         view.resize(1280, 800)
