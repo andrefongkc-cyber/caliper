@@ -1,4 +1,4 @@
-Status: V2's F1 to F8 done on `shared/v2-milestone` (local, not pushed; ADRs 0011 to 0014 Proposed, for Lucas); next: Lucas's review, then a PR when Andre says; N9's Claude Desktop run still open
+Status: V2's F1 to F8 done on `shared/v2-milestone`, and 3D-first on `shared/v2-3d-sketching` (ADR 0015: start in 3D from the planes, sketch in 3D, the 2D tab a test sketch with its own file); all local, not pushed; ADRs 0011 to 0015 Proposed, for Lucas; next: Andre tries it, Lucas's review; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -29,6 +29,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] F6, sketch mode, the Part panel, and Extrude, on the real engine: the milestone clicked through the window on both kernels; a tidier toolbar and panels
     - [x] F7, the contract reviewed from the app's side ([shell.md](docs/workplan/shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): no contract change needed; four app bugs found and fixed (the assistant's and Claude Desktop's drawing with two sketches, the sketch-size checks, the proposal preview, an extrude's label). ADR 0011's questions answered as built; Lucas to confirm
     - [x] F8, V2's tests ([core.md](docs/workplan/core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): the milestone end to end through the window on both kernels, from the rectangle to a byte-identical headless replay, with the 3D view's mesh measured at each step; coverage of V2's files measured (91–100%) and the gaps filled. 1754 passed with OCCT; 1688 passed and 54 skipped without it
+    - [x] 3D-first, after F8 ([ADR 0015](docs/adr/0015-sketching-in-3d-from-the-parts-planes.md), Proposed; [shell.md](docs/workplan/shell.md)): the app starts in 3D on a part with its Top, Front, and Right planes; a sketch is made on a plane and edited in 3D facing it, with Finish and Cancel; the 2D tab is a sketch to test on, its own document and file; Claude works on the tab shown
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)

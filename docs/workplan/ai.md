@@ -1,4 +1,4 @@
-Status: V2 done on `shared/v2-milestone` (local, not pushed): the assistant and Claude Desktop draw in the sketch the user is editing, extrude, and check volumes, tested on both kernels; N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: that run
+Status: 3D-first on `shared/v2-3d-sketching` (local, not pushed): Claude works on the tab the user is in, and its first drawing in a part with no sketch makes one on Top; N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: that run
 
 # AI workplan
 
@@ -7,6 +7,14 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## 3D-first, the AI side (branch `shared/v2-3d-sketching`, 2026-10-01)
+
+[ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md): Andre chose that Claude works on the tab the user is in.
+
+- [x] In the 3D tab's part, a drawing call that names no sketch goes into the open one. In a part with no sketch, the drawing tools first make one on XY (`part.first_sketch`), in the same call and undo step; the result says so, and the label stays the drawing's ("Create Rectangle").
+- [x] The instructions for Claude Desktop and the in-app assistant describe the part and the two tabs; the `sketch` field's description says what leaving it out does.
+- [x] Tests: `tests/ai/test_sketches.py` (drawing, an outline, and an extrude in an empty part), `tests/app/test_mcp.py` and `test_assistant.py` (the 3D tab).
 
 ## V2, F7: the AI in a part with several sketches (branch `shared/v2-milestone`, 2026-10-01)
 

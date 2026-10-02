@@ -218,8 +218,12 @@ F6 or F7. One rule the window and the AI share moved into the engine (`part.in_s
    all use, and only when the part has more than one sketch. With one, every V1 file, the
    command goes as it came, so recorded commands and replays are unchanged.
 2. **File → New:** `e0` on XY, as today. New Sketch on XY, XZ, or YZ adds and edits another.
+   *Changed by [ADR 0015](0015-sketching-in-3d-from-the-parts-planes.md): in the 3D tab a new
+   part has no sketch, only its planes; the 2D tab's new document keeps `e0` on XY.*
 3. **What the canvas draws:** the edited sketch only, in its own 2D coordinates. Sketches on
    their planes in 3D wait for a later version; the 3D view (ADR 0012) shows the solid.
+   *Changed by ADR 0015: the 3D view shows every sketch on its plane, and a sketch is edited
+   in 3D, facing its plane, by the same canvas over the part.*
 4. **Picking:** the queries stay part-wide. The session keeps a view of the document holding
    only the edited sketch's entities (`sketch_view`, `sketch_queries`), and the canvas, its
    tools, the browser, and Select All use it, so nothing in another sketch can be picked or

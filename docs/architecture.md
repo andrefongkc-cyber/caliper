@@ -171,27 +171,37 @@ or cut from, the part's one solid.
 - **Commands never need a kernel.** Queries do: OCCT, or the analytic kernel in tests and the
   bench.
 
-## The app on a part: sketch mode and two views
+## The app on a part: two tabs, and sketching in 3D
 
-Since V2's F5 and F6, the app edits a part, not one sketch.
+Since V2 ([ADR 0015](adr/0015-sketching-in-3d-from-the-parts-planes.md)), the window has two
+tabs, each its own document. The app starts in 3D.
 
-- **The sketch being edited is UI state** (`DocumentSession.active_sketch`), like the
-  selection. With more than one sketch, a command that draws or extrudes and names no sketch
-  goes into it: `part.in_sketch`, in the engine, which the window, the in-app assistant, and
-  Claude Desktop's calls all use. With one sketch, every V1 file, commands go as they came.
+- **Two documents, one session.** The 3D tab is the part; the 2D tab is a sketch to test on.
+  `DocumentSession.use` shows one or the other, as opening a file does; each keeps its own
+  file, undo history, selection, and sketch. Everything that reads the session (the panels,
+  the agent, Claude Desktop) reads the one shown. New, Open, and Save act on the tab shown.
+- **A part starts from its planes.** A new part in the 3D tab has no sketch
+  (`part.no_sketch()`). The 3D view (`viewport/scene3d.py`) draws the origin, the Top, Front,
+  and Right planes, every sketch on its plane, and the solid; a click picks a plane or a
+  sketch. The 2D tab's new document is V1's, one sketch on XY.
+- **A sketch is edited in 3D by the 2D canvas.** Looking straight at a plane, an orthographic
+  camera maps it to the screen as the canvas maps a sketch, a scale and an offset. So the
+  canvas edits the sketch, every tool as it is, over the part drawn from the camera that
+  faces the plane (`viewport/backdrop.py`). A right drag orbits away and drawing waits; N
+  faces the sketch again; Finish keeps it, and Cancel undoes everything since it opened.
+- **The sketch being edited is UI state** (`DocumentSession.active_sketch`). Commands that
+  draw or extrude and name no sketch go into it (`part.in_sketch`, in the engine, shared by the
+  window and both assistants). In a part with no sketch, the AI's drawing first makes one on
+  Top (`part.first_sketch`). With one sketch, every V1 file, commands go as they came.
 - **The canvas sees one sketch.** The session keeps a view of the document holding only the
   edited sketch's entities (`sketch_view`, `sketch_queries`). The canvas, its tools, the
   browser, and Select All read it, so nothing in another sketch can be picked by accident.
-  Commands still go to the whole document.
-- **Two views, one session.** A `QStackedWidget` holds the 2D canvas and the 3D view, behind a
-  2D/3D switch at the head of the toolbar. Switching changes nothing in the document, the
-  history, or the selection.
 - **The 3D view** ([ADR 0012](adr/0012-the-3d-viewport-our-own-renderer-first.md)) is our own
   QPainter renderer, with no new dependency. It draws `Queries.mesh`, asked for only when it
   shows a changed document, and keeps the last good solid on screen, with the reason, when a
   feature fails. `viewport/camera3d.py` has no Qt.
-- **The Part panel** lists `Document.features` in order, with `feature_error` and the part's
-  volume, and opens a sketch for editing. Extrude is a panel over the view that sends one
+- **The Part panel** lists the default geometry and `Document.features` in order, with
+  `feature_error` and the part's volume. Extrude is a panel over the view that sends one
   `CreateExtrude`.
 - **Faces aren't named yet.** [ADR 0014](adr/0014-persistent-naming-by-history.md) records how
   they will be, by history, from a spike in the tests; the first feature that refers to a face
@@ -400,8 +410,9 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the day-to-day workflow.
 - **`tests/app/`:** pytest-qt, run offscreen on macOS CI.
 - **V2's milestone, end to end:** `tests/engine/test_milestone.py` headlessly and
   `tests/app/test_v2_milestone.py` through the window, each on the analytic kernel and OCCT:
-  a 120 x 50 plate extruded 10 mm, its width changed and undone, 2D and 3D in turn, saved,
-  reopened, and replayed to the same bytes. Tests that need OCCT skip without it; CI's app
+  a 120 x 50 plate sketched on Top in 3D and extruded 10 mm, its width changed and undone, the
+  sketch edited again, the 2D tab used meanwhile, each tab saved, the part reopened, and
+  replayed to the same bytes. Tests that need OCCT skip without it; CI's app
   job has none, so the app tests give the engine the analytic kernel.
 - **`bench/`:** end-to-end cases (a prompt or script, a reference model, and expectations).
   It exists before the AI layer so the AI has something to be measured against from day one.

@@ -1,4 +1,4 @@
-Status: V2's F5 to F8 done on `shared/v2-milestone` (local, not pushed): sketch mode, the Part panel, Extrude, the 3D view and its switch, the contract reviewed from the app's side, and the milestone tested end to end through the window; next: Lucas's review of ADRs 0011 and 0012
+Status: 3D-first on `shared/v2-3d-sketching` (local, not pushed; ADR 0015 Proposed): the app starts in 3D on a part with its planes, sketches are edited in 3D facing their plane with Finish and Cancel, and the 2D tab is a test sketch with its own file; next: Andre tries it, then Lucas's review of ADRs 0011 to 0015
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,18 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## 3D-first: sketching on the part's planes (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
+
+At Andre's request, after F8: start in 3D from the three planes, as Onshape does; sketch in 3D, not by jumping to 2D; keep the 2D tab for testing; save per tab; Claude works on the tab you're in; and a way to confirm a sketch. [ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md) (Proposed) records the choices Andre made: planes only, facing the plane with N after orbiting, two separate documents, Claude on the tab shown.
+
+- [x] **Two documents, one per tab.** `DocumentSession.use` switches; each keeps its file, history, selection, sketch, and picked plane. New, Open, and Save act on the tab shown; closing asks about each tab's unsaved changes. The app starts in 3D. A pending proposal is dropped on a switch (C-18).
+- [x] **The 3D view from the planes** (`viewport/scene3d.py`): the origin, Top, Front, and Right with their names, every sketch on its plane, then the solid, which hides what's behind it. A click picks a plane or a sketch; a double-click starts or edits a sketch. The planes grow with the part. Sketch tools wait until a sketch is open.
+- [x] **The Part panel**: "Default geometry" (Origin, Top, Front, Right) above the features; a plane row picks the plane, a double-click sketches on it. Hidden in the 2D tab, and not rebuilt there.
+- [x] **Sketching in 3D** (`viewport/backdrop.py`): the canvas edits the sketch, every tool as it is, over the part drawn from the camera that faces the plane at the canvas's scale. Sketch (Shift+S, or the toolbar, with the planes in its menu) starts or edits; a right drag orbits away and drawing waits; N faces the sketch again; ✓ Finish keeps it; ✗ Cancel undoes everything since it opened, a new sketch included. Extrude finishes an open sketch first, and sweeps the picked sketch.
+- [x] **Proposals in 3D** are shown facing the sketch they draw in (one Claude makes, too); Accept leaves it open. The card sits inside whichever view shows: over the stack, it made Qt composite it on every call (0.1 ms a call, measured).
+- [x] **Found and fixed on the way:** Qt keeps a `Plane` stored in a tree row as a plain string, so plane rows are told apart by the row; the plane menu opened with `showMenu()` blocked until a choice; switching to 2D closed the open 3D sketch.
+- [x] **Tests:** `tests/app/test_documents.py` (the two documents), `test_view3d.py` and `test_sketch_mode.py` rewritten for the 3D tab (planes, picking, facing, orbit and N, Finish and Cancel, the 2D tab apart), `test_v2_milestone.py` (the milestone in 3D, end to end, both kernels), and Claude in the 3D tab (`test_mcp.py`, `test_assistant.py`), including a part with no sketch. The 2D tab's tests run unchanged, on the 2D tab.
 
 ## V2, F8: the milestone end to end through the window (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 
