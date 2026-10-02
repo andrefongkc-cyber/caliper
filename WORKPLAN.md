@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-2 done; next: Perf-3. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 done; next: Perf-4. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -34,7 +34,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] Perf-0: missing benchmarks and counters (`bench/perf_v22.py`); baseline `bench/results/2026-10-02-pv2.2-baseline.json`; two stale figures corrected
     - [x] Perf-1: sketch browser in linear time, one rebuild per document swap: open at 10k 37.8 s → 0.50 s, at 2k 1.49 s → 0.10 s; rebuild at 10k 17.9 s → 137 ms
     - [x] Perf-2: one command-palette refresh per event-loop turn: selection change 6.6 → 2.7 ms (17 refilters → 1), tab round trip → 18.8 ms, startup 25 → 16 ms
-    - [ ] Perf-3: History incremental, one Checks/Part refresh per turn, solid properties cached per solid
+    - [x] Perf-3: History adds and dims rows instead of rebuilding (a change after 2,000: 8.9 → 1.1 ms); one Checks refresh per change; Part panel skips same-content rebuilds; solid volume and box kept per solid (3D sketch edit: 3 volume calls → 0)
     - [ ] Perf-4: solver evaluation, bit-identical (stress plate solve 441 ms)
     - [ ] Perf-6: incremental picking grid (first move after an edit at 10k: 10 ms)
     - [ ] Perf-7: per-class decoders for file loading (10k entities: 196 ms)

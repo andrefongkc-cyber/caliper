@@ -114,6 +114,8 @@ class FeatureTree(QWidget):
         self.items: dict[EntityId, QTreeWidgetItem] = {}
         self.planes: dict[Plane, QTreeWidgetItem] = {}
         self._stale = True
+        self._shown: tuple[object, EntityId | None] = (None, None)
+        """The document and the sketch being edited the rows show."""
         self.editing: Callable[[], EntityId | None] = lambda: session.active_sketch
         """The sketch open for editing, marked in its row: the window says which."""
         self.tree.itemSelectionChanged.connect(self._push_selection)
@@ -128,7 +130,11 @@ class FeatureTree(QWidget):
         if not self.isVisible():
             self._stale = True  # hidden in the 2D tab: rebuilt when it shows
             return
-        self._stale = False
+        shown = (self.session.document, self.editing())
+        if not self._stale and self._shown[0] is shown[0] and self._shown[1] == shown[1]:
+            self._pull_selection()  # the rows show this already (a tab switch asks 3 times)
+            return
+        self._stale, self._shown = False, shown
         blocker = QSignalBlocker(self.tree)
         self.tree.clear()
         self.items = {}

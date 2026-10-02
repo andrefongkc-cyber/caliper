@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-2 done (open 10k 37.8 s → 0.50 s; selection change 6.6 → 2.7 ms); next: Perf-3, History and panel refreshes
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 done (open 10k 37.8 s → 0.50 s; selection change 6.6 → 2.7 ms; a change after 2,000 8.9 → 1.1 ms); next: Perf-4, the solver's evaluation, bit-identical
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -64,7 +64,21 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   | Tab round trip | 41.4 ms, 68 refilters (49.5 ms) | 18.8 ms, 2 |
   | Startup (window after the first) | 25.1 ms, 51 refilters | 16.3 ms, 2 |
   | Select All / an edit / undo | 6.3 / 13.0 / 10.9 ms | 5.9 / 13.2 / 10.8 ms (unchanged: not the palette) |
-- [ ] Perf-3: History incremental; one Checks and Part refresh per turn; solid properties cached per solid
+- [x] **Perf-3, panels that catch up rather than start over.**
+  - **History** (`caliper/app/panels/history.py`): a change adds its row; undo and redo dim or brighten the rows between where the history was and where it is; a change after undoing drops the replaced rows. A full rebuild happens only for another history (a document opened, the other tab). Each row keeps when it was made and shows its age as of the latest change to the history, as rebuilding did.
+  - **Checks** (`panels/checks.py`): `checks_changed` always comes with `document_changed` in the same announcement, so it no longer refreshes a second time.
+  - **The Part panel** (`panels/features.py`) skips a rebuild that would show the same document and sketch; a tab switch asks three times.
+  - **The engine** (`caliper/engine/features.py`): a solid's volume and bounding box are kept per solid object, beside its meshes, so the Part panel, status bar, and 3D view asking after a change that left the solid alone ask the kernel nothing.
+  - **Tests:**
+    - `tests/app/test_panel_refreshes.py`: History rows equal a full rebuild after random changes, undo, redo, a jump to Start, and transactions, with no rebuild per change; one Checks refresh when a check changes; Part rows kept.
+    - `tests/engine/test_recompute.py`: one volume call per solid.
+
+  | | Perf-0 | Perf-3 |
+  |---|---|---|
+  | One change after 2,000 | 8.9 ms (1 rebuild of 2,000 rows) | 1.13 ms (0) |
+  | 3D sketch edit over the 24-hole part | 36.6 ms, 3 volume calls | 34.1 ms, 0 |
+  | Tab round trip | 49.5 ms (18.8 after Perf-2) | 17.4 ms |
+  | A dimension edit / undo / redo (stress plate) | 13.0 / 10.9 / 11.0 ms | 12.9 / 10.6 / 10.5 ms (unchanged; one run read +13% and three reruns didn't) |
 - [ ] Perf-4: solver evaluation, bit-identical
 - [ ] Perf-6: incremental picking grid
 - [ ] Perf-7: per-class decoders for file loading

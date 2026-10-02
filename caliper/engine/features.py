@@ -32,7 +32,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.kernel import Kernel, KernelError, Shape
-from caliper.contracts.queries import Mesh
+from caliper.contracts.queries import BoundingBox3, Mesh
 from caliper.engine import graph, part, profiles
 from caliper.engine.document.recent import Recent
 
@@ -220,6 +220,24 @@ def mesh(kernel: Kernel, solid: Shape, tolerance: float) -> Mesh:
     return meshes[tolerance]
 
 
+def properties(kernel: Kernel, solid: Shape) -> tuple[float, BoundingBox3 | None]:
+    """`solid`'s volume and bounding box (None when it's empty), kept while it's the same
+    object. The Part panel, the status bar, and the 3D view each ask after a change, and most
+    changes leave the solid alone (Performance V2.2, Perf-3). A `KernelError` isn't kept."""
+    found = _PROPERTIES.get((kernel, solid))
+    if found is None:
+        volume = kernel.volume(solid)
+        try:
+            box: BoundingBox3 | None = kernel.bounding_box_3d(solid)
+        except KernelError as e:
+            if e.code is not ErrorCode.SELECTION_EMPTY:
+                raise
+            box = None
+        found = (volume, box)
+        _PROPERTIES.put((kernel, solid), found)
+    return found
+
+
 def _error(code: ErrorCode, message: str, id: EntityId) -> Error:
     return Error(code=code, message=message, field="ids", ids=(id,))
 
@@ -262,6 +280,8 @@ _SOLIDS: _ByIdentity[Shape] = _ByIdentity(64)
 """The solid after each extrude, by the kernel, the solid before it, its prism, and how."""
 _MESHES: _ByIdentity[dict[float, Mesh]] = _ByIdentity(16)
 """Each solid's meshes, by tolerance."""
+_PROPERTIES: _ByIdentity[tuple[float, BoundingBox3 | None]] = _ByIdentity(64)
+"""Each solid's volume and bounding box."""
 _RESULTS: Recent[tuple[Kernel, Mapping[EntityId, Result]]] = Recent(8)
 """Every feature's result for the last few documents asked about."""
 
@@ -271,4 +291,5 @@ def forget() -> None:
     _PRISMS.clear()
     _SOLIDS.clear()
     _MESHES.clear()
+    _PROPERTIES.clear()
     _RESULTS.clear()
