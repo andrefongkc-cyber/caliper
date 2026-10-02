@@ -1,9 +1,18 @@
-Status: V2's F1 to F8 done on `shared/v2-milestone` (local, not pushed): the milestone runs end to end, headlessly and through the window, on both kernels; ADRs 0011 to 0014 Proposed, for Lucas; next: Lucas's review, then a PR when Andre says
+Status: V2's F1 to F8 done on `shared/v2-milestone`, and the engine's part of 3D-first on `shared/v2-3d-sketching` (a part with no sketch, script schema 2); all local, not pushed; ADRs 0011 to 0015 Proposed, for Lucas; next: Lucas's review
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## 3D-first, the engine's part (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
+
+[ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md). No contract change.
+
+- [x] `part.no_sketch()`: a part with no features, where the app's 3D tab starts. `Document.empty()` stays the new part everywhere else.
+- [x] `part.first_sketch(document, command)`: the sketch to make, on XY, before drawing in a part with none (the AI's tools use it).
+- [x] Script schema 2: `"part": "empty"` starts a replay from a part with no sketch, so the 3D tab's sessions replay byte for byte. Schema 1 reads as before; `script.read` and `script.dumps` beside `load`.
+- [x] Tests: `tests/engine/test_part.py` (the empty part saves, reloads, takes a sketch; the first-sketch rule) and `tests/engine/test_replay.py` (a schema 2 replay through the CLI, and schema checks).
 
 ## V2, F8: V2's tests, end to end (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 

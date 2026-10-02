@@ -63,6 +63,11 @@ Qt Quick 3D is ruled out: it's GPL-only (ADR 0007). Whichever is chosen must:
   - In 3D, the sketch-only tools (drawing, constraints, grid, snap) are disabled, not hidden.
   - A proposal from the agent switches back to 2D, where its card is.
 
+  > **Changed by [ADR 0015](0015-sketching-in-3d-from-the-parts-planes.md)** (Proposed): the
+  > tabs now hold two documents, the 3D part and a 2D sketch to test on. The 3D view shows the
+  > part's planes and sketches too, and a sketch is edited in 3D, facing its plane. A
+  > proposal is reviewed in the tab it was made in.
+
 ## Measurements
 
 `bench/perf.py`, `v2/render-3d`, on this Mac (Apple silicon), offscreen, 1280 x 800, from

@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-15 (needs OCCT) | C-6 | C-16 |
+| Client side | C-13 (limited), C-15 (needs OCCT) | C-6 | C-16, C-17, C-18 |
 
 ---
 
@@ -76,13 +76,28 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   same change took a 12-point star's circular pattern from 2.35 s to 0.33 s.
 
 ### C-16. A proposed extrude can't be seen before it's accepted
-- **What happens:** a proposal is drawn in 2D as dashed geometry, and the window switches to
-  2D to show it. An extrude changes no geometry, so there is nothing to draw: the card lists
+- **What happens:** a proposal is drawn as dashed geometry on the sketch it changes. An
+  extrude changes no geometry, so there is nothing to draw: the card, over the 3D view, lists
   it, and its volume check is measured on the proposed solid, but the 3D view shows the solid
   as it is until Accept.
 - **Where:** `caliper/app/viewport/view3d.py`, which meshes `session.document`.
 - **Fix, if it matters:** mesh `proposal.result` in the 3D view while a proposal is shown,
   in the agent colour. The engine's `mesh` query already works on any document.
+
+### C-17. Drawing in 3D needs the view to face the sketch
+- **What happens:** a sketch is edited in 3D facing its plane (ADR 0015). Orbited away, the
+  view only looks: clicks turn it, and drawing waits until N faces the sketch again. Onshape
+  lets you draw on a plane seen at an angle.
+- **Where:** `caliper/app/viewport/backdrop.py`, and the canvas's view, a scale and an offset.
+- **Fix, if it matters:** give the canvas an affine view, which a slanted plane needs, through
+  its picking, snapping, and dimension labels.
+
+### C-18. Switching tabs drops a pending proposal
+- **What happens:** each tab is its own document, and Claude works on the one shown. Switching
+  tabs while Claude's proposal waits drops it, as opening a file does, and Claude's next call
+  is told the document changed.
+- **Where:** `caliper/app/agent/ui.py` and `mcp_host.py`, on `document_replaced`.
+- **Fix, if it matters:** keep a proposal with its tab, and show it again on the way back.
 
 ---
 
@@ -103,6 +118,13 @@ In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
   stress plate pushed Accept off the card. More than two are counted in one line.
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
+
+On `shared/v2-3d-sketching` (ADR 0015):
+
+- A part started in the 2D tab and was only seen in 3D, and a sketch was edited by jumping to
+  2D, with no way to say it was done. The 3D tab is now the part, from its Top, Front, and
+  Right planes; a sketch is edited in 3D facing its plane, and closed with Finish or Cancel.
+  The 2D tab is a sketch to test on, with its own file.
 
 On `shared/v2-milestone` (V2's F6 and F7):
 

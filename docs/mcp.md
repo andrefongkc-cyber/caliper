@@ -82,6 +82,15 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
 
 ## How Claude's changes reach your sketch
 
+Claude works on the tab you're in ([ADR 0015](adr/0015-sketching-in-3d-from-the-parts-planes.md)):
+
+- **2D:** the sketch you test on, as before.
+- **3D:** the part. Drawing goes into the sketch you have open. In a part with no sketch yet,
+  Claude's first drawing makes one on the Top plane. A proposal is shown facing the sketch it
+  draws in, over the part; Accept leaves that sketch open. Claude can extrude too.
+
+Switching tabs while a proposal is pending drops it, as opening another document does.
+
 - A call that changes something (create, edit, constrain, ...) runs on a draft of your
   sketch. The draft appears as a proposal on the canvas, with ghost geometry and each check
   before and after. Further changes join the same proposal.
