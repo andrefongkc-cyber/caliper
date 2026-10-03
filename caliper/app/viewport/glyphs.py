@@ -22,7 +22,7 @@ from PySide6.QtGui import QColor, QPainter, QPixmap
 
 from caliper.app import references, theme
 from caliper.app.viewport.painter import cosmetic_pen
-from caliper.app.viewport.transform import ViewTransform
+from caliper.app.viewport.transform import View
 from caliper.contracts.document import (
     Arc,
     Circle,
@@ -130,7 +130,7 @@ def hangs_from(entity: object, ids: frozenset[EntityId]) -> bool:
     return isinstance(entity, Constraint) and any(ref.entity in ids for ref in entity.refs)
 
 
-def place(hangings: list[Hanging], view: ViewTransform) -> list[Glyph]:
+def place(hangings: list[Hanging], view: View) -> list[Glyph]:
     """Glyphs for the view, in the order given (id order), stacked where they'd overlap."""
     glyphs: list[Glyph] = []
     taken: dict[tuple[int, int], int] = {}
@@ -146,9 +146,10 @@ def place(hangings: list[Hanging], view: ViewTransform) -> list[Glyph]:
             key = (round(wx / SAME_SPOT_PX), round(wy / SAME_SPOT_PX))
             n = taken.get(key, 0)
             taken[key] = n + 1
-            # Widget Y points down; the model direction's Y flips. Stack along the geometry
-            # (perpendicular to the direction the glyph sits off in).
-            ox, oy = dx, -dy
+            # The model direction on screen (facing, Widget Y points down so its Y flips; at
+            # an angle, through the plane's map). Stack along the geometry (perpendicular to
+            # the direction the glyph sits off in).
+            ox, oy = view.direction_to_widget(dx, dy)
             cx = wx + ox * GAP_PX + -oy * SIZE_PX * n
             cy = wy + oy * GAP_PX + ox * SIZE_PX * n
             rect = QRectF(cx - half, cy - half, SIZE_PX, SIZE_PX)
@@ -156,7 +157,7 @@ def place(hangings: list[Hanging], view: ViewTransform) -> list[Glyph]:
     return glyphs
 
 
-def layout(queries: Queries, document: Document, view: ViewTransform) -> list[Glyph]:
+def layout(queries: Queries, document: Document, view: View) -> list[Glyph]:
     """Every constraint's glyphs, in id order, stacked where they'd overlap."""
     ids = sorted(id for id, e in document.entities.items() if isinstance(e, Constraint))
     hangings = [h for id in ids if (h := hanging(queries, document, id)) is not None]

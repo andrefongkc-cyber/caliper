@@ -30,6 +30,9 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.queries import BoundingBox
 
+DRAG_PX = 6.0
+"""On a plane seen at an angle, a press that moves less than this on screen is a click."""
+
 
 class SelectPhase(StrEnum):
     IDLE = "idle"
@@ -93,9 +96,14 @@ class SelectTool(Tool):
         if self.start is None:
             return
         self.current = pointer
-        dragged = math.hypot(pointer.raw.x - self.start.raw.x, pointer.raw.y - self.start.raw.y)
-        if dragged <= pointer.tolerance:
-            return
+        if pointer.view is not None:  # at an angle: how far on screen
+            moved = math.hypot(pointer.px[0] - self.start.px[0], pointer.px[1] - self.start.px[1])
+            if moved <= DRAG_PX:
+                return
+        else:
+            dragged = math.hypot(pointer.raw.x - self.start.raw.x, pointer.raw.y - self.start.raw.y)
+            if dragged <= pointer.tolerance:
+                return
         if self.phase is SelectPhase.PRESSED_ENTITY:
             self.phase = SelectPhase.MOVING
         elif self.phase is SelectPhase.PRESSED_EMPTY:
@@ -136,26 +144,47 @@ class SelectTool(Tool):
                 if isinstance(entity, GEOMETRY_TYPES):
                     moved.geometry(entity)
         elif self.phase is SelectPhase.BOXING:
-            a, b = self.start.raw, self.current.raw
-            crossing = b.x < a.x
-            painter.filled_box(a, b, theme.RUBBER_BAND)
+            corners, crossing = self._box(self.start, self.current)
+            if corners is None:
+                a, b = self.start.raw, self.current.raw
+                painter.filled_box(a, b, theme.RUBBER_BAND)
+            else:
+                painter.fill_polygon(corners, theme.RUBBER_BAND)
             style = Qt.PenStyle.DashLine if crossing else Qt.PenStyle.SolidLine
             painter.set_pen(cosmetic_pen(theme.ACCENT, theme.GUIDE_WIDTH, style))
-            painter.rectangle(a, b.x - a.x, b.y - a.y)
+            if corners is None:
+                a, b = self.start.raw, self.current.raw
+                painter.rectangle(a, b.x - a.x, b.y - a.y)
+            else:
+                painter.polygon(corners)
 
     @staticmethod
     def _offset(start: Pointer, end: Pointer) -> tuple[float, float]:
         return clean(end.point.x - start.point.x), clean(end.point.y - start.point.y)
 
+    @staticmethod
+    def _box(start: Pointer, end: Pointer) -> tuple[list[Point2] | None, bool]:
+        """At an angle, the box on screen as a polygon on the plane, and whether it crosses
+        (dragged right to left on screen); facing, None and the model's own rule."""
+        view = end.view
+        if view is None:
+            return None, end.raw.x < start.raw.x
+        (x0, y0), (x1, y1) = start.px, end.px
+        corners = [view.to_model(x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))]
+        return corners, x1 < x0
+
     def _select_box(self, start: Pointer, end: Pointer) -> None:
-        a, b = start.raw, end.raw
-        box = BoundingBox(
-            x_min=min(a.x, b.x), y_min=min(a.y, b.y), x_max=max(a.x, b.x), y_max=max(a.y, b.y)
-        )
-        crossing = b.x < a.x
-        ids: frozenset[EntityId] = frozenset(
-            self.session.sketch_queries.entities_in_box(box, crossing=crossing)
-        )
+        corners, crossing = self._box(start, end)
+        queries = self.session.sketch_queries
+        if corners is not None:
+            found = queries.entities_in_polygon(corners, crossing=crossing)
+        else:
+            a, b = start.raw, end.raw
+            box = BoundingBox(
+                x_min=min(a.x, b.x), y_min=min(a.y, b.y), x_max=max(a.x, b.x), y_max=max(a.y, b.y)
+            )
+            found = queries.entities_in_box(box, crossing=crossing)
+        ids: frozenset[EntityId] = frozenset(found)
         self.session.set_selection(self.session.selection | ids if end.shift else ids)
 
 
