@@ -186,7 +186,9 @@ own notes), follow [test-runs-andre/README.md](../test-runs-andre/README.md).
 Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** panel, above
 Properties, shows the latest run on one line, e.g. `▸ 4m 07s · ~1m 20s left`. Click the
 line for every field. While the run is live its time ticks every second. The numbers stay up
-after the run ends.
+after the run ends. To keep it in sight with the right panel folded away (⌘⌥B, or the strip on
+the view's right edge), pop it out: Agent → Pop Out Timing, or the button on its title bar. It
+then floats over the part's top right corner until you dock it again.
 
 **Time left.** At the start of a task of more than about ten calls, Claude says how many calls
 it plans, and, if it knows, how many are mirrors or patterns and how many are checks (the

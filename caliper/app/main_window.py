@@ -3,15 +3,17 @@
 Two tabs, each its own document (ADR 0015): 3D, the part, where the app starts, sketched on
 its planes and extruded; and 2D, a sketch to test on. New, Open, and Save act on the tab
 shown. A sketch is edited in 3D by the same canvas as in 2D, facing the sketch's plane, over
-the part (`viewport/backdrop.py`), and closed with Finish or Cancel."""
+the part (`viewport/backdrop.py`), and closed with Finish or Cancel. Each side's panels, the
+tools, and the agent's prompt fold away for room (`collapse.py`)."""
 
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtCore import QPoint, QSettings, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QFileDialog,
     QFrame,
@@ -36,6 +38,7 @@ from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.timing import TIMING_FILE, markdown, timing_file
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
+from caliper.app.collapse import EdgeToggle, SlidingTray
 from caliper.app.extrude import ExtrudeForm
 from caliper.app.opener import OpenServer
 from caliper.app.palette import CommandPalette
@@ -86,6 +89,8 @@ DOCK_WIDTH = 260
 BROWSER_WIDTH = 250
 TOOL_ICON_SIZE = 18
 COMPACT_TOOLBAR_BELOW = 980
+LEFT = Qt.DockWidgetArea.LeftDockWidgetArea
+RIGHT = Qt.DockWidgetArea.RightDockWidgetArea
 """Window width in logical pixels below which the tool bar drops its labels."""
 CONSTRAINT_KEYS: dict[ConstraintType, str] = {
     ConstraintType.HORIZONTAL: "H",
@@ -161,18 +166,27 @@ class MainWindow(QMainWindow):
         """The document the proposal last framed was prepared against."""
         self.opener: OpenServer | None = None
         """Files other Caliper processes hand this window, once `serve_opens` is called."""
+        self._folded: dict[Qt.DockWidgetArea, list[tuple[QDockWidget, QSize]]] = {}
+        """The panels each folded side hid, and their sizes, to show again as they were."""
         central = QWidget()
-        central_layout = QVBoxLayout(central)
-        central_layout.setContentsMargins(0, 0, 0, 0)
-        central_layout.setSpacing(0)
-        central_layout.addWidget(self.views, 1)
-        central_layout.addWidget(self.prompt_bar)
+        self._central_row = QHBoxLayout(central)
+        """The edge strips each side of the views and the prompt (`_build_edges`)."""
+        self._central_row.setContentsMargins(0, 0, 0, 0)
+        self._central_row.setSpacing(0)
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.views, 1)
+        column.addWidget(self.prompt_bar)
+        self.prompt_bar.hide()  # until asked for: the Agent button, or ⌘L
+        self._central_row.addLayout(column, 1)
         self.setCentralWidget(central)
         self.setUnifiedTitleAndToolBarOnMac(True)
         self._build_actions()
         self._build_menus()
         self._build_tool_bar()
         self._build_dock()
+        self._build_edges()
         self._build_status_bar()
         self._build_sketch_bar()
 
@@ -216,6 +230,10 @@ class MainWindow(QMainWindow):
             self.grid_action,
             self.constraints_action,
             self.snap_action,
+            self.left_panel_action,
+            self.right_panel_action,
+            self.tray_action,
+            self.prompt_action,
             self.new_action,
             self.open_action,
             self.save_action,
@@ -336,6 +354,24 @@ class MainWindow(QMainWindow):
         self.start_run_action = self._action("Start Timing Run", self._start_run, "Ctrl+Shift+R")
         self.start_run_action.setEnabled(False)  # until Claude Desktop can connect
         self.shortcuts_action = self._action("Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
+
+        # What folds away (2026-10-03): each side's panels, the tools, the agent's prompt.
+        self.left_panel_action = self._toggle(
+            "Show Left Panel", lambda shown: self._fold(LEFT, shown), "Ctrl+B", checked=True
+        )
+        self.right_panel_action = self._toggle(
+            "Show Right Panel", lambda shown: self._fold(RIGHT, shown), "Ctrl+Alt+B", checked=True
+        )
+        self.tray_action = self._toggle("Show Tool Tray", lambda _: None, checked=True)
+        """The tray follows it (`SlidingTray`)."""
+        self.prompt_action = self._toggle("Show Agent Prompt", self._show_prompt, checked=False)
+        self.prompt_action.setIconText("Agent")
+        self.prompt_action.setToolTip("Show or hide the agent's prompt (⌘L opens it to type)")
+        self.pop_timing_action = self._toggle("Pop Out Timing", self._pop_timing, checked=False)
+        self.pop_timing_action.setToolTip(
+            "Timing in a window of its own, over the part, while the right panel is folded"
+        )
+        self.pop_timing_action.setEnabled(False)  # until Claude Desktop can connect
         for action, tip in (
             (self.fit_action, "Zoom to Fit"),
             (self.grid_action, "Show Grid"),
@@ -375,6 +411,24 @@ class MainWindow(QMainWindow):
             group.addAction(action)
             self.tool_actions[name] = action
 
+    def _toggle(
+        self,
+        text: str,
+        slot: Callable[[bool], object],
+        shortcut: str | None = None,
+        *,
+        checked: bool,
+    ) -> QAction:
+        """A checkable action whose slot follows its state, however it changes."""
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        if shortcut is not None:
+            action.setShortcut(QKeySequence(shortcut))
+        action.toggled.connect(slot)
+        self.addAction(action)
+        return action
+
     def _build_menus(self) -> None:
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
@@ -405,6 +459,9 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.palette_action)
         view_menu.addSeparator()
+        for action in (self.left_panel_action, self.right_panel_action, self.tray_action):
+            view_menu.addAction(action)
+        view_menu.addSeparator()
         view_menu.addAction(self.fit_action)
         view_menu.addSeparator()
         view_menu.addAction(self.grid_action)
@@ -431,10 +488,14 @@ class MainWindow(QMainWindow):
             constrain_menu.addAction(action)
 
         agent_menu = bar.addMenu("Agent")
-        for action in (self.ask_action, self.accept_action, self.reject_action):
+        for action in (self.ask_action, self.prompt_action):
+            agent_menu.addAction(action)
+        agent_menu.addSeparator()
+        for action in (self.accept_action, self.reject_action):
             agent_menu.addAction(action)
         agent_menu.addSeparator()
         agent_menu.addAction(self.start_run_action)
+        agent_menu.addAction(self.pop_timing_action)
 
         help_menu = bar.addMenu("Help")
         help_menu.addAction(self.shortcuts_action)
@@ -469,7 +530,13 @@ class MainWindow(QMainWindow):
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             halves.addWidget(button)
         bar.addWidget(switch)
-        bar.addSeparator()
+        # The rest in a tray that slides out to the right of the line after the switch.
+        tools = QToolBar("Tools")
+        tools.setObjectName("tray-tools")
+        tools.setMovable(False)
+        tools.setFloatable(False)
+        tools.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        tools.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
         sketch = QToolButton()
         sketch.setObjectName("sketch")
         sketch.setDefaultAction(self.sketch_action)
@@ -479,21 +546,24 @@ class MainWindow(QMainWindow):
             planes.addAction(action)
         sketch.setMenu(planes)
         self.sketch_button = sketch
-        bar.addWidget(sketch)
-        bar.addAction(self.extrude_action)
-        bar.widgetForAction(self.extrude_action).setObjectName("extrude")
-        bar.addSeparator()
+        tools.addWidget(sketch)
+        tools.addAction(self.extrude_action)
+        tools.widgetForAction(self.extrude_action).setObjectName("extrude")
+        tools.addSeparator()
         # Groups by category, so a later category adds a group, not a redesign.
         for category in ("select", "create", "constrain", "inspect"):
             for name, tool in self.controller.tools.items():
                 if tool.category == category:
-                    bar.addAction(self.tool_actions[name])
-            bar.addSeparator()
+                    tools.addAction(self.tool_actions[name])
+            tools.addSeparator()
         for action in (self.fit_action, self.constraints_action):
-            bar.addAction(action)  # icons only: they read at a glance, and the bar stays one row
-            bar.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            tools.addAction(action)  # icons only: they read at a glance, and the bar stays one row
+            tools.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.tray = SlidingTray(tools, self.tray_action)
+        bar.addWidget(self.tray.row())
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar
+        """The top bar: the 2D/3D switch, then the tray of tools (`self.tray.bar`)."""
 
     def _build_dock(self) -> None:
         features = QDockWidget.DockWidgetFeature.DockWidgetMovable
@@ -545,7 +615,8 @@ class MainWindow(QMainWindow):
         self.timing.copied.connect(lambda: self.show_message(copied))
         timing = QDockWidget("Timing", self)
         timing.setObjectName("timing-dock")
-        timing.setFeatures(features)
+        timing.setFeatures(features | QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        timing.topLevelChanged.connect(self._timing_moved)
         timing.setWidget(self.timing)
         timing.setMinimumWidth(DOCK_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, timing)
@@ -576,9 +647,21 @@ class MainWindow(QMainWindow):
         self.resizeDocks([browser, dock], [BROWSER_WIDTH, DOCK_WIDTH], Qt.Orientation.Horizontal)
         self.resizeDocks([dock, commands, checks], [260, 260, 280], Qt.Orientation.Vertical)
 
+    def _build_edges(self) -> None:
+        """A strip down each side of the view that folds the panels beyond it away."""
+        self.left_edge = EdgeToggle(self.left_panel_action, "left", "the left panel")
+        self.right_edge = EdgeToggle(self.right_panel_action, "right", "the right panel")
+        self._central_row.insertWidget(0, self.left_edge)
+        self._central_row.addWidget(self.right_edge)
+
     def _build_status_bar(self) -> None:
         status = self.statusBar()
         status.setSizeGripEnabled(False)
+        self.prompt_button = QToolButton()
+        self.prompt_button.setObjectName("prompt-toggle")
+        self.prompt_button.setDefaultAction(self.prompt_action)
+        self.prompt_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.prompt_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hint_label = QLabel()
         self.solve_label = QLabel()
         self.solve_label.setObjectName("solve-status")
@@ -596,6 +679,7 @@ class MainWindow(QMainWindow):
         status.addPermanentWidget(self.solid_label)
         status.addPermanentWidget(self.solve_label)
         status.addPermanentWidget(self.cursor_label)
+        status.addPermanentWidget(self.prompt_button)  # permanent: a message never covers it
 
     # --- File -----------------------------------------------------------------------------
 
@@ -814,7 +898,61 @@ class MainWindow(QMainWindow):
         else:
             self._close_sketch()
 
+    def _fold(self, side: Qt.DockWidgetArea, shown: bool) -> None:
+        """Hide the panels docked on one side, or show again the ones that hid; the view
+        takes the room. A panel popped out (Timing) stays where it is."""
+        if shown:
+            folded = self._folded.pop(side, [])
+            for dock, _ in folded:
+                dock.show()
+            docks = [dock for dock, _ in folded]
+            for orientation, size in (
+                (Qt.Orientation.Horizontal, QSize.width),
+                (Qt.Orientation.Vertical, QSize.height),
+            ):
+                self.resizeDocks(docks, [size(s) for _, s in folded], orientation)
+            return
+        hidden = [
+            (dock, dock.size())
+            for dock in self.findChildren(QDockWidget)
+            if self.dockWidgetArea(dock) == side and not dock.isFloating() and not dock.isHidden()
+        ]
+        for dock, _ in hidden:
+            dock.hide()
+        self._folded[side] = hidden
+
+    def _show_prompt(self, shown: bool) -> None:
+        focus = QApplication.focusWidget()
+        had_focus = focus is not None and self.prompt_bar.isAncestorOf(focus)
+        self.prompt_bar.setVisible(shown)
+        if had_focus and not shown:
+            self.views.currentWidget().setFocus()
+
+    def _pop_timing(self, out: bool) -> None:
+        """Timing in a window of its own over the part's top right corner, or docked again."""
+        dock = self.timing_dock
+        if dock.isFloating() == out:
+            return  # the dock moved itself: its own button, or dragged
+        for side, folded in self._folded.items():
+            self._folded[side] = [(d, size) for d, size in folded if d is not dock]
+        dock.setFloating(out)
+        if out:
+            dock.resize(DOCK_WIDTH + SPACE.xl, dock.sizeHint().height())
+            right = self.views.mapToGlobal(QPoint(self.views.width(), 0))
+            dock.move(right.x() - dock.width() - SPACE.l, right.y() + SPACE.l)
+            dock.show()
+
+    def _timing_moved(self, floating: bool) -> None:
+        """Popped out or docked again, however it happened: the action agrees, and docked
+        on a folded side it hides with the rest."""
+        self.pop_timing_action.setChecked(floating)
+        folded = self._folded.get(self.dockWidgetArea(self.timing_dock))
+        if not floating and folded is not None:
+            self.timing_dock.hide()
+            folded.append((self.timing_dock, self.timing_dock.sizeHint()))
+
     def _focus_prompt(self) -> None:
+        self.prompt_action.setChecked(True)
         self.prompt_bar.input.setFocus()
         self.prompt_bar.input.selectAll()
 
@@ -830,6 +968,8 @@ class MainWindow(QMainWindow):
         )
         if self.tool_bar.toolButtonStyle() != style:
             self.tool_bar.setToolButtonStyle(style)
+            self.tray.bar.setToolButtonStyle(style)
+            self.tray.refit()
         if self.proposal_card.isVisible():
             self.proposal_card.reposition()
         super().resizeEvent(event)
@@ -844,8 +984,13 @@ class MainWindow(QMainWindow):
         problem = self.mcp.start()
         if problem is not None:
             self.session.message.emit(problem)
-        self.timing_dock.setVisible(problem is None)
+        folded = self._folded.get(self.dockWidgetArea(self.timing_dock))
+        if problem is None and folded is not None:
+            folded.append((self.timing_dock, self.timing_dock.sizeHint()))  # when it unfolds
+        else:
+            self.timing_dock.setVisible(problem is None)
         self.start_run_action.setEnabled(problem is None)
+        self.pop_timing_action.setEnabled(problem is None)
         return problem is None
 
     def serve_opens(self, path: Path) -> bool:

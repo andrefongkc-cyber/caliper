@@ -102,6 +102,23 @@ QPushButton#finish-sketch {{ background: {P.accent}; color: {P.ink_on_accent};
     border-color: {P.accent}; }}
 QSplitter#browser-split::handle:vertical {{ height: 1px; }}
 QToolBar::separator {{ background: {P.border}; width: 1px; margin: {s.xs}px {s.s}px; }}
+QToolBar#tray-tools {{ background: transparent; border: none; padding: 0; }}
+QToolBar QToolButton#tray-handle {{ border: none; border-left: 1px solid {P.border};
+    border-radius: 0; margin: {s.xs}px 0 {s.xs}px {s.s}px; padding: 0 {s.xs}px;
+    color: {P.ink_dim}; background: transparent; }}
+QToolBar QToolButton#tray-handle:hover {{ color: {P.ink}; }}
+QToolButton#left-edge, QToolButton#right-edge {{ background: {P.window}; border: none;
+    padding: 0; color: {P.ink_dim}; }}
+QToolButton#left-edge {{ border-right: 1px solid {P.border}; }}
+QToolButton#right-edge {{ border-left: 1px solid {P.border}; }}
+QToolButton#left-edge:hover, QToolButton#right-edge:hover {{ background: {P.field};
+    color: {P.ink}; }}
+QStatusBar QToolButton#prompt-toggle {{ color: {P.agent}; background: transparent;
+    border: 1px solid transparent; border-radius: {r.control}px; padding: 0 {s.s}px;
+    margin: 0 {s.xs}px; }}
+QStatusBar QToolButton#prompt-toggle:hover {{ border-color: {P.border}; }}
+QStatusBar QToolButton#prompt-toggle:checked {{ background: {P.field};
+    border-color: {P.agent}; }}
 QDockWidget::title {{ background: {P.window}; padding: {s.xs}px {s.m}px; text-align: left;
     border-bottom: 1px solid {P.border}; }}
 QStatusBar {{ background: {P.window}; border-top: 1px solid {P.border}; color: {P.ink_dim}; }}
