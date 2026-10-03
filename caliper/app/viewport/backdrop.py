@@ -14,8 +14,9 @@ sketch again (N). No Qt widget here: the canvas asks it to paint and to move.
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QPainter, QPixmap
 
+from caliper.app import theme
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import facing_camera, on_plane
 from caliper.app.viewport.transform import ViewTransform
@@ -23,6 +24,8 @@ from caliper.contracts.document import EntityId, Plane, Point2
 
 Painter = Callable[..., None]
 """`View3D.paint_scene`: (painter, camera, width, height, **options)."""
+Shows = Callable[[EntityId | None], object]
+"""`View3D.shows`: what the scene draws with a sketch left out, equal only when it's the same."""
 
 
 @dataclass(slots=True)
@@ -31,8 +34,11 @@ class Backdrop:
     sketch: EntityId | None
     """The sketch the canvas draws, left out of the scene while the view faces it."""
     paint_scene: Painter
+    shows: Shows
     free: Camera | None = None
     """The camera while orbited away from the plane; None while facing it."""
+    _image: QPixmap | None = None
+    _image_key: object = None
 
     @property
     def facing(self) -> bool:
@@ -53,6 +59,32 @@ class Backdrop:
             height,
             hidden=self.sketch if self.facing else None,
         )
+
+    def draw(
+        self, painter: QPainter, view: ViewTransform, width: int, height: int, ratio: float
+    ) -> None:
+        """What `paint` draws, from the kept `image`, leaving `painter` as painting the scene
+        in place leaves it (antialiased, in the theme's font), so what the canvas draws over
+        the part comes out as it did."""
+        painter.drawPixmap(0, 0, self.image(view, width, height, ratio))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(theme.font())
+
+    def image(self, view: ViewTransform, width: int, height: int, ratio: float) -> QPixmap:
+        """What `paint` draws, kept until the camera or what the scene shows changes: an edit
+        to the sketch the canvas draws leaves the part behind it as it was, so the canvas
+        redraws only the sketch over this (Performance V2.2, Perf-8)."""
+        camera = self.camera(view, width, height)
+        hidden = self.sketch if self.facing else None
+        key = (camera, width, height, ratio, self.shows(hidden))
+        if self._image is None or key != self._image_key:
+            image = QPixmap(round(width * ratio), round(height * ratio))
+            image.setDevicePixelRatio(ratio)
+            painter = QPainter(image)
+            self.paint_scene(painter, camera, width, height, hidden=hidden)
+            painter.end()
+            self._image, self._image_key = image, key
+        return self._image
 
     def orbit(self, view: ViewTransform, width: float, height: float) -> None:
         """Leave the plane: the camera that faced it is free to turn from now on."""

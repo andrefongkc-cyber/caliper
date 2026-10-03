@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-7 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-8, the 3D render path
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: the final validation against the Perf-0 baseline
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -149,7 +149,32 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   - **Memory:** four factorizations are kept, not one, sharing their numbers. That is about 1.4 MiB more held after the star and 0.6 MiB after the stress plate, and no change on the chain.
   - **Short of the plan's bar:** the star's call is 1.77× faster, not the 2× the plan set. That bar was set for a high-risk rank update. This change adds no arithmetic, only reuse checked row by row, and the chain is 2.6× faster, so it's kept. That's for Andre or Lucas to confirm.
   - **What's left in the star:** no one cost. Recompiling equations (`relations.match`, Perf-4's step (b)), evaluating, and copying the kept factorization each take a few percent.
-- [ ] Perf-8: the 3D render path on the current renderer
+- [x] **Perf-8, the 3D render path on the current renderer** (`caliper/app/viewport/`; no GPU, ADR 0012 unchanged in kind). Every frame and image is pixel-identical: 20 fixed scenes (four parts from several cameras, a picked plane and a selected sketch, the canvas facing a sketch over the part with a dimension and the grid, orbited and faced again, a tab round trip) rendered before and after, compared pixel for pixel, all equal.
+  - **(a) A projector per frame** (`camera3d.Camera.projector`): the camera's axes worked out once a frame, not for every point and every face (68,617 times a frame at 20,748 triangles; now 7). Each vertex is projected once, crease ends reuse their vertices' projections (creases now name their vertices), and each face's light is taken against `back` directly. The sums are the same, in the same order.
+  - **(b) A mesh's normals, creases, and reach are kept with the mesh** (`scene3d._shape`, the last four). The engine keeps a solid's mesh by identity, so a scene for a document whose solid didn't change (a sketch edit, a tab switch) doesn't work them out again.
+  - **(c) The part behind a sketch edited in 3D is kept as an image** (`Backdrop.image`), redrawn when the camera, the size, the solid, the other sketches, or the planes' size changes (`View3D.shows`). A sketch edit redraws only the sketch over it. `Backdrop.draw` leaves the painter as painting the scene in place did (antialiased, in the theme's font), so the grid and the labels drawn over it come out as before.
+  - **(d) No scene is built for the 2D tab's sketch**, which the 3D view never draws. The view's mesh is dropped as refreshing for that document did, so what's shown on coming back is unchanged.
+  - **Tests** (`tests/app/test_render_3d.py`):
+    - the projector against `project` as it was, bit for bit;
+    - normals and creases worked out once per mesh, as afresh;
+    - the part behind a sketch redrawn only when the solid, the view, or the planes change, and the kept image the same as drawing afresh;
+    - the canvas over the kept image pixel-identical to painting the part in place;
+    - a frame from four cameras pixel-identical to `_solid` as it was (a copy in the test);
+    - no scene built for the 2D tab.
+
+    Three planted bugs (the font not set, the wrong axis lighting faces, a 1e-9 change in the light) each fail one.
+
+  | | Perf-0 | Perf-8 |
+  |---|---|---|
+  | Frame, 2,604 triangles (the 24-hole part) | 22.4 ms | 11.1 ms (0.50×) |
+  | Frame, 8,652 / 20,748 triangles | 68.7 / 162 ms | 29.8 / 72.8 ms (0.43× / 0.45×) |
+  | Orbiting the 24-hole part, per frame | 22.6 ms | 11.1 ms |
+  | Scene for an unchanged solid, 2,604 / 20,748 triangles | 13.6 / 115 ms | 1.1 / 9.2 ms |
+  | A line drawn in a 3D sketch over the 24-hole part | 36.6 ms (33.5 after Perf-3) | 4.3 ms (0.12×) |
+  | Tab round trip (stress plate in 2D, part in 3D) | 49.5 ms, 3 scene builds | 15.8 ms, 1 |
+
+  - **The GPU threshold, recorded, not acted on:** frames now cost about 3.4 µs a triangle, against 7–8. 30 frames a second holds to about 9,000 triangles, against about 3,500. ADR 0012's rule stands: move to `QOpenGLWidget` when typical parts pass about 10,000 triangles, which is when `3d/frame` passes 33 ms on the reference parts.
+  - **Memory:** one canvas-sized image for the backdrop, and up to four meshes' normals and creases.
 
 ## 3D-first, the engine's part (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
 
