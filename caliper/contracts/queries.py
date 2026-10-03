@@ -14,7 +14,8 @@ they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and m
 read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
 sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part. V2's F3
 (ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`. ADR 0016
-moved `Frame` here from the kernel contract, and added `plane_frame` and `faces`.
+moved `Frame` here from the kernel contract, and added `plane_frame`, `faces`, `face_at`,
+and `entities_in_polygon`.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -392,6 +393,24 @@ class Queries(Protocol):
         0016). A face's is worked out from its extrude's inputs, with no kernel; it is
         `face.not_found` or `face.not_planar` when the extrude has no such flat face now, and
         the error of the extrude's own sketch when that fails."""
+        ...
+
+    def face_at(self, point: Point3, normal: Point3, tolerance: float) -> FaceRef | None:
+        """The named flat face a point of the part's surface is on, for picking (ADR 0016):
+        `point` within `tolerance` mm of the face's plane and inside its outline as its extrude
+        made it (later cuts aren't seen), `normal` within half a degree of the way it faces out.
+        The latest feature wins: it made the surface there. None when nothing matches, or for
+        input it can't use (not finite, a zero normal, a negative tolerance)."""
+        ...
+
+    def entities_in_polygon(
+        self, corners: Sequence[Point2], *, crossing: bool
+    ) -> tuple[EntityId, ...]:
+        """`entities_in_box` for a convex polygon, as a box selection seen at an angle covers
+        the sketch's plane (ADR 0016): geometry wholly inside it, or also touching it if
+        `crossing`. An axis-aligned rectangle's corners give exactly `entities_in_box`'s
+        answer. Fewer than three corners, any not finite, no area, or not convex matches
+        nothing."""
         ...
 
     def faces(self, id: EntityId) -> tuple[FaceRef, ...] | Error:
