@@ -59,8 +59,8 @@ class FilletTool(Tool):
         if self.phase is FilletPhase.RADIUS:
             self.commit_values((self.radius,))
             return
-        hit = self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
-        if hit is None or not isinstance(self.session.document.entities.get(hit), Line):
+        hit = self.session.sketch_queries.entity_at_point(pointer.raw, pointer.tolerance)
+        if hit is None or not isinstance(self.session.sketch_view.entities.get(hit), Line):
             self.session.message.emit("Click a line: a fillet rounds where two lines meet")
             return
         if self.phase is FilletPhase.FIRST:
@@ -100,7 +100,7 @@ class FilletTool(Tool):
         self.preview = None
         if self.a is None or self.b is None:
             return
-        scratch = Bus(self.session.document)
+        scratch = Bus(self.session.sketch_view)
         result = scratch.execute(FilletCorner(a=self.a, b=self.b, radius=clean(radius)))
         if isinstance(result, Rejected):
             self.session.message.emit(result.errors[0].message)
@@ -110,7 +110,7 @@ class FilletTool(Tool):
     # --- Drawing --------------------------------------------------------------------------
 
     def paint(self, painter: ModelPainter) -> None:
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         painter.set_pen(cosmetic_pen(theme.SELECTED, theme.HIGHLIGHT_WIDTH))
         for id in (self.a, self.b):
             chosen = entities.get(id) if id is not None else None

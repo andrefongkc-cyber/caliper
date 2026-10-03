@@ -1,0 +1,33 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "construction": false,
+        "corner": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "height": 50.0,
+        "kind": "rectangle",
+        "width": 120.0
+      },
+      "e2": {
+        "expected": 120.0,
+        "ids": [
+          "e1"
+        ],
+        "kind": "check",
+        "metric": "bbox_width",
+        "refs": [],
+        "tolerance": 0.001
+      }
+    },
+    "next_id": 3
+  },
+  "format": "caliper.document",
+  "schema_version": 3,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}

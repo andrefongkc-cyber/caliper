@@ -134,7 +134,11 @@ class McpHost(QObject):
         self._client = request.client
         try:
             answer = self.draft.call(
-                self.session.document, self.session.selection, request.tool, request.arguments
+                self.session.document,
+                self.session.selection,
+                request.tool,
+                request.arguments,
+                sketch=self.session.active_sketch,  # where the user is drawing (V2)
             )
         except Exception as e:  # a bug in Caliper: say so rather than leave the client waiting
             error = Response({"error": f"Caliper failed: {e}"}, is_error=True)

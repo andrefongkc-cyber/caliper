@@ -21,6 +21,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import BoundingBox
+from caliper.engine import part
 from caliper.engine.document.delta import diff
 from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import encode
@@ -37,6 +38,7 @@ def describe(
     focus: Iterable[EntityId] = (),
     limit: int = 40,
     changes_since: Document | None = None,
+    editing: EntityId | None = None,
 ) -> dict[str, JSON]:
     queries = DocumentQueries(document, kernel=None)
     entities = document.entities
@@ -50,6 +52,14 @@ def describe(
         "units": "millimetres and degrees; y points up",
         "entity_count": len(entities),
         "kinds": dict(sorted(counts.items())),
+        # The part's sketches (and, from V2's F3, other features), in order (ADR 0011).
+        "features": [encode(feature) for feature in document.features],
+        # The sketch the user is editing: where drawing goes when it names none.
+        **(
+            {"editing": str(editing)}
+            if editing is not None and len(part.sketches(document)) > 1
+            else {}
+        ),
         "bounds": _bounds(queries.bounding_box()),
         "solve_status": {
             "state": status.state.value,
@@ -93,6 +103,8 @@ def _entity(document: Document, queries: DocumentQueries, id: EntityId) -> JSON:
     entity = document.entities[id]
     data = encode(entity)
     assert isinstance(data, dict)
+    if len(part.sketches(document)) <= 1:
+        data.pop("sketch", None)  # every entity is in the one sketch: said once, in "features"
     summary: dict[str, JSON] = {"id": id, **data}
     if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
         measured = queries.dimension_value(id)

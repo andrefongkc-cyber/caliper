@@ -9,6 +9,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from caliper.contracts.commands import Applied, CreateExtrude, CreateRectangle, CreateSketch
+from caliper.contracts.document import Plane, Point2
+from caliper.engine import part
+from caliper.engine.commands.bus import Bus
+from caliper.engine.io import script, snapshot
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SCRIPT = FIXTURES / "milestone.script.json"
 EXPECTED = FIXTURES / "milestone.caliper"
@@ -66,6 +72,31 @@ def test_a_constrained_sketch_replays_to_identical_bytes() -> None:
     assert second.stdout == first.stdout
 
 
+def test_a_part_with_two_sketches_replays_to_identical_bytes() -> None:
+    """V2's document (ADR 0011, schema 4): a rectangle in the part's first sketch; a second
+    sketch on XZ with a circle driven to 30 mm across and a line levelled by a constraint, both
+    drawn in it by name; that sketch moved to YZ; and a check of the circle, which belongs to
+    the part. Lines and circles only, as above."""
+    script = FIXTURES / "two-sketches.script.json"
+    expected = FIXTURES / "two-sketches.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
+def test_a_part_modelled_on_its_faces_replays_to_identical_bytes() -> None:
+    """ADR 0016: a plate on Top; a pocket cut down from its top face (the cut goes into the
+    part, recorded as reversed); a boss on its right side; the plate made deeper, which every
+    sketch on its faces follows; and a hole down from the pocket's floor."""
+    script = FIXTURES / "face-sketches.script.json"
+    expected = FIXTURES / "face-sketches.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
 def test_replay_can_write_a_file(tmp_path: Path) -> None:
     output = tmp_path / "milestone.caliper"
     result = replay(SCRIPT, "-o", output)
@@ -92,3 +123,44 @@ def test_an_invalid_script_is_refused(tmp_path: Path) -> None:
     result = replay(script)
     assert result.returncode == 1
     assert b"unknown kind 'extrude'" in result.stderr
+
+
+def test_a_part_started_with_no_sketch_replays_to_identical_bytes(tmp_path: Path) -> None:
+    """Schema 2's `"part": "empty"` (ADR 0015): the app's 3D tab starts with no sketch, so what
+    it records begins with the sketch the user made on a plane, and replays from there."""
+    bus = Bus(part.no_sketch())
+    commands = [
+        CreateSketch(plane=Plane.XZ),
+        CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0),
+        CreateExtrude(depth=10.0),
+    ]
+    resolved = []
+    for command in commands:
+        result = bus.execute(command)
+        assert isinstance(result, Applied), result
+        resolved.append(result.command)
+    written = tmp_path / "part.script.json"
+    written.write_text(script.dumps(tuple(resolved), empty=True))
+    first, second = replay(written), replay(written)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == snapshot.dumps(bus.document).encode()
+    assert second.stdout == first.stdout
+    # The same script read as a new part's would make a second sketch, so it says which.
+    assert json.loads(written.read_text())["part"] == "empty"
+    assert script.read(written.read_text()).start() == part.no_sketch()
+
+
+def test_a_script_says_how_it_starts_only_from_schema_2(tmp_path: Path) -> None:
+    old = {"format": "caliper.script", "schema_version": 1, "commands": [], "part": "empty"}
+    for data, message in (
+        (old, "unknown top-level field"),
+        ({**old, "schema_version": 2, "part": "mostly"}, "part must be"),
+        ({**old, "schema_version": 3}, "unsupported script schema_version"),
+    ):
+        bad = tmp_path / "bad.script.json"
+        bad.write_text(json.dumps(data))
+        result = replay(bad)
+        assert result.returncode != 0
+        assert message in result.stderr.decode()
+    assert script.dumps(()) == script.dumps((), empty=False)
+    assert json.loads(script.dumps(()))["schema_version"] == 1  # older readers still read it

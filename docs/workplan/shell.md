@@ -1,4 +1,4 @@
-Status: the N phase's app side merged in #54 (reviewed and merged by Lucas): #51/#52 reviewed and three issues fixed (N6), checks edited by keyboard (N7), the plate corner's pixel baseline (N8); next: nothing on the shell side until the N phase closes (N9's Claude Desktop run), then V2
+Status: the window's chrome folds away on `shared/collapsible-chrome` (local, not pushed, stacked on `shared/3d-sketching-2`): each side's panels behind a strip on the view's edge, Timing pops out, the agent's prompt behind an Agent button, the tools in a tray that slides out from the line after the 2D/3D switch; next: Andre tries it, then Lucas's review of both branches
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,123 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## The chrome folds away (branch `shared/collapsible-chrome`, stacked on `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
+
+Andre asked for more room for the part: the left panel and the right panel to collapse, Timing able to pop out on its own, the scripted agent hidden behind a button, and the top bar as a tray that slides out to the right from the line after the 2D/3D switch. One new module, `caliper/app/collapse.py`; each fold is one checkable action, so its menu item, its control, and its shortcut agree.
+
+- [x] **Each side folds** (`EdgeToggle`, `MainWindow._fold`): a 12 px strip down each edge of the view, its chevron pointing the way the panels will go; View → Show Left Panel (⌘B) and Show Right Panel (⌘⌥B), and the palette. A side folds the panels docked there (a panel moved to the other side folds with that side; one hidden before stays hidden), and they come back at the sizes they had: Qt alone shares the heights out again, so `resizeDocks` puts them back.
+- [x] **Timing pops out** (Agent → Pop Out Timing, or the dock's own float button; enabled while Claude Desktop can connect): a window of its own over the part's top right corner, which stays when the right panel folds. Docked again on a folded side, it waits to come back with the rest; Claude Desktop connecting while the right side is folded does the same.
+- [x] **The agent's prompt hides** until the Agent button (bottom right of the status bar, a permanent widget so a message never covers it) or ⌘L shows it; hiding it gives the keys back to the view.
+- [x] **The tools slide** (`SlidingTray`): the line after the 2D/3D switch is a handle with a chevron; the tools slide out to its right in 160 ms, their right end following the tray's edge so they come from behind the line, and back. Shut, their shortcuts still work (they're the window's actions). In a window too narrow for every tool the tray takes what's left of the bar and the rest wait behind the » menu, as they did on the bar before (the bar alone hid the whole tray).
+- [x] **Tests** (`tests/app/test_folding_chrome.py`, 15): each side folding and coming back as it was, a moved panel, a hidden panel, the menus and palette; Timing popped out through a fold and docked again, folded with the panel, and waiting when Claude Desktop connects; the prompt's button, ⌘L and focus, a message not covering the button; the tray sliding shut and out with the keys working, halfway out, and in a narrower window. `test_measure.py` and `test_glyphs.py` read the tray's tools.
+- **Cost:** opening the window 1.6 ms more (16.0 → 17.7 ms, `ui/startup` run alone, old and new); every other `ui/` case unchanged. Opening the stress plate reads 38 ms against the full run's 35, but the old code reads the same run alone: it's the case running first, not this.
+- Not done: what's folded isn't remembered between launches; nothing animates but the tray.
+
+## 3D sketching part 2: at an angle, and on faces (branch `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
+
+[ADR 0016](../adr/0016-sketching-at-any-angle-and-on-faces.md) (Proposed). The details, with the engine side and the numbers, are in [core.md](core.md#3d-sketching-part-2-in-the-app-branch-shared3d-sketching-2-stacked-on-contractssketch-on-faces-local-not-pushed).
+
+- [x] The window places every sketch by its frame: a sketch on a face opens facing it, follows it, is named for it, and shows failing when its face is gone (`tests/app/test_face_sketches.py`)
+- [x] Drawing at an angle up to 70° (`transform.PlaneView`, `canvas.mapping`, `Backdrop.drawable`): drawing, picking, snapping, glyphs, the slanted grid, and box selection through `entities_in_polygon`; facing and in 2D the canvas is what it was (`tests/app/test_angled_sketching.py`, `test_viewport_math.py`)
+- [x] Picking a flat face in the 3D view (`Scene.solid_hit`, `face_at`), tinted; double-click sketches on it; the Extrude form's Direction
+- [x] Claude Desktop's sketch on a face, reviewed facing it (`tests/app/test_mcp.py`)
+
+## 3D-first: sketching on the part's planes (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
+
+At Andre's request, after F8: start in 3D from the three planes, as Onshape does; sketch in 3D, not by jumping to 2D; keep the 2D tab for testing; save per tab; Claude works on the tab you're in; and a way to confirm a sketch. [ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md) (Proposed) records the choices Andre made: planes only, facing the plane with N after orbiting, two separate documents, Claude on the tab shown.
+
+- [x] **Two documents, one per tab.** `DocumentSession.use` switches; each keeps its file, history, selection, sketch, and picked plane. New, Open, and Save act on the tab shown; closing asks about each tab's unsaved changes. The app starts in 3D. A pending proposal is dropped on a switch (C-18).
+- [x] **The 3D view from the planes** (`viewport/scene3d.py`): the origin, Top, Front, and Right with their names, every sketch on its plane, then the solid, which hides what's behind it. A click picks a plane or a sketch; a double-click starts or edits a sketch. The planes grow with the part. Sketch tools wait until a sketch is open.
+- [x] **The Part panel**: "Default geometry" (Origin, Top, Front, Right) above the features; a plane row picks the plane, a double-click sketches on it. Hidden in the 2D tab, and not rebuilt there.
+- [x] **Sketching in 3D** (`viewport/backdrop.py`): the canvas edits the sketch, every tool as it is, over the part drawn from the camera that faces the plane at the canvas's scale. Sketch (Shift+S, or the toolbar, with the planes in its menu) starts or edits; a right drag orbits away and drawing waits; N faces the sketch again; ✓ Finish keeps it; ✗ Cancel undoes everything since it opened, a new sketch included. Extrude finishes an open sketch first, and sweeps the picked sketch.
+- [x] **Proposals in 3D** are shown facing the sketch they draw in (one Claude makes, too); Accept leaves it open. The card sits inside whichever view shows: over the stack, it made Qt composite it on every call (0.1 ms a call, measured).
+- [x] **Found and fixed on the way:** Qt keeps a `Plane` stored in a tree row as a plain string, so plane rows are told apart by the row; the plane menu opened with `showMenu()` blocked until a choice; switching to 2D closed the open 3D sketch.
+- [x] **Tests:** `tests/app/test_documents.py` (the two documents), `test_view3d.py` and `test_sketch_mode.py` rewritten for the 3D tab (planes, picking, facing, orbit and N, Finish and Cancel, the 2D tab apart), `test_v2_milestone.py` (the milestone in 3D, end to end, both kernels), and Claude in the 3D tab (`test_mcp.py`, `test_assistant.py`), including a part with no sketch. The 2D tab's tests run unchanged, on the 2D tab.
+
+## V2, F8: the milestone end to end through the window (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+- [x] `tests/app/test_v2_milestone.py`, on both kernels: the whole milestone clicked and typed, from the rectangle to the headless replay of everything the window sent, the 3D view's mesh measured at each step. Details and the rest of F8 in [core.md](core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed).
+- [x] New app tests: a part cut away entirely (OCCT), double-clicking a sketch in the Part panel, and a depth that isn't a number.
+
+## V2, F7: the contract reviewed from the app's side (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+F1's contract ([ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)) and F2–F3's ([ADR 0013](../adr/0013-solids-extrude-and-recomputing-only-what-changed.md)) were reviewed against the app as built in F5 and F6, a workflow at a time. **Result: the contract needs no change.** Nothing in `caliper/contracts/` changed for F5, F6, or F7. Four app-side bugs were found and fixed, each with a test that fails without its fix. ADR 0011's seven questions are answered in the ADR, as built. The ADR stays Proposed until Lucas confirms them; this review prepares it for him.
+
+- [x] **Selection:** UI state, as before. It can hold a feature (from the Part panel), which Properties edits and Delete deletes, and the engine's delete takes what reads it. With several sketches, picking, box select, and Select All see only the edited sketch, through the session's view of it. No query needed a `sketch` argument.
+- [x] **The feature tree:** `Document.features`, `feature_error`, and `solid_properties`, as the AI reads them. Sketch names ("Sketch 1") are numbered by kind in the app; no name field was needed.
+- [x] **Sketch activation:** UI state. Commands that draw or extrude and name no sketch get the edited one, from `part.in_sketch`, in the engine, which the session, the in-app assistant, and Claude Desktop now share. It acts only when the part has more than one sketch, so V1 files record and replay as before. An engine test fails if a command that takes a sketch is left off its list.
+  - **Fixed:** with two sketches, the assistant's and Claude Desktop's drawing calls were refused with `sketch.required` unless the model named a sketch. `Workspace`, `Draft.call`, and `Assistant.ask` now take the edited sketch, and the document summary says which one it is (`"editing"`), only when there are several.
+- [x] **2D/3D mode:** UI state. Neither view changes the document, the history, or the selection.
+- [x] **Properties:** generic fields edit an extrude's depth and operation, and a sketch's plane, through `ModifyEntity`. No change was needed.
+- [x] **The proposal card:** an extrude from either assistant is proposed, its volume check measured on the proposed solid, accepted, and undone as one step.
+  - **Fixed:** an extrude with its check was called "Assistant Changes", because a change to no entity looked like a check. It's "Extrude".
+  - **Fixed:** the proposal's preview drew another sketch's changes on the edited sketch's canvas. It shows only the edited sketch's.
+  - **Known, not fixed (C-16):** a proposed extrude isn't shown in 3D until Accept.
+- [x] **Checks:** "Volume of the part", and "Volume after" a selected feature, from `Metric.VOLUME`.
+  - **Fixed:** with two sketches, "Sketch width" and "Sketch height" measured every sketch at once and were refused. They name the edited sketch's geometry, and aren't offered for an empty sketch.
+- [x] **Extrude:** one `CreateExtrude`; the profile is the selection or the whole sketch. A refusal's message is shown as it comes.
+- [x] **The viewport's mesh:** `Queries.mesh`, asked for only when the 3D view shows a changed document.
+- [x] **Undo and redo:** feature changes are in `Delta.features_*`; History and the AI use the engine's `is_empty`, fixed in F6.
+- [x] **Save and reopen:** schema 4 holds the features; a file opens on its last sketch. Both are tested, and so is the replay of what the window sent.
+- [x] **Tests:**
+  - `tests/engine/test_part.py`: `part.in_sketch`, and that every command with a `sketch` field is filled in.
+  - `tests/ai/test_sketches.py`: drawing into the edited sketch, a sketch that's gone, the summary's `"editing"`, and the extrude's label.
+  - `tests/app/test_sketch_mode.py`: the sketch-size checks with one and with two sketches, and the proposal preview limited to the edited sketch.
+  - `tests/app/test_mcp.py`: Claude Desktop drawing into the edited sketch, and an extrude proposed, checked, accepted, and undone.
+  - `tests/app/test_assistant.py`: the in-app assistant drawing into the edited sketch.
+
+## V2, F6: sketch mode, the Part panel, Extrude, and a tidier window (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+Done when the milestone's steps can be clicked through, and the app runs on the real engine: **met**. No stand-in was needed: F2 and F3 were ready, so the UI is wired to them.
+
+- [x] **Sketch mode.**
+  - The session holds the active sketch, which is UI state. A new part edits its sketch; a file opens on its last sketch.
+  - New Sketch, on XY, XZ, or YZ, starts and edits one. Double-clicking a sketch in the Part panel edits it.
+  - Deleting or undoing the sketch being edited falls back to another.
+  - "Editing Sketch 1 · XY" sits over the canvas's corner, over the views rather than in the canvas, so its pixels and baselines are unchanged.
+  - With more than one sketch, the canvas, tools, browser, and Select All see only the active sketch (`session.sketch_view`, kept per document), so another sketch can't be picked or edited by accident. Drawing goes into the active sketch: `session.execute` names it when the part has several. With one sketch (every V1 file) the sketch view *is* the document, and the commands go as they did, so V1 behaviour is untouched.
+- [x] **The Part panel**, above the sketch browser:
+  - the features in order ("Sketch 1 · XY · editing", "Extrude 1 · adds 10 mm"), a failing one in the error colour with its reason, and the part's volume in its heading ("60,000 mm³");
+  - a click selects a feature for Properties and Delete.
+- [x] **Extrude**: Part → Extrude, the toolbar, or Shift+E.
+  - It's a compact panel over the view, not a window of its own, so the keyboard stays in the window. It shows the sketch, the profile (all of it, or the selected geometry), a depth, and add or cut.
+  - Return extrudes and Escape cancels. A refusal shows in the panel and leaves it open. An extrude shows the solid in 3D.
+- [x] **Properties** edits features too: a sketch's plane, an extrude's depth and operation. **The Checks panel** offers "Volume of the part", and "Volume after" a selected feature. The status bar shows the solid's volume.
+- [x] **The refresh**, in the existing design language and tokens:
+  - the 2D/3D switch is one segmented control, at the head of the toolbar, with the active half filled in the accent colour;
+  - the Part group (New Sketch ▾, Extrude) sits beside it;
+  - Zoom to Fit and Constraints are icons, so the toolbar fits in one row at 1280 px;
+  - disabled tools are dimmed;
+  - the Part heading and the browser splitter match the dock titles;
+  - volumes are written with thousands separators.
+- [x] **Found and fixed on the way:**
+  - History skipped feature changes (an extrude, a sketch, a depth), because it counted only entity changes, and so did the AI tools, which would have dropped a model's extrude from its proposal. Both now use the engine's own emptiness test.
+  - New Sketch passed `checked` as the plane.
+  - Focus stayed in a closed Extrude dialog, which is why it became a panel.
+- [x] **Tests:**
+  - `tests/app/test_sketch_mode.py` (15): a new part's sketch; New Sketch draws in the new one; the other sketch can't be picked or Select-All'd; fallbacks on delete and undo; opening on the last sketch; the Part panel's rows, volume, and failures; Properties editing an extrude's depth; Extrude's command, errors, selected profile, keys, and focus.
+  - `tests/app/test_v2_milestone.py`, on the analytic kernel and OCCT: the milestone typed and clicked through the window (draw 120 x 50, extrude 10, 60,000, width 140 in Properties, 70,000, undo, 60,000, 2D to add a dimension, 3D the same solid, save, reopen), and the commands the window sent, replayed headlessly, giving the saved file's bytes.
+  - `tests/ai/test_sketches.py`: the AI's extrude kept in the proposal.
+
+## V2, F5: the 3D view and the 2D/3D switch (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+[ADR 0012](../adr/0012-the-3d-viewport-our-own-renderer-first.md) (Proposed: the plan left the choice to Andre and Lucas, and this is the first try, the one that's easy to undo). Done when the ADR records the choice with frame times, and nothing GPL is in the bundle: **met**.
+
+- [x] **Our own renderer, QPainter, no GPU, no new dependency.**
+  - The camera (`viewport/camera3d.py`, no Qt) is orthographic and Z-up. It starts isometric. A left drag orbits, a right or middle drag (or Shift with a left drag) pans, the wheel zooms about the pointer, and F fits.
+  - Drawing (`viewport/view3d.py`): the painter's algorithm, flat light at the viewer, edges where faces meet at more than 25°, and an X, Y, Z triad.
+  - The mesh comes from `Queries.mesh`, asked for only when the view shows and the document has changed.
+  - The view's messages: no solid yet, no kernel, or a failing feature (the last good solid stays, with the reason).
+- [x] **The switch, a core mode.**
+  - "2D" and "3D" at the head of the toolbar, in the View menu, in the palette, and on ⌘1 and ⌘2.
+  - One session behind both views: switching never touches the document, the undo history, or the selection.
+  - Sketch tools are disabled in 3D, undo and redo work in both, and an agent's proposal switches back to 2D.
+- [x] **Frames** (1280 x 800, OCCT's meshes): the milestone plate 0.39 ms; a plate with 24 holes (2,604 triangles) 19 ms median, 34 ms p95. Above about 10,000 triangles, move to `QOpenGLWidget`, behind the same view.
+- [x] **Tests:**
+  - `tests/app/test_camera3d.py` (no Qt): the axes, the isometric start, the orbit and its limits, pan and zoom keeping the pointer's point, and fitting from any side.
+  - `tests/app/test_view3d.py`: switching keeps the very same document, history, undo label, and selection; the toggle is in the toolbar and on its keys; sketch tools wait in 3D and 2D drawing works after; undo and redo in 3D; the solid drawn from the engine's mesh, by its pixels; the messages; 2D edits there in 3D; drags and the wheel move the camera; frames of a detailed part.
+  - They run on the analytic kernel, as CI's app job has no OCCT.
 
 ## The N phase, app side (branch `shared/n-phase`, 2026-09-30)
 

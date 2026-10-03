@@ -1,4 +1,4 @@
-Status: the N phase's AI side merged in #54: test 004 recorded over MCP from Claude Code (N9, in part), the live in-app assistant run deferred by decision (N11, no API key; AI-6 stays open); next: Andre's Claude Desktop run of the stress plate on `main` (test 005, prompt ready)
+Status: 3D sketching part 2 on `shared/3d-sketching-2` (local, not pushed): Claude makes sketches on a plane or a flat face (`create_sketch`) and lists an extrude's faces (`inspect_faces`); N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: a Claude Desktop run that pockets a face, then N9
 
 # AI workplan
 
@@ -7,6 +7,44 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## 3D sketching part 2, the AI side (branch `shared/3d-sketching-2`, 2026-10-03)
+
+[ADR 0016](../adr/0016-sketching-at-any-angle-and-on-faces.md): Claude gets what the window gets (invariant 5).
+
+- [x] `create_sketch` is a tool (only `create_check` isn't, C-1): `plane` is a plane or a face (`{"feature", "face"}`, ADR 0014's names in the schema); after it, drawing that names no sketch goes into the new one, and the result gives its placement
+- [x] `inspect_faces(extrude)`: the faces a sketch can sit on, each with its origin, axes, and normal; read-only over MCP
+- [x] `create_extrude`'s `reversed` described; the instructions (`agent.py`, `mcp_server.py`) and `docs/mcp.md` updated
+- [x] Tests: `tests/ai/test_sketches.py` (faces listed, a sketch on the top cut into the part, a missing face refused), `test_tools.py`, `test_mcp_server.py` (31 tools)
+- [ ] A recorded Claude Desktop run on a face ("pocket the top face"): not made; only the synthetic tests above
+
+## 3D-first, the AI side (branch `shared/v2-3d-sketching`, 2026-10-01)
+
+[ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md): Andre chose that Claude works on the tab the user is in.
+
+- [x] In the 3D tab's part, a drawing call that names no sketch goes into the open one. In a part with no sketch, the drawing tools first make one on XY (`part.first_sketch`), in the same call and undo step; the result says so, and the label stays the drawing's ("Create Rectangle").
+- [x] The instructions for Claude Desktop and the in-app assistant describe the part and the two tabs; the `sketch` field's description says what leaving it out does.
+- [x] Tests: `tests/ai/test_sketches.py` (drawing, an outline, and an extrude in an empty part), `tests/app/test_mcp.py` and `test_assistant.py` (the 3D tab).
+
+## V2, F7: the AI in a part with several sketches (branch `shared/v2-milestone`, 2026-10-01)
+
+Found in the app-side review of the contract ([shell.md](shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)). No new tool and no tool schema change.
+
+- [x] **Drawing goes into the sketch the user is editing.** With two sketches, a drawing or extrude call that named no sketch was refused with `sketch.required`; models leave it out. `Workspace`, `Draft.call`, and `Assistant.ask` take the edited sketch (`sketch=`), which the window passes, and fill it in with `part.in_sketch`, the engine function the window uses. With one sketch nothing changes. The document summary carries `"editing"` only when there are several sketches.
+- [x] **An extrude's label:** "Extrude" on the card and in the undo menu, not "Assistant Changes", when a volume check comes with it. `_about_checks` took a change to no entity for a check.
+- [x] Tests in `tests/ai/test_sketches.py`, `tests/app/test_mcp.py`, and `tests/app/test_assistant.py`, each failing without its fix.
+
+## V2, F3: extrude and volume, from the AI side (branch `shared/v2-milestone`, 2026-10-01)
+
+- [x] `create_extrude` is a tool, since the app gets an Extrude tool (F6) and the model has what the UI has. `run_check` measures `volume`: the part's solid, or as it stood after one feature. The MCP server offers 29 tools
+- [ ] Later: the part's solid in `inspect_document` (its volume and any failing feature)
+
+## V2, F1: the part, from the AI side (branch `shared/v2-f1-document`, 2026-09-30)
+
+- [x] The tools follow the contract: `create_point`, `create_line`, `create_circle`, `create_arc`, and `create_rectangle` take an optional `sketch`, described as "leave it out while the part has one sketch". Results report the resolved command, which records the sketch (`e0` for every V1-shaped part)
+- [x] No `create_sketch` tool (`COMMAND_TOOLS` leaves `CreateSketch` out, as it leaves out `CreateCheck`): the app can't show a second sketch on its plane or pick one to draw in until sketch mode (F6), and the model gets no more than the UI (invariant 5). `tests/ai/test_tools.py` holds it to that
+- [x] With one sketch nothing changes for Claude Desktop or the assistant: the same 28 tools, the same results apart from the recorded sketch, and every recorded MCP session still replays (`bench/perf.py`, `bench/numerics.py`)
+- [ ] Later (with F6): `create_sketch`, the part's features in `inspect_document`, and a measurement that spans two sketches answered in 3D rather than refused
 
 ## The N phase, AI side (branch `shared/n-phase`, 2026-09-30)
 

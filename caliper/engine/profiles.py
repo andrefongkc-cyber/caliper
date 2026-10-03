@@ -326,6 +326,28 @@ def _nested(loops: list[tuple[Loop, list[Edge]]]) -> Profile | Error:
     )
 
 
+def contains(profile: Profile, p: Point2, tolerance: float) -> bool:
+    """Whether `p` is in the region `profile` bounds (inside its outer loop, outside its
+    holes), or within `tolerance` of one of its boundaries."""
+    loops = [traversed(profile.outer), *(traversed(hole) for hole in profile.holes)]
+    if any(distance(e, p) <= tolerance for walked in loops for e in walked):
+        return True
+    return _inside(p, loops[0]) and not any(_inside(p, hole) for hole in loops[1:])
+
+
+def distance(e: Edge, p: Point2) -> float:
+    """From `p` to the edge `e`."""
+    if e.center is None:
+        ex, ey = e.b.x - e.a.x, e.b.y - e.a.y
+        length = ex * ex + ey * ey
+        t = 0.0 if length == 0 else ((p.x - e.a.x) * ex + (p.y - e.a.y) * ey) / length
+        t = min(1.0, max(0.0, t))
+        return math.hypot(p.x - (e.a.x + t * ex), p.y - (e.a.y + t * ey))
+    if _on_arc(e, p, 0.0):
+        return abs(math.hypot(p.x - e.center.x, p.y - e.center.y) - e.radius)
+    return min(_apart(p, e.a), _apart(p, e.b))
+
+
 def _inside(p: Point2, walked: list[Edge]) -> bool:
     """Whether `p` is inside the loop, by counting where a ray from it crosses the edges."""
     vx, vy = _RAY
@@ -461,6 +483,44 @@ def _sample(walked: list[Edge]) -> Point2:
     return _at(e.center, e.radius, e.t0 + e.sweep / 2)
 
 
+# --- Regions against each other (the analytic kernel's solids) -----------------------------
+
+
+def within(loop: Loop, region: Profile) -> bool:
+    """Whether the region inside `loop` lies wholly in `region`: inside its outer loop, clear of
+    every hole, with no boundaries crossing or touching. Exact, as `find` is."""
+    walked = traversed(loop)
+    loops = [
+        (region.outer, traversed(region.outer)),
+        *((hole, traversed(hole)) for hole in region.holes),
+        (loop, walked),
+    ]
+    join = joining([e for each, _ in loops for e in each.edges])
+    if _crossing(loops, join) is not None:
+        return False
+    point = _sample(walked)
+    if not _inside(point, loops[0][1]):
+        return False
+    return not any(
+        _inside(point, hole) or _inside(_sample(hole), walked) for _, hole in loops[1:-1]
+    )
+
+
+def polygon(loop: Loop, tolerance: float) -> list[Point2]:
+    """The loop's corners in the order it runs, each arc replaced by chords no further than
+    `tolerance` from it. For drawing (meshes), never for measuring."""
+    corners: list[Point2] = []
+    for e in traversed(loop):
+        if e.center is None:
+            corners.append(e.a)
+            continue
+        ratio = max(-1.0, min(1.0, 1.0 - tolerance / e.radius))
+        step = max(2 * math.acos(ratio), 1e-3)
+        count = max(3 if abs(e.sweep) >= TAU else 1, math.ceil(abs(e.sweep) / step))
+        corners += [_at(e.center, e.radius, e.t0 + e.sweep * k / count) for k in range(count)]
+    return corners
+
+
 # --- Area properties and bounds ----------------------------------------------------------
 
 
@@ -497,6 +557,21 @@ def properties(profile: Profile) -> AreaProperties:
     )
 
 
+def extent(loop: Loop, a: float, b: float) -> tuple[float, float]:
+    """The least and greatest of a·x + b·y over `loop`: along any direction, where `bounds`
+    is along the axes. Exact: at the edges' ends, and on an arc where it turns back."""
+    found: list[float] = []
+    for e in traversed(loop):
+        found += [a * e.a.x + b * e.a.y, a * e.b.x + b * e.b.y]
+        if e.center is not None and (a or b):
+            turn = math.atan2(b, a)  # where the arc runs square to the direction
+            for angle in (turn, turn + math.pi):
+                p = _at(e.center, e.radius, angle)
+                if _on_arc(e, p, 0.0):
+                    found.append(a * p.x + b * p.y)
+    return min(found), max(found)
+
+
 def bounds(loop: Loop) -> BoundingBox:
     boxes = [_edge_box(e, 0.0) for e in traversed(loop)]
     return BoundingBox(
@@ -504,6 +579,15 @@ def bounds(loop: Loop) -> BoundingBox:
         y_min=min(b[1] for b in boxes),
         x_max=max(b[2] for b in boxes),
         y_max=max(b[3] for b in boxes),
+    )
+
+
+def signed_area(walked: list[Edge]) -> float:
+    """The area inside a loop, positive when it runs counter-clockwise (∮ x dy)."""
+    origin = Point2(x=0.0, y=0.0)
+    return sum(
+        (_line_moments(e, origin) if e.center is None else _arc_moments(e, origin))[0]
+        for e in walked
     )
 
 

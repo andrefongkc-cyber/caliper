@@ -1,0 +1,14 @@
+{
+  "commands": [
+    {"corner": {"x": 0.0, "y": 0.0}, "height": 50.0, "kind": "create_rectangle", "width": 120.0},
+    {"kind": "create_sketch", "plane": "xz"},
+    {"center": {"x": 60.0, "y": 25.0}, "kind": "create_circle", "radius": 10.0, "sketch": "e2"},
+    {"kind": "create_radial_dimension", "label_angle": 45.0, "measure": "diameter", "target": "e3", "value": 30.0},
+    {"end": {"x": 100.0, "y": 5.0}, "kind": "create_line", "sketch": "e2", "start": {"x": 0.0, "y": 0.0}},
+    {"kind": "create_constraint", "refs": [{"entity": "e5", "feature": "curve"}], "type": "horizontal"},
+    {"changes": {"plane": "yz"}, "id": "e2", "kind": "modify_entity"},
+    {"expected": 30.0, "ids": ["e3"], "kind": "create_check", "metric": "bbox_width", "tolerance": 1e-09}
+  ],
+  "format": "caliper.script",
+  "schema_version": 1
+}

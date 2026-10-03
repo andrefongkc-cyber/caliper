@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -11,15 +12,18 @@ from caliper.contracts.commands import (
     CreateCircle,
     CreateDistanceDimension,
     CreateRectangle,
+    CreateSketch,
     DeleteEntities,
     ModifyEntity,
     MoveEntities,
 )
 from caliper.contracts.document import (
+    FIRST_SKETCH,
     DistanceOrientation,
     Document,
     EntityId,
     Feature,
+    Plane,
     Point2,
     Rectangle,
     Ref,
@@ -31,6 +35,10 @@ from caliper.engine.io import canonical, script, snapshot
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 V1 = FIXTURES / "v1"
 """Files written by schema 1, before sketch constraints, kept to test the migration."""
+V3 = FIXTURES / "v3"
+"""Every golden file as schema 3 wrote it, before the part (ADR 0011), kept to test the
+migration: the fixtures by name, and the bench's expected files under `bench/`."""
+ROOT = FIXTURES.parents[2]
 
 
 def milestone_document() -> Document:
@@ -110,6 +118,22 @@ def mutated(change: str) -> str:
             }
         case "bad-next-id":
             data["document"]["next_id"] = 0
+        case "no-features":
+            del data["document"]["features"]
+        case "features-not-a-list":
+            data["document"]["features"] = {"e0": "xy"}
+        case "unknown-feature-kind":
+            data["document"]["features"][0]["kind"] = "revolve"
+        case "bad-plane":
+            data["document"]["features"][0]["plane"] = "xw"
+        case "feature-id-twice":
+            data["document"]["features"].append({"id": "e0", "kind": "sketch", "plane": "xz"})
+        case "feature-id-of-an-entity":
+            data["document"]["features"].append({"id": "e1", "kind": "sketch", "plane": "xz"})
+        case "no-such-sketch":
+            entity["sketch"] = "e9"
+        case "sketch-not-a-sketch":
+            entity["sketch"] = "e1"
     return json.dumps(data)
 
 
@@ -129,10 +153,21 @@ def mutated(change: str) -> str:
         (mutated("negative-width"), "document.entities.e1.width: width must be greater than 0"),
         (mutated("dangling-reference"), "document.entities.e2.target: no entity 'e7'"),
         (mutated("bad-next-id"), "next_id: must be a positive integer"),
+        (mutated("no-features"), "document: missing field(s): features"),
+        (mutated("features-not-a-list"), "document.features: expected a list"),
+        (mutated("unknown-feature-kind"), "document.features[0]: unknown kind 'revolve'"),
+        (mutated("bad-plane"), "document.features[0].plane: plane must be one of: xy, xz, yz"),
+        (mutated("feature-id-twice"), "document.features[1].id: id 'e0' is used twice"),
+        (mutated("feature-id-of-an-entity"), "document.features[1].id: id 'e1' is used twice"),
+        (mutated("no-such-sketch"), "document.entities.e1.sketch: no sketch 'e9'"),
+        (
+            mutated("sketch-not-a-sketch"),
+            "document.entities.e1.sketch: 'e1' is a rectangle; geometry goes in a sketch",
+        ),
     ],
 )
 def test_invalid_files_are_refused_with_a_reason(text: str, message: str) -> None:
-    with pytest.raises(LoadError, match=message.replace("(", r"\(").replace(")", r"\)")):
+    with pytest.raises(LoadError, match=re.escape(message)):
         snapshot.loads(text)
 
 
@@ -153,22 +188,21 @@ def test_files_and_scripts_raise_the_contract_load_error() -> None:
 
 def test_migrations_run_in_order_on_load(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
-    real = snapshot.MIGRATIONS[1]
 
-    def to_v2(data: dict[str, object]) -> dict[str, object]:
-        calls.append(1)
-        return real(data)
+    def recorded(version: int) -> snapshot.Migration:
+        real = snapshot.MIGRATIONS[version]
 
-    def to_v3(data: dict[str, object]) -> dict[str, object]:
-        calls.append(2)
-        return data
+        def migration(data: dict[str, object]) -> dict[str, object]:
+            calls.append(version)
+            return real(data)
+
+        return migration
 
     expected = milestone_document()
-    monkeypatch.setattr(snapshot, "SCHEMA_VERSION", 3)
-    monkeypatch.setitem(snapshot.MIGRATIONS, 1, to_v2)
-    monkeypatch.setitem(snapshot.MIGRATIONS, 2, to_v3)
+    for version in (1, 2, 3):
+        monkeypatch.setitem(snapshot.MIGRATIONS, version, recorded(version))
     assert snapshot.loads((V1 / "milestone.caliper").read_text()) == expected
-    assert calls == [1, 2]
+    assert calls == [1, 2, 3]
 
 
 def test_schema_1_files_gain_the_constraint_fields() -> None:
@@ -182,6 +216,7 @@ def test_schema_1_files_gain_the_constraint_fields() -> None:
         "corner": {"x": 0.0, "y": 0.0},
         "height": 50.0,
         "kind": "rectangle",
+        "sketch": "e0",  # 3 -> 4: in the part's one sketch
         "width": 120.0,
     }
     assert entities["e2"] == {
@@ -219,14 +254,142 @@ def test_old_files_load_with_arc_start_angles_in_range() -> None:
 def test_schema_2_files_load_unchanged_as_schema_3() -> None:
     """Migration 2 → 3 adds the `check` kind (C-1): a schema-2 file has none, so its data is
     the same, and it reads as the document the current engine writes."""
-    start = FIXTURES.parents[2] / "bench" / "cases" / "constrained-plate-width-120"
+    start = ROOT / "bench" / "cases" / "constrained-plate-width-120"
     data = json.loads((start / "start.caliper").read_text())
     assert data["schema_version"] == 2
-    upgraded = snapshot.migrate(json.loads((start / "start.caliper").read_text()), 2)
-    assert upgraded == data | {"schema_version": 3}
+    upgraded = snapshot.MIGRATIONS[2](json.loads((start / "start.caliper").read_text()))
+    assert upgraded == data
     read = snapshot.read((start / "start.caliper").read_text())
     assert read.schema_version == 2
-    assert snapshot.dumps(read.document) == canonical.dumps(upgraded)  # type: ignore[arg-type]
+    every = snapshot.migrate(json.loads((start / "start.caliper").read_text()), 2)
+    assert snapshot.dumps(read.document) == canonical.dumps(every)  # type: ignore[arg-type]
+
+
+# --- Migration 3 -> 4: the part (ADR 0011) ----------------------------------------------
+
+
+def golden(old: Path) -> Path:
+    """Where the current version of a kept older file lives."""
+    if old.parent.name == "bench":
+        return ROOT / "bench" / "cases" / old.stem / "expected.caliper"
+    return FIXTURES / old.name
+
+
+SCHEMA_3 = sorted(V3.glob("*.caliper")) + sorted((V3 / "bench").glob("*.caliper"))
+
+
+BORN_AT_SCHEMA_4 = {
+    FIXTURES / "two-sketches.caliper",
+    FIXTURES / "extruded-plate.caliper",
+    ROOT / "bench" / "cases" / "extruded-plate-milestone" / "expected.caliper",
+}
+"""Goldens first written at schema 4, which have no older version."""
+
+
+def test_every_schema_3_golden_is_kept_for_the_migration() -> None:
+    goldens = {*FIXTURES.glob("*.caliper"), *(ROOT / "bench" / "cases").glob("*/expected.caliper")}
+    assert {golden(old) for old in SCHEMA_3} == goldens - BORN_AT_SCHEMA_4 - BORN_AT_SCHEMA_5
+
+
+@pytest.mark.parametrize("old", SCHEMA_3, ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_schema_3_files_become_one_sketch_on_xy_byte_for_byte(old: Path) -> None:
+    """Every golden file schema 3 wrote loads as the file the engine writes now: the same
+    entities, ids, and next_id, in the part's one sketch. Replaying each script gives these
+    same bytes (test_replay.py and the bench), so V1 replay is unchanged by the migration."""
+    read = snapshot.read(old.read_text())
+    assert read.schema_version == 3
+    assert snapshot.dumps(read.document) == golden(old).read_text()
+
+
+def test_migration_3_puts_geometry_in_the_first_sketch_and_nothing_else() -> None:
+    """Geometry gains `sketch`; dimensions, constraints, and checks don't, since theirs is
+    worked out or they belong to the part. Ids and next_id stay."""
+    data = json.loads((V3 / "constraints.caliper").read_text())
+    upgraded = snapshot.MIGRATIONS[3](json.loads((V3 / "constraints.caliper").read_text()))
+    document = upgraded["document"]
+    assert document["features"] == [{"id": "e0", "kind": "sketch", "plane": "xy"}]  # type: ignore[index]
+    assert document["next_id"] == data["document"]["next_id"]  # type: ignore[index]
+    entities = document["entities"]  # type: ignore[index]
+    assert entities.keys() == data["document"]["entities"].keys()
+    for id, entity in entities.items():
+        old = data["document"]["entities"][id]
+        if entity["kind"] in {"point", "line", "circle", "arc", "rectangle"}:
+            assert entity == old | {"sketch": "e0"}
+        else:
+            assert entity == old
+
+
+def test_a_schema_3_file_that_used_e0_gets_the_next_free_id_for_its_sketch() -> None:
+    """`e0` was never allocated, but a caller could choose it: the sketch takes `e{next_id}`
+    instead, and next_id moves past it, as allocating it would have."""
+    data = json.loads((V3 / "milestone.caliper").read_text())
+    data["document"]["entities"]["e0"] = data["document"]["entities"].pop("e1")
+    document = snapshot.loads(json.dumps(data))
+    assert [(f.id, f.plane) for f in document.features] == [(EntityId("e2"), Plane.XY)]
+    assert document.next_id == 3
+    assert document.entities[EntityId("e0")] == Rectangle(
+        corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0, sketch=EntityId("e2")
+    )
+
+
+def test_migration_3_leaves_a_malformed_document_to_the_decoder() -> None:
+    assert snapshot.MIGRATIONS[3]({"document": []}) == {"document": []}
+    with pytest.raises(LoadError, match="document: expected an object"):
+        snapshot.loads(
+            json.dumps({**json.loads((V3 / "milestone.caliper").read_text()), "document": []})
+        )
+
+
+# --- Migration 4 -> 5: an extrude can go the other way (ADR 0016) ---------------------------
+
+V4 = FIXTURES / "v4"
+SCHEMA_4 = sorted(V4.glob("*.caliper")) + sorted((V4 / "bench").glob("*.caliper"))
+BORN_AT_SCHEMA_5: set[Path] = {FIXTURES / "face-sketches.caliper"}
+"""Goldens first written at schema 5, which have no older version."""
+
+
+def test_every_schema_4_golden_is_kept_for_the_migration() -> None:
+    goldens = {*FIXTURES.glob("*.caliper"), *(ROOT / "bench" / "cases").glob("*/expected.caliper")}
+    assert {golden(old) for old in SCHEMA_4} == goldens - BORN_AT_SCHEMA_5
+
+
+@pytest.mark.parametrize("old", SCHEMA_4, ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_schema_4_files_load_as_the_engine_writes_them_now_byte_for_byte(old: Path) -> None:
+    read = snapshot.read(old.read_text())
+    assert read.schema_version == 4
+    assert snapshot.dumps(read.document) == golden(old).read_text()
+
+
+def test_migration_4_adds_only_reversed_to_extrudes() -> None:
+    data = json.loads((V4 / "extruded-plate.caliper").read_text())
+    upgraded = snapshot.MIGRATIONS[4](json.loads((V4 / "extruded-plate.caliper").read_text()))
+    before, after = data["document"]["features"], upgraded["document"]["features"]  # type: ignore[index]
+    assert [f["kind"] for f in after] == ["sketch", "extrude"]
+    for old, new in zip(before, after, strict=True):
+        assert new == (old | {"reversed": False} if old["kind"] == "extrude" else old)
+    assert {k: v for k, v in upgraded["document"].items() if k != "features"} == {  # type: ignore[union-attr]
+        k: v for k, v in data["document"].items() if k != "features"
+    }
+
+
+def test_migration_4_leaves_a_malformed_document_to_the_decoder() -> None:
+    assert snapshot.MIGRATIONS[4]({"document": {"features": 3}}) == {"document": {"features": 3}}
+    assert snapshot.MIGRATIONS[4]({"document": []}) == {"document": []}
+
+
+def test_a_part_with_two_sketches_round_trips_exactly(tmp_path: Path) -> None:
+    bus = Bus()
+    sketch = bus.execute(CreateSketch(plane=Plane.XZ))
+    assert isinstance(sketch, Applied)
+    (second,) = sketch.created_ids
+    bus.execute(
+        CreateRectangle(corner=Point2(x=0.0, y=0.0), width=10.0, height=5.0, sketch=FIRST_SKETCH)
+    )
+    bus.execute(CreateCircle(center=Point2(x=1.0, y=2.0), radius=3.0, sketch=second))
+    path = tmp_path / "two.caliper"
+    snapshot.save(bus.document, path)
+    assert snapshot.load(path) == bus.document
+    assert snapshot.dumps(snapshot.load(path)) == path.read_text()
 
 
 def test_every_schema_version_below_the_current_one_has_a_migration() -> None:

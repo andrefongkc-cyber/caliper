@@ -32,7 +32,9 @@ The sessions are small (`rectangle`, a short request written by hand), medium
 Synthetic cases cover what the sessions don't reach: many entities, many constraints, many
 checks, a large `inspect_document`, saving and opening a large sketch, drawing it, and what
 the Timing panel costs a call. `repeat/*` times one mirror, linear pattern, and circular
-pattern call each (the recorded sessions predate those tools). Times are wall-clock seconds
+pattern call each (the recorded sessions predate those tools). `bench/perf_v22.py` adds the
+window's per-event work, files, replay, the solver's counts, recompute, and 3D frames (the
+Performance V2.2 plan). Times are wall-clock seconds
 (or milliseconds and microseconds where marked) on this machine; compare runs on the same
 machine only.
 
@@ -239,7 +241,7 @@ def _window() -> tuple[object, object]:
 
     app = QApplication.instance() or QApplication([])
     theme.apply(app)  # type: ignore[arg-type]
-    window = MainWindow()
+    window = MainWindow(mode="2d")  # the sessions are 2D sketches, recorded in the 2D tab
     window.resize(1280, 800)
     window.show()
     app.processEvents()
@@ -527,7 +529,8 @@ def repeats() -> list[Result]:
 
 
 def many_checks() -> Result:
-    """Preparing a proposal with 200 checks, and the Checks panel re-measuring 200 checks."""
+    """Preparing a proposal with 200 checks (the Checks panel with 200 checks is timed by
+    `ui/edit`'s refreshes in perf_v22)."""
     from caliper.app.agent.proposal import Plan, prepare
 
     document = _circles(400)
@@ -547,6 +550,72 @@ def many_checks() -> Result:
         prepare(plan, document, result=bus.document)
         samples.append(time.perf_counter() - started)
     return Result("synthetic/many-checks/prepare-200", spread(samples))
+
+
+def v2_milestone() -> Result:
+    """V2's milestone (ADR 0013): a 120 x 50 plate extruded 10 mm, the width driven to 140,
+    a label moved, then undone, each step timed with the volume asked for after it. The
+    counts are prisms the kernel built again: the width rebuilds one, the label and undo none."""
+    from caliper.contracts.commands import (
+        CreateDistanceDimension,
+        CreateExtrude,
+        CreateRectangle,
+        ModifyEntity,
+    )
+    from caliper.contracts.document import DistanceOrientation
+    from caliper.contracts.errors import Error
+    from caliper.engine import features
+    from caliper.engine.geometry import default_kernel
+    from caliper.engine.geometry.fake_kernel import FakeKernel
+
+    real = default_kernel() or FakeKernel()
+
+    class Counting:
+        def __init__(self) -> None:
+            self.prisms = 0
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(real, name)
+
+        def extrude(self, *args: object) -> object:
+            self.prisms += 1
+            return real.extrude(*args)  # type: ignore[arg-type]
+
+    kernel = Counting()
+    features.forget()
+    result = Result("v2/milestone")
+
+    def step(name: str, change: Callable[[], object]) -> None:
+        before = kernel.prisms
+        started = time.perf_counter()
+        change()
+        volume = bus.queries.solid_properties()
+        result.metrics[f"{name}_ms"] = 1e3 * (time.perf_counter() - started)
+        result.metrics[f"{name}_prisms"] = float(kernel.prisms - before)
+        assert not isinstance(volume, Error), volume
+
+    bus = Bus(kernel=kernel)  # type: ignore[arg-type]
+    plate, width = EntityId("e1"), EntityId("e2")
+
+    def build() -> None:
+        bus.execute(CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0))
+        bus.execute(
+            CreateDistanceDimension(
+                a=Ref(entity=plate, feature=Feature.BOTTOM_LEFT),
+                b=Ref(entity=plate, feature=Feature.BOTTOM_RIGHT),
+                orientation=DistanceOrientation.HORIZONTAL,
+                offset=-10.0,
+                value=120.0,
+            )
+        )
+        bus.execute(CreateExtrude(depth=10.0))
+
+    step("build", build)
+    step("widen", lambda: bus.execute(ModifyEntity(id=width, changes={"value": 140.0})))
+    step("label", lambda: bus.execute(ModifyEntity(id=width, changes={"offset": -20.0})))
+    step("undo", lambda: (bus.undo(), bus.undo()))
+    result.metrics["analytic"] = float(isinstance(real, FakeKernel))
+    return result
 
 
 def large_inspect() -> Result:
@@ -638,6 +707,51 @@ def large_render() -> Result:
     return result
 
 
+def render_3d() -> list[Result]:
+    """Frames of the 3D view (ADR 0012) at 1280 x 800, drawn without a GPU: the milestone plate,
+    and a 240 x 160 plate with 24 round holes. On OCCT when installed, else the analytic kernel."""
+    from caliper.contracts.commands import CreateExtrude, CreateRectangle
+    from caliper.engine import features
+    from caliper.engine.geometry import default_kernel
+
+    app, window = _window()
+    window.resize(1280, 800)  # type: ignore[attr-defined]
+    found = []
+    for name, build in (
+        ("plate", [CreateRectangle(corner=Point2(x=0.0, y=0.0), width=120.0, height=50.0)]),
+        (
+            "holes-24",
+            [
+                CreateRectangle(corner=Point2(x=0.0, y=0.0), width=240.0, height=160.0),
+                *(
+                    CreateCircle(center=Point2(x=20.0 + 40 * i, y=20.0 + 40 * j), radius=8.0)
+                    for i in range(6)
+                    for j in range(4)
+                ),
+            ],
+        ),
+    ):
+        features.forget()
+        window.set_mode("3d")  # type: ignore[attr-defined]
+        # The 3D tab's part, with a sketch on Top to build in: as F5 measured it.
+        window.session.replace(Bus(), None)  # type: ignore[attr-defined]
+        for command in (*build, CreateExtrude(depth=10.0)):
+            window.session.execute(command)  # type: ignore[attr-defined]
+        app.processEvents()  # type: ignore[attr-defined]
+        view = window.view3d  # type: ignore[attr-defined]
+        view.resize(1280, 800)
+        view.frame_ms.clear()
+        for _ in range(20):
+            view.repaint()
+        result = Result(f"v2/render-3d/{name}", spread([ms / 1e3 for ms in view.frame_ms]))
+        result.metrics["triangles"] = float(len(view.mesh.triangles))
+        result.metrics["occt"] = float(default_kernel() is not None)
+        found.append(result)
+        window.set_mode("2d")  # type: ignore[attr-defined]
+    _dispose(window)
+    return found
+
+
 # --- Running -------------------------------------------------------------------------------
 
 
@@ -657,9 +771,16 @@ def cases() -> list[tuple[str, Callable[[], list[Result]]]]:
     found.append(("synthetic/many-checks", lambda: [many_checks()]))
     found.append(("repeat", repeats))
     found.append(("synthetic/inspect-document", lambda: [large_inspect()]))
+    found.append(("v2/milestone", lambda: [v2_milestone()]))
+    found.append(("v2/render-3d", render_3d))
     found.append(("synthetic/file", lambda: [large_file()]))
     found.append(("synthetic/render", lambda: [large_render()]))
     found.append(("timing/overhead", lambda: [timing_overhead()]))
+    import perf_faces  # ADR 0016's cases: sketching at an angle, faces
+    import perf_v22  # Performance V2.2's cases, beside this file
+
+    found += perf_v22.cases()  # type: ignore[arg-type]
+    found += perf_faces.cases()  # type: ignore[arg-type]
     return found
 
 
@@ -709,4 +830,5 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("perf", sys.modules["__main__"])  # perf_v22 imports this as `perf`
     sys.exit(main(sys.argv))

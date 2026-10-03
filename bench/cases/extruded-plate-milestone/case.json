@@ -1,0 +1,28 @@
+{
+  "expectations": [
+    {
+      "expected": 70000.0,
+      "metric": "volume",
+      "tolerance": 1e-06
+    },
+    {
+      "expected": 140.0,
+      "ids": [
+        "e1"
+      ],
+      "metric": "bbox_width",
+      "tolerance": 1e-09
+    },
+    {
+      "expected": 140.0,
+      "ids": [
+        "e2"
+      ],
+      "metric": "dimension_value",
+      "tolerance": 1e-09
+    }
+  ],
+  "format": "caliper.bench_case",
+  "prompt": "V2's first milestone. Sketch a 120 x 50 mm plate on XY with its bottom-left corner at the origin, held by a driving width dimension, extrude it 10 mm, and check its volume is 60,000 mm³. Then change the width to 140 mm: the plate is 70,000 mm³.",
+  "schema_version": 1
+}

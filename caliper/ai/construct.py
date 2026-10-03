@@ -42,6 +42,11 @@ _CONSTRUCTION = {
     "type": "boolean",
     "description": "True for layout geometry, as for the create tools. Default false.",
 }
+_SKETCH = {
+    "type": "string",
+    "description": "The sketch to draw in, as for the create tools. Leave it out to draw in the "
+    "sketch the user is editing; in a part with no sketch, one is made on XY.",
+}
 
 ARC_THROUGH = ToolSpec(
     name="create_arc_through_points",
@@ -58,6 +63,7 @@ ARC_THROUGH = ToolSpec(
             "through": {**_POINT, "description": "Any point on the arc between its ends."},
             "end": _POINT,
             "construction": _CONSTRUCTION,
+            "sketch": _SKETCH,
         },
         "required": ["start", "through", "end"],
         "additionalProperties": False,
@@ -105,6 +111,7 @@ OUTLINE = ToolSpec(
                 "description": "With closed: the closing segment is an arc through this point.",
             },
             "construction": _CONSTRUCTION,
+            "sketch": _SKETCH,
         },
         "required": ["points"],
         "additionalProperties": False,
@@ -166,7 +173,7 @@ def arc_through_points(document: Document, arguments: Mapping[str, object], run:
             {"error": "no arc goes through these points: they're on one line, or two are the same"}
         )
     made = Repeated(label="Create Arc")
-    id = _create_arc(run, arc, _flag(arguments, "construction"))
+    id = _create_arc(run, arc, _flag(arguments, "construction"), _sketch(arguments))
     made.created.append(id)
     ends = (end, start) if arc.reversed else (start, end)
     made.note = (
@@ -187,6 +194,7 @@ def outline(document: Document, arguments: Mapping[str, object], run: Run) -> Re
     points = [_point(p, f"points[{n}]") for n, p in enumerate(raw)]
     closed = _flag(arguments, "closed")
     construction = _flag(arguments, "construction")
+    sketch = _sketch(arguments)
     # Each segment: from point k-1 to point k, a line or an arc through `through`.
     plans: list[tuple[Point2, Point2, Point2 | None]] = []
     for k in range(1, len(points)):
@@ -230,13 +238,14 @@ def outline(document: Document, arguments: Mapping[str, object], run: Run) -> Re
     segments: list[tuple[EntityId, bool, Feature, Feature]] = []
     for n, (a, b, through) in enumerate(plans):
         if through is None:
-            id = run(CreateLine(start=a, end=b, construction=construction)).created_ids[0]
+            line = CreateLine(start=a, end=b, construction=construction, sketch=sketch)
+            id = run(line).created_ids[0]
             segments.append((id, False, Feature.START, Feature.END))
         else:
             arc = arc_through(a, through, b)
             if arc is None:
                 raise PatternError({"error": f"segment {n}: no arc goes through its three points"})
-            id = _create_arc(run, arc, construction)
+            id = _create_arc(run, arc, construction, sketch)
             ends = (Feature.END, Feature.START) if arc.reversed else (Feature.START, Feature.END)
             segments.append((id, True, *ends))
         made.created.append(id)
@@ -263,7 +272,7 @@ def outline(document: Document, arguments: Mapping[str, object], run: Run) -> Re
     return made
 
 
-def _create_arc(run: Run, arc: Through, construction: bool) -> EntityId:
+def _create_arc(run: Run, arc: Through, construction: bool, sketch: EntityId | None) -> EntityId:
     return run(
         CreateArc(
             center=arc.center,
@@ -271,6 +280,7 @@ def _create_arc(run: Run, arc: Through, construction: bool) -> EntityId:
             start_angle=arc.start_angle,
             sweep_angle=arc.sweep_angle,
             construction=construction,
+            sketch=sketch,
         )
     ).created_ids[0]
 
@@ -288,6 +298,16 @@ def _point(value: object, name: str) -> Point2:
     ):
         raise PatternError({"error": f"{name} needs finite x and y"})
     return Point2(x=float(x), y=float(y))  # type: ignore[arg-type]
+
+
+def _sketch(arguments: Mapping[str, object]) -> EntityId | None:
+    """The sketch named, or None for the part's only sketch: the bus checks it exists."""
+    value = arguments.get("sketch")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PatternError({"error": "sketch must be a sketch's id"})
+    return EntityId(value)
 
 
 def _flag(arguments: Mapping[str, object], name: str) -> bool:

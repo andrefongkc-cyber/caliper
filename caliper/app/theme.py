@@ -40,6 +40,12 @@ PREVIEW = QColor(P.preview)
 DIMENSION = QColor(P.dimension)
 SNAP = QColor(P.snap)
 RUBBER_BAND = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), P.rubber_band_alpha)
+SOLID = QColor(P.solid)
+SOLID_EDGE = QColor(P.solid_edge)
+AXIS_Z = QColor(P.axis_z)
+PLANE = QColor(P.plane)
+PLANE_FILL = QColor(PLANE.red(), PLANE.green(), PLANE.blue(), P.plane_alpha)
+PICKED_PLANE_FILL = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 2 * P.plane_alpha)
 
 GUIDE_WIDTH = STROKE.guide
 GEOMETRY_WIDTH = STROKE.geometry
@@ -65,11 +71,54 @@ def _stylesheet() -> str:
 QMainWindow::separator {{ background: {P.border}; width: 1px; height: 1px; }}
 QToolBar {{ background: {P.window}; border: none; border-bottom: 1px solid {P.border};
     spacing: {s.xxs}px; padding: {s.xxs}px {s.s}px; }}
-QToolBar QToolButton {{ padding: {s.xs - 1}px {s.m}px; border: 1px solid transparent;
+QToolBar QToolButton {{ padding: {s.xs - 1}px {s.s}px; border: 1px solid transparent;
     border-radius: {r.control}px; color: {P.ink}; }}
 QToolBar QToolButton:hover {{ border-color: {P.border}; }}
 QToolBar QToolButton:checked {{ background: {P.field}; border-color: {P.accent}; }}
+QToolBar QToolButton:disabled {{ color: {P.ink_dim}; }}
+QWidget#mode-switch QToolButton {{ border: 1px solid {P.border}; border-radius: 0;
+    padding: {s.xs - 1}px {s.l}px; font-weight: {TYPE.heading_weight}; color: {P.ink_dim}; }}
+QWidget#mode-switch QToolButton#mode-2d {{ border-top-left-radius: {r.control}px;
+    border-bottom-left-radius: {r.control}px; border-right: none; }}
+QWidget#mode-switch QToolButton#mode-3d {{ border-top-right-radius: {r.control}px;
+    border-bottom-right-radius: {r.control}px; }}
+QWidget#mode-switch QToolButton:checked {{ background: {P.accent}; color: {P.ink_on_accent};
+    border-color: {P.accent}; }}
+QWidget#mode-switch QToolButton:hover:!checked {{ color: {P.ink}; }}
+QLabel#sketch-label {{ color: {P.ink_dim}; background: {P.window}; border: 1px solid {P.border};
+    border-radius: {r.control}px; padding: {s.xxs}px {s.s}px; font-size: 11px; }}
+QWidget#part-heading {{ background: {P.window}; border-bottom: 1px solid {P.border}; }}
+QWidget#part-heading QLabel[role="section"] {{ padding: 0; }}
+QLabel#part-volume {{ color: {P.ink}; }}
+QSplitter#browser-split::handle {{ background: {P.border}; }}
+QFrame#extrude-form {{ background: {P.panel}; border: 1px solid {P.border};
+    border-radius: {r.control}px; }}
+QLabel#extrude-title {{ color: {P.ink}; font-weight: {TYPE.heading_weight}; }}
+QFrame#sketch-bar {{ background: {P.panel}; border: 1px solid {P.border};
+    border-radius: {r.control}px; }}
+QLabel#sketch-bar-title {{ color: {P.ink}; font-weight: {TYPE.heading_weight}; }}
+QLabel#sketch-bar-hint {{ color: {P.ink_dim}; font-size: 11px; }}
+QPushButton#finish-sketch {{ background: {P.accent}; color: {P.ink_on_accent};
+    border-color: {P.accent}; }}
+QSplitter#browser-split::handle:vertical {{ height: 1px; }}
 QToolBar::separator {{ background: {P.border}; width: 1px; margin: {s.xs}px {s.s}px; }}
+QToolBar#tray-tools {{ background: transparent; border: none; padding: 0; }}
+QToolBar QToolButton#tray-handle {{ border: none; border-left: 1px solid {P.border};
+    border-radius: 0; margin: {s.xs}px 0 {s.xs}px {s.s}px; padding: 0 {s.xs}px;
+    color: {P.ink_dim}; background: transparent; }}
+QToolBar QToolButton#tray-handle:hover {{ color: {P.ink}; }}
+QToolButton#left-edge, QToolButton#right-edge {{ background: {P.window}; border: none;
+    padding: 0; color: {P.ink_dim}; }}
+QToolButton#left-edge {{ border-right: 1px solid {P.border}; }}
+QToolButton#right-edge {{ border-left: 1px solid {P.border}; }}
+QToolButton#left-edge:hover, QToolButton#right-edge:hover {{ background: {P.field};
+    color: {P.ink}; }}
+QStatusBar QToolButton#prompt-toggle {{ color: {P.agent}; background: transparent;
+    border: 1px solid transparent; border-radius: {r.control}px; padding: 0 {s.s}px;
+    margin: 0 {s.xs}px; }}
+QStatusBar QToolButton#prompt-toggle:hover {{ border-color: {P.border}; }}
+QStatusBar QToolButton#prompt-toggle:checked {{ background: {P.field};
+    border-color: {P.agent}; }}
 QDockWidget::title {{ background: {P.window}; padding: {s.xs}px {s.m}px; text-align: left;
     border-bottom: 1px solid {P.border}; }}
 QStatusBar {{ background: {P.window}; border-top: 1px solid {P.border}; color: {P.ink_dim}; }}

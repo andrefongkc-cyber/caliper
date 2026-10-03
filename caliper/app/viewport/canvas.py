@@ -10,6 +10,7 @@ Navigation, following Fusion/SolidWorks on a Mac:
 - Hold Option (Alt) to suspend snapping.
 """
 
+import math
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -46,12 +47,13 @@ from caliper.app.viewport.annotations import (
     label_spot,
     paint_annotations,
 )
+from caliper.app.viewport.backdrop import Backdrop
 from caliper.app.viewport.grid import grid_lines, major_every, minor_spacing, snap_to_grid
 from caliper.app.viewport.highlight import paint_references
 from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
-from caliper.app.viewport.transform import ViewTransform
+from caliper.app.viewport.transform import PlaneView, View, ViewTransform
 from caliper.contracts.commands import Applied, Change, ModifyEntity
 from caliper.contracts.document import (
     AngleDimension,
@@ -69,6 +71,8 @@ PICK_RADIUS_PX = 6.0
 WHEEL_ZOOM_BASE = 1.0015
 """Zoom factor per unit of wheel angle delta (120 units = one notch ≈ 20%)."""
 SETTLE_MS = 150
+ORBIT_PX = 3.0
+"""A right press that moves less than this is a right click (cancel), not an orbit."""
 """How long the view must stay still after a pan or zoom before the sketch is redrawn."""
 MAX_GRID_LINES = 600
 DEFAULT_VIEW_MM = 250.0
@@ -77,8 +81,13 @@ DEFAULT_VIEW_MM = 250.0
 _GEOMETRY = GEOMETRY_TYPES
 
 
+ORBITED_HINT = "Turned away from the sketch: press N to face it and keep drawing"
+
+
 class Canvas(QWidget):
     cursor_moved = Signal(object)
+    orbited = Signal()
+    """A right drag turned the view away from the sketch being edited in 3D."""
     """Model position under the pointer (a Point2), or None when the pointer leaves."""
 
     def __init__(
@@ -114,6 +123,12 @@ class Canvas(QWidget):
         self.proposal: Callable[[], Proposal | None] = lambda: None
         """The agent proposal to preview, if any; set by the main window."""
         self.reject_proposal: Callable[[], None] = lambda: None
+        self.backdrop: Backdrop | None = None
+        """The part behind a sketch edited in 3D (ADR 0015); None in the 2D tab."""
+        self._orbit_from: QPointF | None = None
+        self._orbit_press: QPointF | None = None
+        """Where a right press was, until it moves far enough to orbit."""
+        self._layer_scene: object = None
         self._layer: QPixmap | None = None
         self._layer_view: tuple[float, float, float] | None = None
         """(scale, origin_x, origin_y) the layer was drawn at."""
@@ -155,10 +170,25 @@ class Canvas(QWidget):
         session.flagged_changed.connect(self.update)
         session.changed.connect(self._update_spots)
         session.document_replaced.connect(self._forget_spots)
+        # Another sketch to edit (V2): its own entities, labels, and hints.
+        for slot in (self._forget_spots, self._forget_acquired, self._sync_empty_hint, self.update):
+            session.active_sketch_changed.connect(slot)
         controller.changed.connect(self.update)
         controller.changed.connect(self._sync_entry)
 
     # --- View -----------------------------------------------------------------------------
+
+    @property
+    def mapping(self) -> View:
+        """How the sketch maps to the widget: `view` facing it (and in 2D), or the plane as the
+        free camera sees it when the view is turned away (ADR 0016)."""
+        backdrop = self.backdrop
+        if backdrop is None or backdrop.free is None:
+            return self.view
+        return backdrop.plane_view(self.width(), self.height())
+
+    def _tilted(self) -> bool:
+        return self.backdrop is not None and self.backdrop.free is not None
 
     def zoom_to_fit(self) -> None:
         """Fit the geometry, then again with room for the dimension labels.
@@ -167,9 +197,14 @@ class Canvas(QWidget):
         of this view, not the document. The shell draws the labels, so it pads for them here.
         A second pass is enough: the first fit sets the scale the label extents are measured at.
         """
-        box = self.session.queries.bounding_box()
+        box = self.session.sketch_queries.bounding_box()
         if isinstance(box, Error):
-            self.reset_view()
+            if not self._tilted():
+                self.reset_view()
+            return
+        if self.backdrop is not None and self.backdrop.free is not None:
+            self.backdrop.fit(box, self.width(), self.height(), margin=40.0)
+            self._view_jumped()
             return
         self.view.fit(box, self.width(), self.height())
         padded = self._with_label_extents(box)
@@ -191,7 +226,7 @@ class Canvas(QWidget):
 
     def frame(self, ids: frozenset[EntityId]) -> None:
         """Fit the given geometry in view; dimensions frame the geometry they measure."""
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         targets: set[EntityId] = set()
         for id in ids:
             match entities.get(id):
@@ -205,19 +240,19 @@ class Canvas(QWidget):
                     pass
                 case _:
                     targets.add(id)
-        box = self.session.queries.bounding_box(sorted(targets))
+        box = self.session.sketch_queries.bounding_box(sorted(targets))
         if not isinstance(box, Error):
             margin = max(box.width, box.height, 1.0) * 0.25
-            self.view.fit(
-                BoundingBox(
-                    x_min=box.x_min - margin,
-                    y_min=box.y_min - margin,
-                    x_max=box.x_max + margin,
-                    y_max=box.y_max + margin,
-                ),
-                self.width(),
-                self.height(),
+            padded = BoundingBox(
+                x_min=box.x_min - margin,
+                y_min=box.y_min - margin,
+                x_max=box.x_max + margin,
+                y_max=box.y_max + margin,
             )
+            if self.backdrop is not None and self.backdrop.free is not None:
+                self.backdrop.fit(padded, self.width(), self.height(), margin=0.0)
+            else:
+                self.view.fit(padded, self.width(), self.height())
             self._view_jumped()
 
     def frame_box(self, box: BoundingBox, right_inset: float = 0.0) -> None:
@@ -230,11 +265,22 @@ class Canvas(QWidget):
             y_max=box.y_max + margin,
         )
         width = max(self.width() - right_inset, 100.0)
-        self.view.fit(padded, width, self.height())
+        if self.backdrop is not None and self.backdrop.free is not None:
+            self.backdrop.fit(padded, self.width(), self.height(), 0.0, right_inset)
+        else:
+            self.view.fit(padded, width, self.height())
         self._view_jumped()
 
     def shows(self, box: BoundingBox, right_inset: float = 0.0) -> bool:
         """Whether all of `box` is in view, left of `right_inset` pixels on the right."""
+        if self._tilted():
+            right = max(self.width() - right_inset, 100.0)
+            corners = [
+                self.mapping.to_widget(Point2(x=x, y=y))
+                for x in (box.x_min, box.x_max)
+                for y in (box.y_min, box.y_max)
+            ]
+            return all(0 <= x <= right and 0 <= y <= self.height() for x, y in corners)
         top_left = self.view.to_model(0, 0)
         bottom_right = self.view.to_model(max(self.width() - right_inset, 100.0), self.height())
         return (
@@ -251,22 +297,31 @@ class Canvas(QWidget):
         self._view_jumped()
 
     def visible_box(self) -> BoundingBox:
-        top_left = self.view.to_model(0, 0)
-        bottom_right = self.view.to_model(self.width(), self.height())
-        return BoundingBox(
-            x_min=top_left.x, y_min=bottom_right.y, x_max=bottom_right.x, y_max=top_left.y
-        )
+        """What of the sketch's plane is on screen, as a box (at an angle, around the four
+        corners' points)."""
+        mapping = self.mapping
+        w, h = self.width(), self.height()
+        corners = [mapping.to_model(x, y) for x, y in ((0, 0), (w, 0), (w, h), (0, h))]
+        xs, ys = [c.x for c in corners], [c.y for c in corners]
+        return BoundingBox(x_min=min(xs), y_min=min(ys), x_max=max(xs), y_max=max(ys))
 
     # --- Pointer --------------------------------------------------------------------------
 
     def pointer_at(self, position: QPointF, modifiers: Qt.KeyboardModifier) -> Pointer:
-        pointer = self._snapped(position, modifiers)
+        mapping = self.mapping
+        pointer = self._snapped(position, modifiers, mapping)
         annotation = self.annotation_at(position.x(), position.y())
-        return pointer if annotation is None else replace(pointer, annotation=annotation)
+        angled = mapping if isinstance(mapping, PlaneView) else None
+        return replace(
+            pointer,
+            annotation=annotation if annotation is not None else pointer.annotation,
+            px=(position.x(), position.y()),
+            view=angled,
+        )
 
-    def _snapped(self, position: QPointF, modifiers: Qt.KeyboardModifier) -> Pointer:
-        raw = self.view.to_model(position.x(), position.y())
-        tolerance = self.view.length_to_model(PICK_RADIUS_PX)
+    def _snapped(self, position: QPointF, modifiers: Qt.KeyboardModifier, mapping: View) -> Pointer:
+        raw = mapping.to_model(position.x(), position.y())
+        tolerance = mapping.pick_length_to_model(PICK_RADIUS_PX)
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         force_box = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
         if modifiers & Qt.KeyboardModifier.AltModifier:
@@ -279,7 +334,7 @@ class Canvas(QWidget):
                 shift=shift,
                 force_box=force_box,
             )
-        queries = self.session.queries
+        queries = self.session.sketch_queries
         ref = queries.nearest_feature(raw, tolerance)
         if ref is not None:
             at = queries.feature_point(ref)
@@ -293,7 +348,7 @@ class Canvas(QWidget):
                     shift=shift,
                     force_box=force_box,
                 )
-        base = snap_to_grid(raw, minor_spacing(self.view.scale)) if self.snap_to_grid else raw
+        base = snap_to_grid(raw, minor_spacing(mapping.grid_scale)) if self.snap_to_grid else raw
         point, guides = align(raw, base, self.acquired, tolerance)
         fallback = SnapKind.GRID if self.snap_to_grid else SnapKind.NONE
         kind = SnapKind.GUIDE if guides else fallback
@@ -367,7 +422,9 @@ class Canvas(QWidget):
 
     def _sync_empty_hint(self) -> None:
         # Hidden while a proposal is shown: its ghost geometry is what's on the canvas (C-8).
-        self.empty_hint.setVisible(not self.session.document.entities and self.proposal() is None)
+        self.empty_hint.setVisible(
+            not self.session.sketch_view.entities and self.proposal() is None
+        )
         self._sync_empty_hint_geometry(self.width(), self.height())
 
     def _forget_acquired(self) -> None:
@@ -376,7 +433,7 @@ class Canvas(QWidget):
     def _hit(self, pointer: Pointer) -> EntityId | None:
         if pointer.annotation is not None:
             return pointer.annotation
-        return self.session.queries.entity_at_point(pointer.raw, pointer.tolerance)
+        return self.session.sketch_queries.entity_at_point(pointer.raw, pointer.tolerance)
 
     # --- Annotations the shell draws, and so hit-tests ------------------------------------
 
@@ -397,8 +454,7 @@ class Canvas(QWidget):
         return None
 
     def _view_key(self) -> tuple[object, ...]:
-        view = self.view
-        return (self.session.document, view.scale, view.origin_x, view.origin_y)
+        return (self.session.sketch_view, *self.mapping.key())
 
     @property
     def constraint_glyphs(self) -> list[glyphs.Glyph]:
@@ -413,7 +469,7 @@ class Canvas(QWidget):
         if key != self._glyphs_key:
             self._sync_hangings()
             ordered = [self._hangings[id] for id in sorted(self._hangings)]
-            self._glyphs = glyphs.place(ordered, self.view)
+            self._glyphs = glyphs.place(ordered, self.mapping)
             self._glyphs_key = key
         return self._glyphs
 
@@ -428,11 +484,13 @@ class Canvas(QWidget):
         key = self._view_key()
         if key != self._labels_key:
             metrics = QFontMetricsF(self.font())
+            mapping = self.mapping
             self._labels = []
             for id in sorted(self._spots):
                 spot = self._spots[id]
-                x, y = self.view.to_widget(spot.at)
-                box = label_box(metrics, x + spot.shift[0], y + spot.shift[1], spot.text)
+                x, y = mapping.to_widget(spot.at)
+                sx, sy = _shifted(mapping, spot.shift)
+                box = label_box(metrics, x + sx, y + sy, spot.text)
                 self._labels.append((box, id))
             self._labels_key = key
         return self._labels
@@ -440,7 +498,7 @@ class Canvas(QWidget):
     def _sync_annotation_cache(self) -> None:
         """Rebuild label spots in full if the document isn't the one they describe (a new
         file, or a change that sent no notification)."""
-        document = self.session.document
+        document = self.session.sketch_view
         if self._spots_document is document:
             return
         self._spots = {}
@@ -450,7 +508,7 @@ class Canvas(QWidget):
 
     def _sync_hangings(self) -> None:
         """The same for where glyphs hang, done only when glyphs are shown."""
-        document = self.session.document
+        document = self.session.sketch_view
         if self._hangings_document is document:
             return
         self._hangings = {}
@@ -466,7 +524,7 @@ class Canvas(QWidget):
             self._spots[id] = spot
 
     def _rehang(self, id: EntityId) -> None:
-        hung = glyphs.hanging(self.session.queries, self.session.document, id)
+        hung = glyphs.hanging(self.session.sketch_queries, self.session.sketch_view, id)
         if hung is None:
             self._hangings.pop(id, None)
         else:
@@ -481,7 +539,7 @@ class Canvas(QWidget):
             self._hangings_document = None  # hidden: rebuilt if they're shown again
             hangings = False
         delta = change.delta
-        document = self.session.document
+        document = self.session.sketch_view
         touched = delta.added | delta.removed | delta.modified
         affected = {id for id in touched if id in document.entities}
         index = referrers(document)  # the dimensions measuring, and glyphs hanging from, them
@@ -505,9 +563,9 @@ class Canvas(QWidget):
         self._hangings_document = None
 
     def _annotation_tip(self, id: EntityId | None) -> str:
-        entity = self.session.document.entities.get(id) if id is not None else None
+        entity = self.session.sketch_view.entities.get(id) if id is not None else None
         if isinstance(entity, Constraint):
-            return f"{kind_title(entity)} {id}: {summary(entity, id, self.session.queries)}"
+            return f"{kind_title(entity)} {id}: {summary(entity, id, self.session.sketch_queries)}"
         if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
             return f"{kind_title(entity)} {id}: double-click to edit its value"
         return ""
@@ -531,6 +589,13 @@ class Canvas(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self.setFocus()
         button = event.button()
+        backdrop = self.backdrop
+        if backdrop is not None and (button == Qt.MouseButton.RightButton or not backdrop.drawable):
+            # A right drag orbits; turned too far from the sketch to draw on it (ADR 0016),
+            # every drag moves the camera.
+            self._orbit_from = event.position()
+            self._orbit_press = event.position() if backdrop.drawable else None
+            return
         if button == Qt.MouseButton.MiddleButton or (
             button == Qt.MouseButton.LeftButton and self._space
         ):
@@ -544,6 +609,8 @@ class Canvas(QWidget):
             self.controller.escape()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self.backdrop is not None and not self.backdrop.drawable:
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self.controller.active.name == SELECT
@@ -556,10 +623,41 @@ class Canvas(QWidget):
         # tools need it as a press.
         self.mousePressEvent(event)
 
+    def _orbit(self, event: QMouseEvent) -> None:
+        backdrop, last = self.backdrop, self._orbit_from
+        assert backdrop is not None
+        assert last is not None
+        if self._orbit_press is not None:
+            moved = event.position() - self._orbit_press
+            if (moved.x() ** 2 + moved.y() ** 2) ** 0.5 < ORBIT_PX:
+                return  # still a right click
+            self._orbit_press = None
+            self.controller.cancel_operation()
+            self.session.set_hover(None)
+            backdrop.orbit(self.view, self.width(), self.height())
+            self.orbited.emit()
+        delta = event.position() - last
+        self._orbit_from = event.position()
+        assert backdrop.free is not None
+        panning = bool(event.buttons() & Qt.MouseButton.MiddleButton) or bool(
+            event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        )
+        if panning:
+            backdrop.free = backdrop.free.panned(delta.x(), delta.y())
+        else:
+            backdrop.free = backdrop.free.orbited(delta.x(), delta.y())
+        self.update()
+
+    def face(self) -> None:
+        """Look straight at the sketch again after orbiting, to keep drawing (N)."""
+        if self.backdrop is not None and not self.backdrop.facing:
+            self.backdrop.face(self.view, self.width(), self.height())
+            self._view_jumped()
+
     def edit_at(self, pointer: Pointer, at: QPoint) -> bool:
         """Open the entry on the dimension under the pointer. False if there's none."""
         hit = self._hit(pointer)
-        entity = self.session.document.entities.get(hit) if hit is not None else None
+        entity = self.session.sketch_view.entities.get(hit) if hit is not None else None
         field = editable_field(entity, pointer.raw, pointer.tolerance)
         if hit is None or field is None:
             return False
@@ -568,7 +666,7 @@ class Canvas(QWidget):
         self._editing = (hit, field)
         current = getattr(entity, field)
         if current is None:  # a driven dimension: start from what it measures
-            measured = self.session.queries.dimension_value(hit)
+            measured = self.session.sketch_queries.dimension_value(hit)
             current = None if isinstance(measured, Error) else round(measured, 6)
         text = "" if current is None else format_number(current)
         self.entry.open((field.capitalize(),), text, at)
@@ -576,11 +674,21 @@ class Canvas(QWidget):
         return True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._orbit_from is not None and self.backdrop is not None:
+            self._orbit(event)
+            return
+        if self.backdrop is not None and not self.backdrop.drawable:
+            return  # nothing to draw on until the view is turned back to the sketch
         if self._pan_from is not None:
             delta = event.position() - self._pan_from
             self._pan_from = event.position()
-            self.view.pan(delta.x(), delta.y())
-            self._view_moved()
+            backdrop = self.backdrop
+            if backdrop is not None and backdrop.free is not None:
+                backdrop.free = backdrop.free.panned(delta.x(), delta.y())
+                self.update()
+            else:
+                self.view.pan(delta.x(), delta.y())
+                self._view_moved()
             return
         self._mouse_px = event.position().toPoint()
         pointer = self.pointer_at(event.position(), event.modifiers())
@@ -600,6 +708,14 @@ class Canvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._orbit_from is not None:
+            if self._orbit_press is not None:  # a right click, not a drag: cancel, as ever
+                self.controller.escape()
+            else:  # the orbit ends: draw the sketch where the plane is now seen
+                self._view_jumped()
+                self.orbited.emit()
+            self._orbit_from = self._orbit_press = None
+            return
         if self._pan_from is not None and event.button() in (
             Qt.MouseButton.MiddleButton,
             Qt.MouseButton.LeftButton,
@@ -621,6 +737,17 @@ class Canvas(QWidget):
                 self.entry.fields[0].selectAll()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+        backdrop = self.backdrop
+        if backdrop is not None and backdrop.free is not None:
+            steps = event.angleDelta().y() / 120
+            if steps:
+                at = event.position()
+                backdrop.free = backdrop.free.zoomed(
+                    1.15**steps, (at.x(), at.y()), (self.width(), self.height())
+                )
+                self.update()
+            event.accept()
+            return
         pixels = event.pixelDelta()
         trackpad = not pixels.isNull() and (
             event.device().type() == QInputDevice.DeviceType.TouchPad
@@ -642,6 +769,13 @@ class Canvas(QWidget):
             and event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture
         ):
             position = event.position()
+            backdrop = self.backdrop
+            if backdrop is not None and backdrop.free is not None:
+                backdrop.free = backdrop.free.zoomed(
+                    1.0 + event.value(), (position.x(), position.y()), (self.width(), self.height())
+                )
+                self.update()
+                return True
             self.view.zoom_about(1.0 + event.value(), position.x(), position.y())
             self._view_moved()
             return True
@@ -689,9 +823,22 @@ class Canvas(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         qp = QPainter(self)
+        backdrop = self.backdrop
+        orbiting = self._orbit_from is not None and self._orbit_press is None
+        if backdrop is not None and (not backdrop.drawable or orbiting):
+            # Turned too far to draw, or turning: the part as the free camera sees it, the
+            # sketch on its plane (cheap enough for every frame of an orbit).
+            backdrop.paint(qp, self.view, self.width(), self.height())
+            if not backdrop.drawable:
+                qp.setPen(theme.TEXT_DIM)
+                qp.setFont(theme.font())
+                box = QRectF(0, self.height() - 40, self.width(), 32)
+                qp.drawText(box, Qt.AlignmentFlag.AlignCenter, ORBITED_HINT)
+            qp.end()
+            return
         self._paint_static(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter = ModelPainter(qp, self.view)
+        painter = ModelPainter(qp, self.mapping)
         self._paint_highlights(painter)
         self.controller.active.paint(painter)
         self._paint_snap(painter)
@@ -699,6 +846,10 @@ class Canvas(QWidget):
         qp.end()
 
     def _paint_grid(self, qp: QPainter) -> None:
+        mapping = self.mapping
+        if isinstance(mapping, PlaneView):
+            self._paint_slanted_grid(qp, mapping)
+            return
         box = self.visible_box()
         spacing = minor_spacing(self.view.scale)
         every = major_every(spacing)
@@ -728,6 +879,45 @@ class Canvas(QWidget):
         qp.drawLine(QLineF(0.0, round(oy) + 0.5, w, round(oy) + 0.5))
         qp.setPen(cosmetic_pen(theme.AXIS_Y, theme.GUIDE_WIDTH))
         qp.drawLine(QLineF(round(ox) + 0.5, 0.0, round(ox) + 0.5, h))
+
+    def _paint_slanted_grid(self, qp: QPainter, mapping: PlaneView) -> None:
+        """The grid of a plane seen at an angle (ADR 0016): its lines are slanted, so each is
+        drawn across the part of the plane on screen, which Qt clips to the widget."""
+        box = self.visible_box()
+        spacing = minor_spacing(mapping.grid_scale)
+        every = major_every(spacing)
+        xs = grid_lines(box.x_min, box.x_max, spacing)
+        ys = grid_lines(box.y_min, box.y_max, spacing)
+        if len(xs) + len(ys) > MAX_GRID_LINES:
+            return
+        minor: list[QLineF] = []
+        major: list[QLineF] = []
+        axes: list[tuple[QLineF, QColor]] = []
+
+        def segment(a: Point2, b: Point2) -> QLineF:
+            return QLineF(QPointF(*mapping.to_widget(a)), QPointF(*mapping.to_widget(b)))
+
+        for k in xs:
+            x = k * spacing
+            line = segment(Point2(x=x, y=box.y_min), Point2(x=x, y=box.y_max))
+            if k == 0:
+                axes.append((line, theme.AXIS_Y))
+            else:
+                (major if k % every == 0 else minor).append(line)
+        for k in ys:
+            y = k * spacing
+            line = segment(Point2(x=box.x_min, y=y), Point2(x=box.x_max, y=y))
+            if k == 0:
+                axes.append((line, theme.AXIS_X))
+            else:
+                (major if k % every == 0 else minor).append(line)
+        qp.setPen(cosmetic_pen(theme.GRID_MINOR, theme.GUIDE_WIDTH))
+        qp.drawLines(minor)
+        qp.setPen(cosmetic_pen(theme.GRID_MAJOR, theme.GUIDE_WIDTH))
+        qp.drawLines(major)
+        for line, color in axes:
+            qp.setPen(cosmetic_pen(color, theme.GUIDE_WIDTH))
+            qp.drawLine(line)
 
     def _view_moved(self) -> None:
         """A pan or zoom step. Redraw the sketch only once the view has stopped moving."""
@@ -764,10 +954,12 @@ class Canvas(QWidget):
         layer = self._layer
         if (
             self._moving
+            and not self._tilted()
             and layer is not None
             and self._layer_view is not None
-            and self._layer_document is self.session.document
+            and self._layer_document is self.session.sketch_view
             and self._layer_frame == self._frame_key()
+            and self._layer_scene == self._scene_key()
         ):
             scale, origin_x, origin_y = self._layer_view
             k = self.view.scale / scale
@@ -788,21 +980,26 @@ class Canvas(QWidget):
         moving the pointer never repaints the whole sketch.
         """
         ratio = self.devicePixelRatioF()
-        view = self.view
-        view_key = (view.scale, view.origin_x, view.origin_y)
+        view = self.mapping
+        view_key = view.key()
         frame = self._frame_key()
-        document = self.session.document
+        document = self.session.sketch_view
+        scene = self._scene_key()
         if (
             self._layer is not None
             and self._layer_view == view_key
             and self._layer_frame == frame
             and self._layer_document is document
+            and self._layer_scene == scene
         ):
             return self._layer
         layer = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
         layer.setDevicePixelRatio(ratio)
         qp = QPainter(layer)
-        qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
+        if self.backdrop is not None:
+            self.backdrop.draw(qp, view, self.width(), self.height(), ratio)  # the part, behind
+        else:
+            qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
         if self.show_grid:
             self._paint_grid(qp)
         qp.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -816,7 +1013,7 @@ class Canvas(QWidget):
         fixed: frozenset[EntityId] = frozenset()
         failed: frozenset[EntityId] = frozenset()
         if solve_state.is_constrained(document):
-            status = self.session.queries.solve_status()
+            status = self.session.sketch_queries.solve_status()
             fixed, failed = solve_state.fully_constrained(status), solve_state.unhealthy(status)
         real = [
             (id, e)
@@ -839,8 +1036,21 @@ class Canvas(QWidget):
             self._paint_glyphs(qp, self.constraint_glyphs, {id: theme.ERROR for id in failed})
         qp.end()
         self._layer, self._layer_view, self._layer_frame = layer, view_key, frame
-        self._layer_document = document
+        self._layer_document, self._layer_scene = document, scene
         return layer
+
+    def _scene_key(self) -> object:
+        """What the backdrop shows besides the sketch: the whole part, from where."""
+        backdrop = self.backdrop
+        if backdrop is None:
+            return None
+        return (
+            id(backdrop),
+            backdrop.plane,
+            backdrop.frame,
+            backdrop.sketch,
+            self.session.document,
+        )
 
     def _paint_glyphs(
         self, qp: QPainter, laid_out: list[glyphs.Glyph], colours: dict[EntityId, QColor]
@@ -855,7 +1065,7 @@ class Canvas(QWidget):
         flagged = self.session.flagged
         if not flagged:
             return
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         painter.set_pen(cosmetic_pen(theme.ERROR, theme.HIGHLIGHT_WIDTH))
         for id in sorted(flagged):
             entity = entities.get(id)
@@ -869,7 +1079,7 @@ class Canvas(QWidget):
             self._paint_glyphs(painter.painter, named, dict.fromkeys(flagged, theme.ERROR))
 
     def _paint_highlights(self, painter: ModelPainter) -> None:
-        entities = self.session.document.entities
+        entities = self.session.sketch_view.entities
         selection = self.session.selection
         hover = self.session.hover
         if hover is not None and hover not in selection:
@@ -909,14 +1119,20 @@ class Canvas(QWidget):
             return
         before, after = proposal.base.entities, proposal.result.entities
         dashed = Qt.PenStyle.DashLine
+        sketch = self.session.active_sketch
+
+        def here(entity: object) -> bool:
+            """Geometry in the sketch being edited: another sketch's is on another plane."""
+            return isinstance(entity, _GEOMETRY) and sketch in (None, entity.sketch)
+
         for id, entity in before.items():
-            if isinstance(entity, _GEOMETRY) and after.get(id) != entity:
+            if here(entity) and after.get(id) != entity:
                 colour = theme.TEXT_DIM if id in after else theme.ERROR
                 painter.set_pen(cosmetic_pen(colour, theme.GUIDE_WIDTH, dashed))
                 painter.geometry(entity)
         painter.set_pen(cosmetic_pen(theme.AGENT, theme.HIGHLIGHT_WIDTH))
         for id, entity in after.items():
-            if isinstance(entity, _GEOMETRY) and before.get(id) != entity:
+            if here(entity) and before.get(id) != entity:
                 painter.geometry(entity)
 
     def _paint_snap(self, painter: ModelPainter) -> None:
@@ -941,3 +1157,16 @@ class Canvas(QWidget):
             QPointF(10.0, self.height() - 10.0),
             f"{self.hidden_dimensions} {noun} not drawn: the points they measure can't be found",
         )
+
+
+def _shifted(mapping: View, shift: tuple[float, float]) -> tuple[float, float]:
+    """A label's shift off its spot, in widget pixels as a view facing the sketch has it, for
+    `mapping`: the same length, in the direction the model's turns to on screen."""
+    if not isinstance(mapping, PlaneView):
+        return shift
+    sx, sy = shift
+    length = math.hypot(sx, sy)
+    if not length:
+        return shift
+    ux, uy = mapping.direction_to_widget(sx / length, -sy / length)
+    return ux * length, uy * length

@@ -59,7 +59,10 @@ in it two ways, as the in-app assistant or from Claude Desktop over MCP. 3D is n
 | **AI assistant** | In the prompt bar: Claude through the Anthropic API (opt-in), working through 27 tools made from Caliper's own commands and queries. Its changes arrive as a proposal you accept as one undo step ([#32](https://github.com/andrefongkc-cyber/caliper/pull/32)) |
 | **Claude Desktop over MCP** | Claude Desktop drives the open Caliper window through the same tools, with no API key, and you accept its proposals in Caliper. The Timing panel times each task and shows the time left. Setup: [docs/mcp.md](docs/mcp.md) ([#34](https://github.com/andrefongkc-cyber/caliper/pull/34), fixes in [#35](https://github.com/andrefongkc-cyber/caliper/pull/35)) |
 | **Performance** | Only what a change reaches is solved again, and Accept commits what the proposal already solved: the 281-call stress plate costs Caliper under 1 s in all, and Accept 0.02 s (Performance V2, [#47](https://github.com/andrefongkc-cyber/caliper/pull/47)) |
-| **Not yet** | 3D parts (V2), simulation (V4), and everything after |
+| **V2, started** | A document is one part: sketches placed on the XY, XZ, or YZ plane, in order, with V1 files migrated into one sketch on XY (file schema 4, [ADR 0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md)). An extrude adds a sketch's profile to the part's solid, or cuts it away, and volume checks measure it. The solid is worked out again only where a change reaches it, and never stored ([ADR 0013](docs/adr/0013-solids-extrude-and-recomputing-only-what-changed.md)): 120 x 50 extruded 10 mm is 60,000 mm³, widened to 140 it's 70,000, and undo brings back 60,000 |
+| **3D view** | A 2D/3D switch at the head of the toolbar (⌘1, ⌘2): 2D is the sketch, as before; 3D shows the part's solid, orbited, panned, and zoomed. Both views read one document, so switching changes nothing in it ([ADR 0012](docs/adr/0012-the-3d-viewport-our-own-renderer-first.md)) |
+| **Parts in the app** | Sketch mode edits one sketch at a time (New Sketch on XY, XZ, or YZ; double-click one in the Part panel). The Part panel lists the features and the part's volume. Extrude (Shift+E) sweeps the sketch into a solid, and Properties edits its depth. Draw 120 x 50, extrude 10 mm: 60,000 mm³; type 140 for the width: 70,000; undo: 60,000 |
+| **Not yet** | More features than extrude (revolve, fillet in 3D), assemblies (V2), simulation (V4), and everything after |
 
 ## What the test runs found
 
@@ -149,7 +152,8 @@ identical on every machine.
 | Draw an exact rectangle | R, click a corner, type `120` Tab `50` Return |
 | Find any command | ⌘K |
 | Zoom to fit | F |
-| Ask the assistant | ⌘L, then Accept with ⌘Return |
+| Ask the assistant | ⌘L (or Agent, bottom right), then Accept with ⌘Return |
+| Fold the left or right panel away | ⌘B, ⌘⌥B, or click the strip at the view's edge |
 | See every shortcut | ⌘/ |
 
 ## How it's built
@@ -194,6 +198,11 @@ Read more in [docs/architecture.md](docs/architecture.md) and the
 | [0005](docs/adr/0005-file-format-and-schema-versioning.md) File format | Canonical JSON with schema versions |
 | [0006](docs/adr/0006-license-policy-no-gpl.md) Licenses | No GPL or AGPL dependencies |
 | [0009](docs/adr/0009-sketch-constraints-in-the-document.md) Constraints | Stored in the document, solved inside the command that changes them |
+| [0010](docs/adr/0010-checks-in-the-document.md) Checks (proposed) | Stored in the document, changed by commands like everything else |
+| [0011](docs/adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) The part (proposed) | A document is one part: features in order, sketches on planes (V2's first step) |
+| [0012](docs/adr/0012-the-3d-viewport-our-own-renderer-first.md) 3D view (proposed) | Our own renderer first (QPainter, no new dependency), behind a 2D/3D switch |
+| [0013](docs/adr/0013-solids-extrude-and-recomputing-only-what-changed.md) Solids (proposed) | Extrude as the first feature; solids worked out again only where something changed, never stored |
+| [0014](docs/adr/0014-persistent-naming-by-history.md) Naming (proposed) | Faces and edges named by what made them, never by position; a split name is refused, not guessed |
 
 ## Roadmap
 

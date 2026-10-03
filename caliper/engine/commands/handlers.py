@@ -24,10 +24,12 @@ from caliper.contracts.commands import (
     CreateConstraint,
     CreateDimension,
     CreateDistanceDimension,
+    CreateExtrude,
     CreateLine,
     CreatePoint,
     CreateRadialDimension,
     CreateRectangle,
+    CreateSketch,
     DeleteEntities,
     FilletCorner,
     ModifyEntity,
@@ -44,20 +46,27 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     Expectation,
+    Extrude,
+    ExtrudeOperation,
+    FaceRef,
     Feature,
     Geometry,
     Line,
+    PartFeature,
     Point,
     Point2,
     RadialDimension,
     Rectangle,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import DimensionType
+from caliper.engine import faces, features, graph, part
 from caliper.engine.commands.validation import (
     GEOMETRY,
     build_entity,
+    build_feature,
     feature_errors,
     field_types,
     normalize_enum,
@@ -65,6 +74,7 @@ from caliper.engine.commands.validation import (
     normalize_id,
     normalize_point,
     normalize_refs,
+    with_article,
 )
 from caliper.engine.constraints import dimensions
 from caliper.engine.constraints.model import PARAMS
@@ -106,6 +116,9 @@ _CREATES: Mapping[type[CreateCommand], type[Entity]] = {
     CreateConstraint: Constraint,
     CreateCheck: Expectation,
 }
+
+_GEOMETRY_CREATES = (CreatePoint, CreateLine, CreateCircle, CreateArc, CreateRectangle)
+"""The commands that draw geometry, each in a sketch (ADR 0011)."""
 
 _PLACEMENT_FIELDS = frozenset({"offset", "label_angle"})
 """Dimension fields that only position a label; changing them never needs a solve."""
@@ -202,6 +215,10 @@ def handle(document: Document, command: Command) -> Handled | list[Error]:
 
 def _apply(document: Document, command: Command) -> Handled | list[Error]:
     match command:
+        case CreateSketch():
+            return _create_sketch(document, command)
+        case CreateExtrude():
+            return _create_extrude(document, command)
         case (
             CreatePoint()
             | CreateLine()
@@ -229,17 +246,116 @@ def _apply(document: Document, command: Command) -> Handled | list[Error]:
             assert_never(command)
 
 
+def _create_sketch(document: Document, command: CreateSketch) -> Handled | list[Error]:
+    """Add a sketch at the end of the part's features. Nothing is drawn in it yet."""
+    errors: list[Error] = []
+    sketch_id, next_id = _resolve_id(document, command.id, errors)
+    if errors:
+        return errors
+    values = {"id": sketch_id, "plane": command.plane}
+    added = build_feature(Sketch, values, document, position=len(document.features))
+    if isinstance(added, list):
+        return added
+    assert isinstance(added, Sketch)
+    if problem := _face_problem(document, added, len(document.features)):
+        return [problem]
+    return Handled(
+        document=replace(document, features=(*document.features, added), next_id=next_id),
+        command=CreateSketch(plane=added.plane, id=sketch_id),
+        label="Create Sketch",
+        created_ids=(sketch_id,),
+    )
+
+
+def _create_extrude(document: Document, command: CreateExtrude) -> Handled | list[Error]:
+    """Add an extrude at the end of the part's features. Nothing is built here: the solid is
+    worked out when it's asked for (`caliper.engine.features`), so a command never needs a
+    kernel. The profile must be closed now, which the engine checks exactly."""
+    errors: list[Error] = []
+    sketch = part.resolve_sketch(document, command.sketch, errors)
+    feature_id, next_id = _resolve_id(document, command.id, errors)
+    if errors or sketch is None:
+        return errors
+    values = {
+        "id": feature_id,
+        "sketch": sketch,
+        "depth": command.depth,
+        "operation": command.operation,
+        "ids": command.ids,
+        "reversed": faces.default_reversed(document, sketch, command.operation)
+        if command.reversed is None
+        else command.reversed,
+    }
+    position = len(document.features)
+    added = build_feature(Extrude, values, document, position=position)
+    if isinstance(added, list):
+        return added
+    assert isinstance(added, Extrude)
+    if problem := _extrude_problem(document, added, position):
+        return [problem]
+    return Handled(
+        document=replace(document, features=(*document.features, added), next_id=next_id),
+        command=CreateExtrude(
+            depth=added.depth,
+            sketch=added.sketch,
+            operation=added.operation,
+            ids=added.ids,
+            id=feature_id,
+            reversed=added.reversed,
+        ),
+        label="Extrude",
+        created_ids=(feature_id,),
+    )
+
+
+def _face_problem(document: Document, sketch: Sketch, position: int) -> Error | None:
+    """Why a sketch can't go on its face now (ADR 0016): the extrude has no such flat face, or
+    can't be placed itself. A plane is always there."""
+    if not isinstance(sketch.plane, FaceRef):
+        return None
+    placed = faces.frame(document, sketch.plane, position)
+    return placed if isinstance(placed, Error) else None
+
+
+def _extrude_problem(document: Document, extrude: Extrude, position: int) -> Error | None:
+    """Why an extrude can't be made or changed so now: its profile isn't one closed profile,
+    or it removes with nothing that adds before it."""
+    found = features.profile(document, extrude)
+    if isinstance(found, Error):
+        return found
+    if extrude.operation is ExtrudeOperation.REMOVE and not any(
+        isinstance(f, Extrude) and f.operation is ExtrudeOperation.ADD
+        for f in document.features[:position]
+    ):
+        return _error(
+            ErrorCode.VALUE_OUT_OF_RANGE,
+            "operation",
+            "there's no solid to remove from yet: the part's first extrude adds",
+        )
+    return None
+
+
 def _create(document: Document, command: CreateCommand) -> Handled | list[Error]:
     entity_type = _CREATES[type(command)]
     names = field_types(entity_type)
-    built = build_entity(entity_type, {name: getattr(command, name) for name in names}, document)
+    values = {name: getattr(command, name) for name in names}
+    if isinstance(command, _GEOMETRY_CREATES):
+        # Drawn in the sketch the command names, or the part's only one; the resolved
+        # command records which.
+        problems: list[Error] = []
+        values["sketch"] = part.resolve_sketch(document, command.sketch, problems)
+        if problems:
+            return problems
+    built = build_entity(entity_type, values, document)
     errors = list(built) if isinstance(built, list) else _check_errors(document, built)
     entity_id, next_id = _resolve_id(document, command.id, errors)
     if errors or isinstance(built, list):
         return errors
     resolved = replace(command, id=entity_id, **{name: getattr(built, name) for name in names})
-    after = Document(
-        entities=MappingProxyType({**document.entities, entity_id: built}), next_id=next_id
+    after = replace(
+        document,
+        entities=MappingProxyType({**document.entities, entity_id: built}),
+        next_id=next_id,
     )
     label = (
         f"Add {_title(built.type)} Constraint"
@@ -274,6 +390,9 @@ def _create_dimension(document: Document, command: CreateDimension) -> Handled |
         return errors
     if len(set(refs)) != len(refs):
         return [_error(ErrorCode.REFERENCE_DEGENERATE, "refs", "a reference is repeated")]
+    what = "a dimension's references"
+    if mixed := part.one_sketch(document, (r.entity for r in refs), field="refs", what=what):
+        return [mixed]
     inferred = dimensions.infer(document, refs, placement, kind)
     if isinstance(inferred, Error):
         return [inferred]
@@ -285,8 +404,10 @@ def _create_dimension(document: Document, command: CreateDimension) -> Handled |
     entity_id, next_id = _resolve_id(document, command.id, errors)
     if errors:
         return errors
-    after = Document(
-        entities=MappingProxyType({**document.entities, entity_id: built}), next_id=next_id
+    after = replace(
+        document,
+        entities=MappingProxyType({**document.entities, entity_id: built}),
+        next_id=next_id,
     )
     return Handled(
         document=after,
@@ -334,14 +455,14 @@ def _resolve_id(
     """
     if requested is None:
         number = document.next_id
-        while EntityId(f"e{number}") in document.entities:
+        while part.taken(document, EntityId(f"e{number}")):
             number += 1
         return EntityId(f"e{number}"), number + 1
     before = len(errors)
     entity_id = normalize_id(requested, "id", errors)
     if len(errors) > before:
         return entity_id, document.next_id
-    if entity_id in document.entities:
+    if part.taken(document, entity_id):
         errors.append(
             Error(code=ErrorCode.ID_TAKEN, message=f"id {entity_id!r} is already used", field="id")
         )
@@ -357,6 +478,8 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
         return errors
     current = document.entities.get(entity_id)
     if current is None:
+        if (found := part.feature(document, entity_id)) is not None:
+            return _modify_feature(document, found, command)
         return [
             Error(code=ErrorCode.ENTITY_NOT_FOUND, message=f"no entity {entity_id!r}", field="id")
         ]
@@ -372,6 +495,12 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
     ]
     if unknown:
         return unknown
+    if isinstance(current, GEOMETRY) and command.changes.get("sketch", current.sketch) != (
+        current.sketch
+    ):
+        # Its dimensions and constraints would have to move with it (ADR 0011).
+        message = f"a {current.kind}'s sketch can't be changed; draw it again in the other sketch"
+        return [_error(ErrorCode.VALUE_OUT_OF_RANGE, "sketch", message)]
     values = {name: getattr(current, name) for name in names} | dict(command.changes)
     built = build_entity(type(current), values, document)
     if isinstance(built, list):
@@ -379,10 +508,7 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
     if problems := _check_errors(document, built):
         return problems
     changed = list(command.changes)
-    after = Document(
-        entities=MappingProxyType({**document.entities, entity_id: built}),
-        next_id=document.next_id,
-    )
+    after = replace(document, entities=MappingProxyType({**document.entities, entity_id: built}))
     return Handled(
         document=after,
         command=ModifyEntity(
@@ -393,6 +519,60 @@ def _modify(document: Document, command: ModifyEntity) -> Handled | list[Error]:
         else f"Edit {_title(current.kind)}",  # a check's fields read badly alone ("Expected")
         created_ids=(),
         solve=_edit_solve(after, entity_id, current, built, set(changed)),
+    )
+
+
+def _modify_feature(
+    document: Document, current: PartFeature, command: ModifyEntity
+) -> Handled | list[Error]:
+    """Change a feature's fields; never its id. A sketch's plane changes with its geometry's 2D
+    coordinates kept, so the sketch moves to the new plane whole. An extrude's depth or
+    operation changes, or what it reads, checked as when it was made. Nothing is solved: no
+    constraint reaches outside a sketch, and solids are worked out when asked for."""
+    names = tuple(field_types(type(current)))
+    errors = [
+        _error(
+            ErrorCode.FIELD_UNKNOWN,
+            name,
+            f"a {current.kind} has no field {name!r}; fields: {', '.join(names)}",
+        )
+        for name in command.changes
+        if name not in names
+    ]
+    if errors:
+        return errors
+    if command.changes.get("id", current.id) != current.id:
+        return [_error(ErrorCode.VALUE_OUT_OF_RANGE, "id", f"a {current.kind}'s id can't change")]
+    position = next(i for i, f in enumerate(document.features) if f is current)
+    values = {name: getattr(current, name) for name in names} | dict(command.changes)
+    built = build_feature(type(current), values, document, position=position)
+    if isinstance(built, list):
+        return built
+    changed = list(command.changes)
+    if (
+        isinstance(built, Extrude)
+        and {"sketch", "ids", "operation"} & set(changed)
+        and (problem := _extrude_problem(document, built, position))
+    ):
+        return [problem]
+    if (
+        isinstance(built, Sketch)
+        and "plane" in changed
+        and (problem := _face_problem(document, built, position))
+    ):
+        return [problem]
+    return Handled(
+        document=replace(
+            document, features=tuple(built if f is current else f for f in document.features)
+        ),
+        command=ModifyEntity(
+            id=current.id,
+            changes=MappingProxyType({name: getattr(built, name) for name in changed}),
+        ),
+        label=f"Change {_title(changed[0])}"
+        if len(changed) == 1
+        else f"Edit {_title(current.kind)}",
+        created_ids=(),
     )
 
 
@@ -418,11 +598,15 @@ def _edit_solve(
 def _move(document: Document, command: MoveEntities) -> Handled | list[Error]:
     """Translate the geometry in `ids`. Annotations in `ids` are skipped; they follow their refs."""
     errors: list[Error] = []
-    ids = _existing_ids(document, command.ids, errors)
+    ids = _existing_ids(document, command.ids, errors, features=False)
     dx = normalize_float(command.dx, "dx", errors)
     dy = normalize_float(command.dy, "dy", errors)
     if errors:
         return errors
+    geometry = (id for id in ids if isinstance(document.entities[id], GEOMETRY))
+    what = "geometry moved together"
+    if mixed := part.one_sketch(document, geometry, field="ids", what=what):
+        return [mixed]
     moved: dict[EntityId, Entity] = {}
     for entity_id in ids:
         entity = document.entities[entity_id]
@@ -436,9 +620,7 @@ def _move(document: Document, command: MoveEntities) -> Handled | list[Error]:
                 for e in built
             ]
         moved[entity_id] = built
-    after = Document(
-        entities=MappingProxyType({**document.entities, **moved}), next_id=document.next_id
-    )
+    after = replace(document, entities=MappingProxyType({**document.entities, **moved}))
     return Handled(
         document=after,
         command=MoveEntities(ids=ids, dx=dx, dy=dy),
@@ -473,21 +655,35 @@ def _translated(
 
 def _delete(document: Document, command: DeleteEntities) -> Handled | list[Error]:
     """Delete `ids`, and in the same delta every dimension and constraint that refers to a
-    deleted entity. Removing constraints never breaks the others, so nothing is solved."""
+    deleted entity. A sketch takes everything drawn in it along. Removing constraints never
+    breaks the others, so nothing is solved."""
     errors: list[Error] = []
-    ids = _existing_ids(document, command.ids, errors)
+    ids = _existing_ids(document, command.ids, errors, features=True)
     if errors:
         return errors
-    doomed = set(ids)
+    # Features named, and those that read them (an extrude of a deleted sketch), in order.
+    gone: set[EntityId] = {id for id in ids if id not in document.entities}
+    for feature in document.features:
+        if graph.reads(feature) & gone:
+            gone.add(feature.id)
+    sketches = {f.id for f in document.features if f.id in gone and isinstance(f, Sketch)}
+    doomed = set(ids) - gone
+    if sketches:
+        doomed |= {
+            id
+            for id, entity in document.entities.items()
+            if isinstance(entity, GEOMETRY) and entity.sketch in sketches
+        }
     index = referrers(document)
-    for entity_id in ids:
+    for entity_id in tuple(doomed):
         doomed |= index.get(entity_id, frozenset())
     return Handled(
-        document=Document(
+        document=replace(
+            document,
             entities=MappingProxyType(
                 {i: e for i, e in document.entities.items() if i not in doomed}
             ),
-            next_id=document.next_id,
+            features=tuple(f for f in document.features if f.id not in gone),
         ),
         command=DeleteEntities(ids=ids),
         label=_plural_label("Delete", document, ids),
@@ -526,6 +722,8 @@ def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
         )
     if errors:
         return errors
+    if mixed := part.one_sketch(document, (a_id, b_id), field="b", what="a fillet's lines"):
+        return [mixed]
 
     corner = _shared_endpoint(lines["a"], lines["b"])
     if corner is None:
@@ -583,7 +781,10 @@ def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
         corner_refs.add(Ref(entity=entity_id, feature=Feature(moved)))
         held |= {(entity_id, f"{moved}.x"), (entity_id, f"{moved}.y")}
     construction = lines["a"].construction and lines["b"].construction
-    arc_values = _arc_values(center, radius, touch_a, touch_b) | {"construction": construction}
+    arc_values = _arc_values(center, radius, touch_a, touch_b) | {
+        "construction": construction,
+        "sketch": lines["a"].sketch,
+    }
     arc = build_entity(Arc, arc_values, document)
     if isinstance(arc, list):
         return arc
@@ -600,8 +801,8 @@ def _fillet(document: Document, command: FilletCorner) -> Handled | list[Error]:
     }
     kept = {id: e for id, e in document.entities.items() if id not in consumed}
     return Handled(
-        document=Document(
-            entities=MappingProxyType({**kept, **trimmed, arc_id: arc}), next_id=next_id
+        document=replace(
+            document, entities=MappingProxyType({**kept, **trimmed, arc_id: arc}), next_id=next_id
         ),
         command=FilletCorner(a=a_id, b=b_id, radius=radius, id=arc_id),
         label="Fillet Corner",
@@ -644,8 +845,11 @@ def _arc_values(center: Point2, radius: float, a: Point2, b: Point2) -> dict[str
     }
 
 
-def _existing_ids(document: Document, ids: object, errors: list[Error]) -> tuple[EntityId, ...]:
-    """Normalized ids, each once and in the order given, all present in `document`."""
+def _existing_ids(
+    document: Document, ids: object, errors: list[Error], *, features: bool
+) -> tuple[EntityId, ...]:
+    """Normalized ids, each once and in the order given, all present in `document`: entities,
+    and the part's features too when `features` allows them."""
     if not isinstance(ids, tuple | list):
         errors.append(
             Error(code=ErrorCode.VALUE_WRONG_TYPE, message="ids must be a list of ids", field="ids")
@@ -668,19 +872,29 @@ def _existing_ids(document: Document, ids: object, errors: list[Error]) -> tuple
         if len(errors) > before:
             continue
         if entity_id not in document.entities:
-            errors.append(
-                Error(
-                    code=ErrorCode.ENTITY_NOT_FOUND, message=f"no entity {entity_id!r}", field=field
+            found = part.feature(document, entity_id)
+            if found is not None and not features:
+                message = f"{entity_id!r} is {with_article(found.kind)}; name geometry instead"
+                errors.append(Error(code=ErrorCode.ENTITY_WRONG_KIND, message=message, field=field))
+                continue
+            if found is None:
+                errors.append(
+                    Error(
+                        code=ErrorCode.ENTITY_NOT_FOUND,
+                        message=f"no entity {entity_id!r}",
+                        field=field,
+                    )
                 )
-            )
-            continue
+                continue
         resolved[entity_id] = None
     return tuple(resolved)
 
 
 def _plural_label(verb: str, document: Document, ids: tuple[EntityId, ...]) -> str:
     if len(ids) == 1:
-        return f"{verb} {_title(document.entities[ids[0]].kind)}"
+        entity = document.entities.get(ids[0]) or part.feature(document, ids[0])
+        assert entity is not None
+        return f"{verb} {_title(entity.kind)}"
     return f"{verb} {len(ids)} Entities"
 
 

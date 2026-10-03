@@ -27,10 +27,15 @@ if TYPE_CHECKING:
 NAME = "caliper"
 
 INSTRUCTIONS = f"""\
-Caliper is a parametric 2D sketcher running on the user's computer. These tools work on the \
-sketch open in the Caliper window: one tool per Caliper command, plus tools to inspect the \
-sketch, measure, and check. Caliper validates every command; a rejected command changes \
-nothing and says why, so read the error, fix the arguments, and try again.
+Caliper is a parametric CAD app running on the user's computer: sketches on a part's planes, \
+extruded into a solid. These tools work on the document in the tab the user has open, the 3D \
+part or a 2D sketch: one tool per Caliper command, plus tools to inspect it, measure, and \
+check. Drawing goes into the sketch the user is editing ("editing" in inspect_document); in a \
+part with no sketch yet, one is made on XY, the Top plane. create_sketch starts another, on a \
+plane or on a flat face of an extrude (inspect_faces lists them), and drawing then goes into \
+it; a cut from a face goes into the part. Caliper validates every command; a \
+rejected command changes nothing and says why, so read the error, fix the arguments, and try \
+again.
 
 {CONVENTIONS}
 
@@ -81,6 +86,7 @@ READ_ONLY = frozenset(
         "measure_distance",
         "solve_status",
         "applicable_constraints",
+        "inspect_faces",
         PROGRESS.name,
     }
 )

@@ -134,6 +134,87 @@ Grouping works the same way for every caller. `with bus.transaction("Add Mountin
 turns many commands into one undo step, and an optimizer can run thousands of commands
 without growing the undo stack.
 
+## The document: one part
+
+Since V2's F1 ([ADR 0011](adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md),
+file schema 4), a document is one part:
+
+- **`Document.features`**, in order: the part's features, each with its id: sketches, each
+  placed on the XY, XZ, or YZ plane, and extrudes (F3, below). Order is the order features
+  are recomputed in.
+- **`Document.entities`**, keyed by id as before: everything the sketches hold, plus the
+  part's checks. Geometry names its sketch (`sketch`). A dimension or constraint is in the
+  sketch of the geometry it refers to, and it can't reach into another sketch. Checks belong
+  to the part.
+
+A new part starts with one sketch, `e0` on XY, which is what every V1 file migrates into.
+So code that reads `document.entities` sees what it always did, and a part with one sketch
+behaves exactly as V1 did. `caliper/engine/part.py` holds the rules: which sketch an
+entity is in, and `sketch.mixed` for 2D work that spans two sketches. A sketch isn't an
+entity, so the app's loops over entities, Select All among them, never meet one.
+
+## The part's solid
+
+Since V2's F3 ([ADR 0013](adr/0013-solids-extrude-and-recomputing-only-what-changed.md)), an
+`Extrude` feature sweeps a sketch's closed profile along its plane's normal. It is added to,
+or cut from, the part's one solid.
+
+- **Never stored.** `caliper/engine/features.py` works the solid out from the features, in
+  order, when a query asks (`solid_properties`, `mesh`, a volume check). It is kernel output,
+  so it differs across platforms in the last bits, and keeping it out of the file keeps files
+  byte-identical (ADR 0005).
+- **Kept by identity.** Each extrude's prism is kept by the very objects it was built from, and
+  each solid by the solid before it and that prism. A width change rebuilds one prism, a label
+  moving rebuilds nothing, and undo finds the old prism waiting.
+- **The graph.** `caliper/engine/graph.py` names what reads what, across 2D and 3D. A feature
+  reads only what comes before it, so the graph has no cycles.
+- **Commands never need a kernel.** Queries do: OCCT, or the analytic kernel in tests and the
+  bench.
+- **Sketches on faces** ([ADR 0016](adr/0016-sketching-at-any-angle-and-on-faces.md)). A
+  sketch sits on a plane or on a flat face of an earlier extrude, named by what made it
+  (`FaceRef`: `end`, `start`, `side e3`, `side e1.right`). `caliper/engine/faces.py` works out
+  where every face is from its extrude's inputs alone, with no kernel, so a sketch follows its
+  face when the depth or a line changes; it also answers which face a point of the surface is
+  on (`face_at`). A face's axes are level and up the face, which gives the three planes' own
+  axes, and frames are interned so the identity caches keep hitting. What it can't see is a
+  later cut removing the face (`docs/known-issues.md`, C-19).
+
+## The app on a part: two tabs, and sketching in 3D
+
+Since V2 ([ADR 0015](adr/0015-sketching-in-3d-from-the-parts-planes.md)), the window has two
+tabs, each its own document. The app starts in 3D.
+
+- **Two documents, one session.** The 3D tab is the part; the 2D tab is a sketch to test on.
+  `DocumentSession.use` shows one or the other, as opening a file does; each keeps its own
+  file, undo history, selection, and sketch. Everything that reads the session (the panels,
+  the agent, Claude Desktop) reads the one shown. New, Open, and Save act on the tab shown.
+- **A part starts from its planes.** A new part in the 3D tab has no sketch
+  (`part.no_sketch()`). The 3D view (`viewport/scene3d.py`) draws the origin, the Top, Front,
+  and Right planes, every sketch on its plane, and the solid; a click picks a plane or a
+  sketch. The 2D tab's new document is V1's, one sketch on XY.
+- **A sketch is edited in 3D by the 2D canvas.** Looking straight at a plane, an orthographic
+  camera maps it to the screen as the canvas maps a sketch, a scale and an offset. So the
+  canvas edits the sketch, every tool as it is, over the part drawn from the camera that
+  faces the plane (`viewport/backdrop.py`). A right drag orbits away and drawing waits; N
+  faces the sketch again; Finish keeps it, and Cancel undoes everything since it opened.
+- **The sketch being edited is UI state** (`DocumentSession.active_sketch`). Commands that
+  draw or extrude and name no sketch go into it (`part.in_sketch`, in the engine, shared by the
+  window and both assistants). In a part with no sketch, the AI's drawing first makes one on
+  Top (`part.first_sketch`). With one sketch, every V1 file, commands go as they came.
+- **The canvas sees one sketch.** The session keeps a view of the document holding only the
+  edited sketch's entities (`sketch_view`, `sketch_queries`). The canvas, its tools, the
+  browser, and Select All read it, so nothing in another sketch can be picked by accident.
+- **The 3D view** ([ADR 0012](adr/0012-the-3d-viewport-our-own-renderer-first.md)) is our own
+  QPainter renderer, with no new dependency. It draws `Queries.mesh`, asked for only when it
+  shows a changed document, and keeps the last good solid on screen, with the reason, when a
+  feature fails. `viewport/camera3d.py` has no Qt.
+- **The Part panel** lists the default geometry and `Document.features` in order, with
+  `feature_error` and the part's volume. Extrude is a panel over the view that sends one
+  `CreateExtrude`.
+- **Faces aren't named yet.** [ADR 0014](adr/0014-persistent-naming-by-history.md) records how
+  they will be, by history, from a spike in the tests; the first feature that refers to a face
+  adds it.
+
 ## The three records
 
 | Record | Where it lives | Saved? |
@@ -286,7 +367,9 @@ A `.caliper` file is a **snapshot** of the document as canonical JSON (ADR 0005)
   formatting, `\n` line endings everywhere.
 - **Inputs only:** a rectangle is stored as corner, width, and height. Nothing computed
   (arc endpoints, measured dimension values, kernel output) is stored.
-- **Versioned:** a `schema_version` plus a migration chain.
+- **Versioned:** a `schema_version` plus a migration chain. Schema 4 (ADR 0011) added the
+  part's feature list and each geometry's sketch; older files migrate into one sketch on XY
+  with their ids unchanged.
 
 That combination makes replay meaningful. `python -m caliper.engine replay script.json` runs
 commands with no UI and must produce a byte-identical file on any OS. It also makes the file
@@ -333,11 +416,17 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the day-to-day workflow.
 - **`tests/engine/`:** engine behavior, with hypothesis property tests for geometry.
   `tests/engine/geometry/test_kernel_conformance.py` runs against every available kernel.
 - **`tests/app/`:** pytest-qt, run offscreen on macOS CI.
+- **V2's milestone, end to end:** `tests/engine/test_milestone.py` headlessly and
+  `tests/app/test_v2_milestone.py` through the window, each on the analytic kernel and OCCT:
+  a 120 x 50 plate sketched on Top in 3D and extruded 10 mm, its width changed and undone, the
+  sketch edited again, the 2D tab used meanwhile, each tab saved, the part reopened, and
+  replayed to the same bytes. Tests that need OCCT skip without it; CI's app
+  job has none, so the app tests give the engine the analytic kernel.
 - **`bench/`:** end-to-end cases (a prompt or script, a reference model, and expectations).
   It exists before the AI layer so the AI has something to be measured against from day one.
 
 ## Deliberately not here
 
-Simulation, manufacturing, electronics, robotics, and 3D are out of scope for V1. There are
-no hooks or plugin points for them. Where they're headed is in [vision.md](vision.md);
+Simulation, manufacturing, electronics, and robotics are out of scope, and so is 3D beyond
+V2's sketches on planes and extrudes. There are no hooks or plugin points for them. Where they're headed is in [vision.md](vision.md);
 building for them now would be guessing.

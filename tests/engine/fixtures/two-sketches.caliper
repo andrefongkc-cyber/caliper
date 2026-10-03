@@ -1,0 +1,86 @@
+{
+  "document": {
+    "entities": {
+      "e1": {
+        "construction": false,
+        "corner": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "height": 50.0,
+        "kind": "rectangle",
+        "sketch": "e0",
+        "width": 120.0
+      },
+      "e3": {
+        "center": {
+          "x": 60.0,
+          "y": 25.0
+        },
+        "construction": false,
+        "kind": "circle",
+        "radius": 15.0,
+        "sketch": "e2"
+      },
+      "e4": {
+        "kind": "radial_dimension",
+        "label_angle": 45.0,
+        "measure": "diameter",
+        "target": "e3",
+        "value": 30.0
+      },
+      "e5": {
+        "construction": false,
+        "end": {
+          "x": 100.06246098625196,
+          "y": 2.5
+        },
+        "kind": "line",
+        "sketch": "e2",
+        "start": {
+          "x": -0.06246098625196336,
+          "y": 2.5
+        }
+      },
+      "e6": {
+        "kind": "constraint",
+        "refs": [
+          {
+            "entity": "e5",
+            "feature": "curve"
+          }
+        ],
+        "type": "horizontal"
+      },
+      "e7": {
+        "expected": 30.0,
+        "ids": [
+          "e3"
+        ],
+        "kind": "check",
+        "metric": "bbox_width",
+        "refs": [],
+        "tolerance": 1e-09
+      }
+    },
+    "features": [
+      {
+        "id": "e0",
+        "kind": "sketch",
+        "plane": "xy"
+      },
+      {
+        "id": "e2",
+        "kind": "sketch",
+        "plane": "yz"
+      }
+    ],
+    "next_id": 8
+  },
+  "format": "caliper.document",
+  "schema_version": 5,
+  "units": {
+    "angle": "deg",
+    "length": "mm"
+  }
+}

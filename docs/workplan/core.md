@@ -1,9 +1,436 @@
-Status: the N phase (finish and harden 2D) merged in #54: N1–N5 and N10 complete, the stress plate's reference confirmed on Linux CI, profiles from lines and arcs, OCCT run locally; next: nothing on the core side until the N phase closes (N9's Claude Desktop run), then V2 (F1)
+Status: 3D sketching part 2 (ADR 0016) done on `contracts/sketch-on-faces` and `shared/3d-sketching-2` (local, not pushed): contract and engine, the canvas at an angle, picking faces, Claude, benchmarks; next: Andre tries it (and Claude Desktop on a face), then Lucas reviews the contract diff and ADR 0016
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## 3D sketching part 2: at an angle, and on faces (ADR 0016; branch `contracts/sketch-on-faces`, stacked on `shared/performance-v2.2`, 2026-10-03; local, not pushed)
+
+Andre asked for Onshape's two things: drawing on a sketch's plane with the view turned away from it, and a sketch on a flat face of the part that follows the face. Decided with him: the face is named by history (ADR 0014's names) and placed from its extrude's inputs, with no kernel; drawing works up to 70° from facing; Claude gets the same. Plan: P0+P1 (contract, engine) here, then P2–P5 (the canvas at an angle, picking faces, Claude, benchmarks) on `shared/3d-sketching-2`. Each contract change lands with the engine that uses it, so every commit is green; Lucas reviews the contract diffs commit by commit.
+
+- [x] **ADR 0016** (Proposed), with pointers in ADRs 0011, 0013, 0014, and 0015.
+- [x] **The analytic kernel on parallel planes** (`fake_kernel.py`, `profiles.extent`): a prism on a plane moved along another's normal, or turned over (a bottom face), is seen in the other's coordinates, and a cut splits a piece into layers. So pockets from a top or bottom face, slots, and holes through are exact without OCCT; on one plane it is what it was. The 3D box is exact on any plane. Conformance on both kernels against formulas, including a property test of rectangular pockets at any depth from above or below.
+- [x] **`Frame` moved to the queries; `Extrude.reversed`; file schema 5.** A reversed extrude is the same profile on its plane moved back by the depth, so the kernel is unchanged. `CreateExtrude.reversed` left as None is false until sketches on faces exist. The 4 → 5 migration adds `"reversed": false`; the 17 schema-4 goldens are kept in `tests/engine/fixtures/v4/` and load byte for byte as the engine writes them now. The solver's pinned output (Perf-4's test) is re-pinned on the documents alone, without the file header: with the header's version put back, every digest was the old one.
+- [x] **Sketches on faces** (`caliper/engine/faces.py`; contract: `FaceRef`, `Sketch.plane: Plane | FaceRef`, `face.not_found` and `face.not_planar`, `Queries.plane_frame` and `Queries.faces`).
+  - **Where a face is:** worked out from its extrude's inputs (ADR 0016's table): caps from the sketch plane, depth and direction; sides from the profile's lines and rectangles, which way is out from the loop's turn (`profiles.signed_area`). A cut's faces face the other way. Each sketch's frame comes from one pass over the features, cached per document; side faces are cached by the extrude and its geometry (`ByIdentity`, moved to `document/recent.py`).
+  - **Axes** (`faces.canonical`): x level (+X on a level face), y up the face, the origin the plane's point nearest the part's origin; a normal within 1e-12 of vertical is snapped to vertical. It gives the three planes' own frames exactly. Frames are interned, so the prism cache, now keyed on the frame too, hits until a face really moves.
+  - **Commands:** `CreateSketch` and a `ModifyEntity` of `plane` are refused unless the face is there now; a face sketch reads only an extrude before it, which `build_feature` checks, so also on load (`dependency.cycle`). `CreateExtrude.reversed` left as None is true for a cut from a face (`faces.default_reversed`). Deleting an extrude deletes the sketches on its faces through `graph.reads`.
+  - **Failing:** a sketch whose face is gone fails on its own (`feature_error`, no kernel needed); only the extrudes that read it fail with it.
+  - **Tests** (`tests/engine/test_faces.py`, 32): names and the axes rule (a property test); every face kind and which way it faces; pockets from the top and bottom, a boss on top and on a side, by volume; following depth and line edits, three deep; every refusal and dependency rule, on load too; the delete cascade and undo; what a moved face rebuilds (a counting kernel); placing with no kernel; saving and opening.
+- [x] **Picking a face and selecting at an angle** (contract: `Queries.face_at`, `Queries.entities_in_polygon`).
+  - `face_at(point, normal, tolerance)` (`faces.at`): the named flat face a point of the surface is on, with no kernel. A cap by its plane, its outward normal (within 0.5°), and the extrude's profile region (`profiles.contains`); a side by its plane, normal, and the segment over the depth. The latest extrude wins, as it made the surface there (a refilled pocket, a boss on a boss). Outlines are as each extrude made them: a later cut isn't seen, which picking can't tell apart from the mesh, since a hit is always on real surface.
+  - `entities_in_polygon(corners, crossing)`: a convex polygon on the sketch plane, for a box selection seen at an angle. An axis-aligned rectangle is handed to `entities_in_box`, so the two agree to the bit; anything else is tested edge by edge (window: each edge against the entity's farthest point out; crossing: Cyrus–Beck for lines, separating axes for rectangles, distance for circles, edge crossings within the sweep for arcs).
+  - **Tests:** `tests/engine/test_face_picking.py` (13: every face of a plate, holes, pockets, bosses, the latest winning, tolerances, every named face picked at its middle, nonsense input); `tests/engine/test_polygon_selection.py` (6, two of them property tests: a box's corners in any order give exactly `entities_in_box`; a sketch and its box turned together by any angle keep every decision that isn't on a boundary). Also run once with 2,000 examples each.
+- [x] **Against both kernels, replayed, documented.**
+  - `tests/engine/geometry/test_face_planes.py`, on the analytic kernel and on OCCT: for random plates (a rectangle, or polygons of lines drawn either way round) on each plane, either way, a point inside every named face lies on a triangle of the kernel's mesh in that plane, facing the same way; every triangle of the mesh is on a named face whose plane it lies in (`face_at`); a pocket's floor and walls are on the surface; and the replayed part below has the volume its numbers give.
+  - `tests/engine/fixtures/face-sketches.script.json` and `.caliper` (schema 5, born there): a plate, a pocket cut down from its top, a boss on its right side, the plate made deeper (everything on its faces follows), and a hole down from the pocket's floor. Replays byte for byte.
+  - `docs/architecture.md` (sketches on faces), `docs/known-issues.md` C-19 (a face a later cut removed isn't noticed).
+
+### 3D sketching part 2 in the app (branch `shared/3d-sketching-2`, stacked on `contracts/sketch-on-faces`; local, not pushed)
+
+- [x] **The window places every sketch by its frame** (`scene3d`, `backdrop`, `main_window`): a sketch on a face opens facing it, is drawn where its face is, follows it when it moves (an edit, undo, Claude), and is named for it ("end of Extrude 1"); a sketch whose face is gone is red in the Part panel, not drawn, and can't be opened, with the reason. `tests/app/test_face_sketches.py`.
+- [x] **P2, drawing at an angle** (C-17 fixed). `transform.PlaneView` maps a sketch's plane as the free camera sees it (an affine map; its stretches are the scale and scale x facing); `canvas.mapping` is the canvas's own view facing the sketch and in 2D (so nothing there changes: 19 of the 20 reference 3D images are pixel-identical, and the 20th is the orbited canvas, now drawing at its angle), and the plane view turned away. Drawing, picking (the pick radius covers 6 px on screen every way), snapping, glyphs, labels, the grid (slanted), and box selection (on screen, through `entities_in_polygon`) all go through it; curves are drawn as model-space paths under its map. Drawing is allowed up to 70° from the plane (`Backdrop.drawable`); past that, as before, it waits for N. Pan, zoom, pinch, and framing move the free camera while turned away; a right-drag draws only the scene, and the canvas draws again where the plane is seen when it ends. Tests: `tests/app/test_angled_sketching.py`, `test_viewport_math.py` (property tests of the plane view), `test_sketch_mode.py`.
+- [x] **P3, picking a face and sketching on it.** A click in the 3D view finds the nearest triangle of the solid facing the viewer (`Scene.solid_hit`, barycentric on screen) and names its face (`Queries.face_at`); the solid now hides the planes behind it (a face in the same plane as one wins) and the sketch curves behind it (within two pick radii of depth, so a curve on its surface still picks), and a curved face picks nothing. A picked face is the session's `picked_plane` (now `Plane | FaceRef`), tinted in the accent colour triangle by triangle (`Scene.face_triangles`, kept per scene); double-click or Sketch starts a sketch on it. The Extrude form has a Direction: along the normal, or against it, defaulting as the engine would (a cut from a face goes in). Tests in `tests/app/test_face_sketches.py`: picking the top and a side, the solid hiding planes and a boss hiding the plate, the tint, and plate → double-click top → rectangle → cut into it → volume.
+- [x] **P4, Claude does the same.** `create_sketch` is a tool now (only `create_check` isn't, C-1): its `plane` is a plane or a face, with ADR 0014's name grammar in the schema, and after it drawing that names no sketch goes into the new one; the result says where it is (`placement`). `inspect_faces(extrude)` lists the faces a sketch can sit on, each with its origin, axes, and normal (read-only over MCP). `create_extrude`'s `reversed` is described. The instructions (`agent.py`, `mcp_server.py`) and `docs/mcp.md` say so. Tests: `tests/ai/test_sketches.py` (faces listed, a sketch on the top drawn in and cut into the part, a missing face refused), `tests/app/test_mcp.py` (Claude Desktop's sketch on a face, reviewed facing it, open after Accept).
+
+- [x] **P5, benchmarks** (`bench/perf_faces.py`, in `bench/perf.py`; results `bench/results/2026-10-03-3d-sketching-2.json`, against Performance V2.2's final run):
+  - `3d/sketch-edit-tilted/holes-24`: a line drawn on Front seen 25° from it, the 24-hole part behind: 4.6 ms an edit, one scene build (facing it, `3d/sketch-edit-over-part`: 4.2 ms, was 4.3).
+  - `3d/face-pick/holes-24`: a click on the part's top, 5.4 ms (triangle hit and `face_at`); its tint, 0.39 ms for 674 triangles, flooded out from the triangle hit over neighbours in its plane. Named triangle by triangle it took 232 ms, so a click's tint floods; a face picked another way is still named.
+  - `v2/face-chain` (OCCT): ten bosses, each on the one before's top. Editing the plate's depth moves all ten, 18.8 ms with 11 prisms rebuilt; editing the last square, 3.4 ms with one.
+  - Nothing that was there got slower beyond noise: 3D frames 0.96× (2,604 triangles 10.8 ms), a dimension edit, the tab round trip, and Claude Desktop's stress plate in both tabs within ±5%. The one outlier, `v2/milestone`'s build at 29 ms against 2.0, is a cold start in the full run: run alone, old and new code both build in 1.1–1.4 ms.
+
+## Performance V2.2 (branch `shared/performance-v2.2`, stacked on `shared/v2-3d-sketching`, 2026-10-02; local, not pushed)
+
+The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): make what Caliper already does faster, with no change to what it does. Solver changes stay bit-identical (Andre's choice); the 3D render fixes come last, on the current renderer. Each phase is one commit, judged against the Perf-0 baseline with `bench/perf.py --compare bench/results/2026-10-02-pv2.2-baseline.json`.
+
+- [x] **Perf-0, the missing benchmarks and a baseline.** `bench/perf_v22.py` adds 31 results to `bench/perf.py` (67 in all), each with the count of work the plan names, taken by wrapping the function for the run only:
+  - the window: opening a document (stress plate, 2,000, 10,000 entities), the sketch browser filled from scratch, a selection change and Select All (palette refilters), a tab round trip (refilters, browser and Part-panel rebuilds, scene builds), startup, a dimension edit (History, Checks, and Part-panel refreshes), undo and redo, the accepted stress plate undone and redone, one change after 2,000 recorded ones, and the first pointer move after an edit (grid builds) against a steady one;
+  - files (stress plate and 10,000 entities, with type-hint lookups) and the command-line replay (schema 1 and 2, in a new process);
+  - the solver's counts over the stress plate and the 150-line chain (Duals, rule matches, point lookups, Newton solves, rows factored, redundancy checks);
+  - recompute over ten extrudes (prisms and unions rebuilt when the first, the last, and a label change);
+  - 3D frames at 2,604, 8,652, and 20,748 triangles (scene build, camera axes per frame), an orbit (scenes built: 0), and a line drawn in a 3D sketch with the 24-hole part behind it (scene builds and volume calls per edit);
+  - Claude Desktop's stress plate in the 3D tab.
+
+  `tests/test_perf_bench.py` keeps the module importable. Two stale figures corrected: F8's Accept (saved runs: 23.3 → 23.7 ms, not "23 → 29"), and ADR 0015's frame cost (about 0.4 ms on both parts, not 3 ms on the 24-hole plate, since the hidden-edge fix). The `many_checks` docstring no longer claims a Checks-panel timing.
+
+  The baseline, the numbers the phases below are judged on:
+
+  | Case | Baseline |
+  |---|---|
+  | Open 10,000 / 2,000 entities / stress plate | 37.8 s / 1.56 s / 75 ms; 2 browser rebuilds each |
+  | Browser rebuild, 2,000 / 10,000 | 755 ms / 18.8 s |
+  | Selection change / Select All (stress plate) | 6.6 ms, 17 refilters / 6.1 ms, 2 |
+  | Tab round trip | 48.8 ms: 68 refilters, 4 browser and 9 Part-panel rebuilds, 3 scene builds |
+  | Startup (window after the first) | 24.5 ms, 51 refilters |
+  | Dimension edit / undo / redo (stress plate) | 12.8 / 10.9 / 10.7 ms |
+  | Accepted stress plate undone / redone | 3.9 / 20.9 ms (265 inserts) |
+  | One change after 2,000 | 8.9 ms |
+  | First / steady pointer move, 10,000 | 10.0 / 0.21 ms; 1 grid build per edit |
+  | Files: loads, 10,000 / stress plate | 196 / 6.8 ms (23,001 / 744 type-hint lookups) |
+  | Solver: stress plate | solve 441 ms; 577 k Duals, 8,767 matches, 133 k point lookups |
+  | Solver: chain-150 / star-12 | 2.62 s, p95 35 ms / 333 ms a call |
+  | 3D frame, 2,604 / 8,652 / 20,748 triangles | 22.4 / 68 / 166 ms; scene 13.6 / 46 / 138 ms; 8,641 axes per frame at 2,604 |
+  | 3D sketch edit over the 24-hole part | 43 ms: 1 scene build, 3 volume calls per edit |
+  | CLI replay, stress plate | 0.72 s |
+- [x] **Perf-1, the sketch browser in linear time** (`caliper/app/panels/browser.py`). Each row was placed by reading every row of its group back from Qt and bisecting, so filling the browser was quadratic, and opening a document filled it twice (`document_replaced`, then `active_sketch_changed`). Now:
+  - a rebuild makes the rows in order and adds each group's in one call;
+  - the browser keeps each group's sort keys, so a new row is a bisect;
+  - a second rebuild for the same document and sketch is skipped, and so is applying a change to rows already showing its document (it could list a row twice when a deleted sketch's rebuild ran first).
+
+  Rows, order, groups, counts, collapse, selection and value widths are unchanged: `tests/app/test_browser_rows.py` checks the rows against a fresh listing after random creates, edits, deletes, dimensions, constraints, construction toggles, undo, redo and transactions.
+
+  | | Perf-0 | Perf-1 |
+  |---|---|---|
+  | Browser rebuild, 2,000 / 10,000 entities | 755 ms / 17.9 s | 24.7 ms / 137 ms |
+  | Open 10,000 / 2,000 / stress plate | 37.8 s / 1.49 s / 53 ms | 0.50 s / 0.10 s / 45 ms |
+  | Rows made per open | 2 per entity (510 on the stress plate) | 1 (255) |
+  | Tab round trip | 49.5 ms | 41.4 ms |
+  | Accepted stress plate redone | 21.3 ms | 15.4 ms |
+
+  The bench's `ui/browser-rebuild` now forces a real rebuild, and `ui/open` counts the rows made. The skipped second rebuild still counts as a call.
+- [x] **Perf-2, one command-palette refresh per event-loop turn** (`caliper/app/palette.py`). The docked palette refiltered its whole list on every `QAction.changed`. A selection change updates a dozen constraint actions at once, so it refiltered 17 times. Now a zero-delay single-shot timer, owned by the palette, refreshes the list once when the event loop next turns, keeping the highlighted row as before. Typing still filters at once.
+  - `test_the_sidebar_greys_out_actions_as_they_become_unavailable` now waits for that turn.
+  - A new test checks one refresh for a selection that changes many actions; it fails on the old code with 19.
+
+  | | Perf-1 | Perf-2 (Perf-0 in brackets) |
+  |---|---|---|
+  | Selection change | 6.6 ms, 17 refilters | 2.69 ms, 1 |
+  | Tab round trip | 41.4 ms, 68 refilters (49.5 ms) | 18.8 ms, 2 |
+  | Startup (window after the first) | 25.1 ms, 51 refilters | 16.3 ms, 2 |
+  | Select All / an edit / undo | 6.3 / 13.0 / 10.9 ms | 5.9 / 13.2 / 10.8 ms (unchanged: not the palette) |
+- [x] **Perf-3, panels that catch up rather than start over.**
+  - **History** (`caliper/app/panels/history.py`): a change adds its row; undo and redo dim or brighten the rows between where the history was and where it is; a change after undoing drops the replaced rows. A full rebuild happens only for another history (a document opened, the other tab). Each row keeps when it was made and shows its age as of the latest change to the history, as rebuilding did.
+  - **Checks** (`panels/checks.py`): `checks_changed` always comes with `document_changed` in the same announcement, so it no longer refreshes a second time.
+  - **The Part panel** (`panels/features.py`) skips a rebuild that would show the same document and sketch; a tab switch asks three times.
+  - **The engine** (`caliper/engine/features.py`): a solid's volume and bounding box are kept per solid object, beside its meshes, so the Part panel, status bar, and 3D view asking after a change that left the solid alone ask the kernel nothing.
+  - **Tests:**
+    - `tests/app/test_panel_refreshes.py`: History rows equal a full rebuild after random changes, undo, redo, a jump to Start, and transactions, with no rebuild per change; one Checks refresh when a check changes; Part rows kept.
+    - `tests/engine/test_recompute.py`: one volume call per solid.
+
+  | | Perf-0 | Perf-3 |
+  |---|---|---|
+  | One change after 2,000 | 8.9 ms (1 rebuild of 2,000 rows) | 1.13 ms (0) |
+  | 3D sketch edit over the 24-hole part | 36.6 ms, 3 volume calls | 34.1 ms, 0 |
+  | Tab round trip | 49.5 ms (18.8 after Perf-2) | 17.4 ms |
+  | A dimension edit / undo / redo (stress plate) | 13.0 / 10.9 / 11.0 ms | 12.9 / 10.6 / 10.5 ms (unchanged; one run read +13% and three reruns didn't) |
+- [x] **Perf-4, the solver's evaluation: investigated, not landed.** The plan estimated −25–40% of solve time from three bit-identical steps; wall-clock measurement (no profiler) says the steps can't reach its ≥ 20% acceptance, so nothing was added.
+  - **Where solve time goes** (wall clock, warm runs):
+
+    | | Compiling equations | Evaluating | All of Newton | Redundancy check |
+    |---|---|---|---|---|
+    | Stress plate | 3–4% | 24–25% | 56% | 13% |
+    | 150-line chain | 4% | 11–13% | 19–22% | 62–64% |
+    | 12-point star | 12% | 8% | 10% | 80% |
+
+    The profiler had overstated the many tiny Dual operations.
+  - **(a) A per-evaluation memo of `Frame.point`:** no gain; the dict costs what it saves (stress plate 605 → 615–638 ms).
+  - **(c) Skipping the exact multiplies by ±1 in `ad._combine`:** bit-identical (`1.0 * d` is `d`, `x + -1.0 * d` is `x - d`) but within noise (stress plate 593 → 598 ms; chain 2.9 s either way). Reverted.
+  - **(b) Caching compiled equations across solves:** not built. At most 3–4% of the stress plate and the chain, 12% of the star, and the cache would have to follow the joints tangent equations read.
+  - **What would pay** is in the redundancy check (Perf-5) and Newton's linear algebra (architectural, A2).
+  - **Kept:** `tests/engine/constraints/test_solver_output.py`, which pins the fast solver's exact output: every document after every command, and every outcome, of the three recorded sessions, the 150-line chain, and the grid, mirror, and star repeats. N1 pins only the reference solver. Perf-5 is held to it.
+  - **Found on the way:** this Mac throttles under sustained single-core load. The same stress-plate replay ran 591, 597, 600, 637, 718, 960, then 1,774 ms in one process, with flat memory (55 MB) and identical call counts, and 685 ms again after a 20 s pause. It isn't Caliper. Small before/after differences need pauses or interleaved runs to be believed.
+- [x] **Perf-6, the picking grid made from the last one** (`caliper/engine/spatial.py`). The first pointer move after any edit built the new document's grid from scratch, which at 10,000 entities took 7.5 ms of a 10 ms move. Now `Grid.derived` makes it from the last grid built: the cells keep their size, the entities a command changed (by identity, as everything else finds them) leave their old cells and enter new ones, and the cells it touches are copied first, so the last grid still answers for the document before (undo). It builds afresh when more than 64 entities changed, or more than an eighth of the sketch, or the changed ones no longer fit the cells. A lock guards the cache: the assistant's worker thread asks too.
+  - **Tests** (`tests/engine/test_spatial.py`): a grid made from the last one answers `near` and `overlapping` exactly as a fresh one, over random moves, deletes, additions, and undos, and the last grid is left as it was; one move in 500 entities builds nothing, 399 in 500 build afresh.
+
+  | | Perf-0 | Perf-6 |
+  |---|---|---|
+  | First move after an edit, 10,000 entities | 9.97 ms, 1 grid build | 2.6–3.9 ms, 0.08 (1 in 12 edits) |
+  | First move after an edit, 2,000 | 1.86 ms | 0.54–0.59 ms |
+  | The grid alone, 10,000 | 7.46 ms built | 0.50 ms made from the last (0.38 of it finding what changed) |
+  | Moves after the first | unchanged | unchanged |
+
+  The plan's ~1 ms at 10k isn't met: what's left of the first move is the canvas laying out labels and glyphs for the new document, not picking.
+- [x] **Perf-7, file loading with a decoder per class** (`caliper/engine/io/codec.py`). Decoding read a dataclass's type hints, and its fields twice, for every object it rebuilt: 23,001 lookups to open 10,000 entities, half of decoding. Now each class's shape (required and optional fields, and how each field is decoded) is worked out the first time one is decoded and kept, and a field whose data is kept as it came (scalars, which validation judges) isn't visited at all. What's rebuilt, what's left as it came, and every error are unchanged; validation is untouched.
+  - **Checked against the old decoder** (a copy kept for the run, not committed): the same values, of the same types all the way down, and the same errors with the same paths, on the 43 documents and 528 commands in the repo's files and recorded sessions, and 36,000 random corruptions of them over three seeds (about half refused). Only `DecodeError` was ever raised.
+  - **Tests** (`tests/engine/io/test_codec.py`): containers rebuilt as the contracts hold them (tuples, `MappingProxyType`, a union's dataclass); data of the wrong shape left as it came (six of the seven also pass on the old decoder); a class's hints read once, and none on a second load.
+
+  | Loading | Perf-0 | Perf-7 |
+  |---|---|---|
+  | The stress plate (265 entities) | 6.66 ms, 744 type-hint lookups | 2.98 ms (0.45×) |
+  | 3,000 entities (`synthetic/file/2000`) | 59.6 ms | 24.2 ms (0.41×) |
+  | 10,000 entities | 195.7 ms, 23,001 lookups | 74.8 ms (0.38×), 0 |
+  | Replay of the stress plate from the command line | 0.517 s | 0.514 s (Python's start-up and the solve; decoding 265 commands was never the cost) |
+
+  Old and new interleaved in one process gave the same: −57%, −59%, −63%. Saving is unchanged. What's left of a load at 10,000 is validation (about half, untouched), decoding (a third), and JSON parsing.
+- [x] **Perf-5, the redundancy check carries on where it started again (C-6), bit-identical** (`caliper/engine/constraints/sketch.py`). The plan's rank update wasn't built. Traced, the star's checks weren't starting again because rows moved: the rows were bit-for-bit the same. They started again because the check carried on only from the single last factorization, and only when its columns were a prefix of the new ones:
+  - **The star:** each pattern copy's columns, ordered by entity number, were inserted in the middle of the order, not at the end.
+  - **The chain:** each new line's own one-row cluster was checked between two checks of the chain, replacing the chain's factorization. 299 checks factorized 135,363 rows, about 450 each.
+
+  Now:
+  - `_extended` carries on from whichever of the last four factorizations starts with the most of the same rows, with its columns moved to where they are now (`_placed`, `_same_rows`, `_truncated`).
+  - Columns new to the cluster are zero in every old row wherever they fall, so no sum and no product changes: the arithmetic is the arithmetic of factorizing afresh, as it already was for columns added last.
+  - Each row's entries, which the reuse is checked against, are listed from the sparse gradients rather than by scanning dense rows as wide as the cluster (−13–14% on the star and the chain by itself).
+  - A rank update in place was not pursued. It wouldn't give the bits a fresh factorization gives, which Performance V2.2 requires, and where rows really move (C-6 now) it would touch every row anyway.
+  - **Tests** (`tests/engine/test_performance_invariants.py`):
+    - carried on across inserted columns and across another cluster's check, the factorization is bit-for-bit a fresh one; only the new rows are factorized; the factorizations it carried on from are left as they were;
+    - random constrained sessions decide and solve exactly as with every check afresh;
+    - the existing chain test still passes;
+    - the fast solver's pinned output (Perf-4's `test_solver_output.py`) is unchanged.
+
+    Two planted bugs (skipping the row comparison; a 1e-15 error in the moved columns) each fail them; the second fails only the new property test.
+
+  | | Perf-0 | Perf-5 |
+  |---|---|---|
+  | Star-12's circular pattern (one call) | 333 ms | 188 ms (0.57×) |
+  | Grid-5x4's linear pattern (one call) | 114 ms | 103–114 ms (two runs; 0.77× interleaved) |
+  | Chain-150, all 299 calls | 2.62 s | 1.00 s (0.38×) |
+  | Chain-150, median / p95 / max call | 1.57 / 35.5 / 44.7 ms | 0.47 / 12.0 / 14.4 ms |
+  | Rows factorized, chain-150 (with Newton's) | 135,363 | 102,136 |
+  | Rows factorized, the whole star (with Newton's) | 1,715 | 219 |
+  | Stress-plate session | rows 11,365 | 11,274; time within noise (618 → 590 ms interleaved) |
+
+  - **Interleaved in one process** (the whole workloads, the layout included): star 355 → 188 ms (1.9×), chain 2.84 → 1.36 s (2.1×), grid 115 → 89 ms, half-star 22 → 21 ms.
+  - **Memory:** four factorizations are kept, not one, sharing their numbers. That is about 1.4 MiB more held after the star and 0.6 MiB after the stress plate, and no change on the chain.
+  - **Short of the plan's bar:** the star's call is 1.77× faster, not the 2× the plan set. That bar was set for a high-risk rank update. This change adds no arithmetic, only reuse checked row by row, and the chain is 2.6× faster, so it's kept. That's for Andre or Lucas to confirm.
+  - **What's left in the star:** no one cost. Recompiling equations (`relations.match`, Perf-4's step (b)), evaluating, and copying the kept factorization each take a few percent.
+- [x] **Perf-8, the 3D render path on the current renderer** (`caliper/app/viewport/`; no GPU, ADR 0012 unchanged in kind). Every frame and image is pixel-identical: 20 fixed scenes (four parts from several cameras, a picked plane and a selected sketch, the canvas facing a sketch over the part with a dimension and the grid, orbited and faced again, a tab round trip) rendered before and after, compared pixel for pixel, all equal.
+  - **(a) A projector per frame** (`camera3d.Camera.projector`): the camera's axes worked out once a frame, not for every point and every face (68,617 times a frame at 20,748 triangles; now 7). Each vertex is projected once, crease ends reuse their vertices' projections (creases now name their vertices), and each face's light is taken against `back` directly. The sums are the same, in the same order.
+  - **(b) A mesh's normals, creases, and reach are kept with the mesh** (`scene3d._shape`, the last four). The engine keeps a solid's mesh by identity, so a scene for a document whose solid didn't change (a sketch edit, a tab switch) doesn't work them out again.
+  - **(c) The part behind a sketch edited in 3D is kept as an image** (`Backdrop.image`), redrawn when the camera, the size, the solid, the other sketches, or the planes' size changes (`View3D.shows`). A sketch edit redraws only the sketch over it. `Backdrop.draw` leaves the painter as painting the scene in place did (antialiased, in the theme's font), so the grid and the labels drawn over it come out as before.
+  - **(d) No scene is built for the 2D tab's sketch**, which the 3D view never draws. The view's mesh is dropped as refreshing for that document did, so what's shown on coming back is unchanged.
+  - **Tests** (`tests/app/test_render_3d.py`):
+    - the projector against `project` as it was, bit for bit;
+    - normals and creases worked out once per mesh, as afresh;
+    - the part behind a sketch redrawn only when the solid, the view, or the planes change, and the kept image the same as drawing afresh;
+    - the canvas over the kept image pixel-identical to painting the part in place;
+    - a frame from four cameras pixel-identical to `_solid` as it was (a copy in the test);
+    - no scene built for the 2D tab.
+
+    Three planted bugs (the font not set, the wrong axis lighting faces, a 1e-9 change in the light) each fail one.
+
+  | | Perf-0 | Perf-8 |
+  |---|---|---|
+  | Frame, 2,604 triangles (the 24-hole part) | 22.4 ms | 11.1 ms (0.50×) |
+  | Frame, 8,652 / 20,748 triangles | 68.7 / 162 ms | 29.8 / 72.8 ms (0.43× / 0.45×) |
+  | Orbiting the 24-hole part, per frame | 22.6 ms | 11.1 ms |
+  | Scene for an unchanged solid, 2,604 / 20,748 triangles | 13.6 / 115 ms | 1.1 / 9.2 ms |
+  | A line drawn in a 3D sketch over the 24-hole part | 36.6 ms (33.5 after Perf-3) | 4.3 ms (0.12×) |
+  | Tab round trip (stress plate in 2D, part in 3D) | 49.5 ms, 3 scene builds | 15.8 ms, 1 |
+
+  - **The GPU threshold, recorded, not acted on:** frames now cost about 3.4 µs a triangle, against 7–8. 30 frames a second holds to about 9,000 triangles, against about 3,500. ADR 0012's rule stands: move to `QOpenGLWidget` when typical parts pass about 10,000 triangles, which is when `3d/frame` passes 33 ms on the reference parts.
+  - **Memory:** one canvas-sized image for the backdrop, and up to four meshes' normals and creases.
+
+### Performance V2.2, final validation (2026-10-02, at `281ca3e`)
+
+The whole of `bench/perf.py` against the Perf-0 baseline, saved as [`bench/results/2026-10-02-pv2.2-final.json`](../../bench/results/2026-10-02-pv2.2-final.json). Two rows that read slower in the full run were rerun:
+- the rectangle session's 0.1 ms calls, back to 1.0–1.06× (the full run starts with them, cold);
+- the plate's widen, 0.49–0.63 ms with the solver from before Perf-5 as with this one: noise.
+
+Gates:
+- 1,815 tests pass with OCCT, and 1,749 plus 54 skipped without it;
+- ruff, format, and mypy are clean;
+- `bench/run.py` is 10/10 on both kernels;
+- the fast solver's pinned output is unchanged.
+
+| Metric | Perf-0 | Final | Change |
+|---|---|---|---|
+| Opening 10,000 entities (window) | 37.8 s | 0.47 s | 0.01× |
+| Opening 2,000 entities / the stress plate | 1.49 s / 53 ms | 73 ms / 33 ms | 0.05× / 0.62× |
+| Sketch browser rebuild, 10,000 / 2,000 | 17.9 s / 755 ms | 136 / 25 ms | 0.01× / 0.03× |
+| Selection change (palette refilters) | 6.6 ms (17) | 2.9 ms (1) | 0.44× |
+| Startup, the window (palette refilters) | 25.1 ms (51) | 17.3 ms (2) | 0.69× |
+| Tab round trip (refilters, 3D scenes built) | 49.5 ms (68, 3) | 15.4 ms (2, 1) | 0.31× |
+| History, one change after 2,000 (rebuilds) | 8.9 ms (1) | 1.2 ms (0) | 0.14× |
+| Redo of the stress plate's accepted proposal | 21.3 ms | 14.8 ms | 0.70× |
+| Solver: the stress plate's solve, all 265 commands | 441 ms | 447 ms | 1.01× (unchanged) |
+| Solver: chain-150, all 299 calls (p95) | 2.62 s (35.5 ms) | 1.05 s (12.4 ms) | 0.40× (0.35×) |
+| Solver: star-12's circular pattern / grid-5x4's linear pattern | 333 / 114 ms | 195 / 105 ms | 0.59× / 0.92× |
+| Picking: first move after an edit, 10,000 / 2,000 (grid builds) | 9.97 / 1.86 ms (1) | 2.90 / 0.66 ms (0.08) | 0.29× / 0.36× |
+| File loading: 10,000 entities / 3,000 / the stress plate | 196 / 59.6 / 6.7 ms | 74 / 25.0 / 2.9 ms | 0.38× / 0.42× / 0.44× |
+| Type-hint lookups to load 10,000 entities | 23,001 | 0 | |
+| 3D frame: 2,604 / 8,652 / 20,748 triangles | 22.4 / 68.7 / 162 ms | 11.2 / 29.5 / 71.7 ms | 0.50× / 0.43× / 0.44× |
+| 3D orbit frame / `v2/render-3d` holes-24 | 22.6 / 19.8 ms | 10.8 / 8.1 ms | 0.48× / 0.41× |
+| A line drawn in a 3D sketch over the part (volume calls) | 36.6 ms (3) | 4.3 ms (0) | 0.12× |
+| Rows factorized, chain-150 (Newton's included) | 135,363 | 102,136 | 0.75× |
+| MCP stress plate: engine / window / window in 3D | 0.487 / 0.755 / 0.757 s | 0.488 / 0.743 / 0.770 s | 1.00× / 0.98× / 1.02× |
+| MCP stress plate: Accept in 2D / in 3D | 24 / 29 ms | 19 / 21 ms | 0.77× / 0.73× |
+| MCP: UI share per call / bridge round trip / results | 0.475 / 0.133 ms / 92 KiB | 0.465 / 0.146 ms / 92 KiB | 0.98× / 1.10× (noise) / 1.00× |
+| Replay from the command line, the stress plate | 0.517 s | 0.515 s | 1.00× |
+| Memory, the stress plate's engine session: peak / retained | 2.29 / 0.53 MiB | 2.95 / 1.05 MiB | 1.29× / 1.97× (Perf-5's kept factorizations) |
+
+**Left as they were, measured:**
+- the stress plate's solve (Perf-4: Newton's evaluation and linear algebra, A2);
+- a dimension edit's full-layer repaint (13 ms on the stress plate, A1);
+- select-all (6.3 ms);
+- solve status on the chain (69 ms);
+- validation on load (half of a 10,000-entity load);
+- the plan's "not worth optimizing" list.
+
+## 3D-first, the engine's part (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
+
+[ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md). No contract change.
+
+- [x] `part.no_sketch()`: a part with no features, where the app's 3D tab starts. `Document.empty()` stays the new part everywhere else.
+- [x] `part.first_sketch(document, command)`: the sketch to make, on XY, before drawing in a part with none (the AI's tools use it).
+- [x] Script schema 2: `"part": "empty"` starts a replay from a part with no sketch, so the 3D tab's sessions replay byte for byte. Schema 1 reads as before; `script.read` and `script.dumps` beside `load`.
+- [x] Tests: `tests/engine/test_part.py` (the empty part saves, reloads, takes a sketch; the first-sketch rule) and `tests/engine/test_replay.py` (a schema 2 replay through the CLI, and schema checks).
+
+## V2, F8: V2's tests, end to end (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+Done when every part of V2 has tests on both kernels, and the milestone runs end to end through the window: **met**. Each F item brought its own tests; F8 measured what they reach and filled the gaps.
+
+- [x] **The milestone, end to end, through the window** (`tests/app/test_v2_milestone.py`, on the analytic kernel and OCCT), each step clicked or typed: a 120 x 50 rectangle on XY; Extrude 10 from the toolbar, the depth typed; 60,000 mm³; the width typed as 140 in Properties, still in 3D; 70,000; undo by its key, 60,000; 3D to 2D by the switch, a dimension added; 2D to 3D, the same solid; saved, a new part, reopened, the same document and solid; and everything the window sent, replayed headlessly twice, giving the saved file's bytes both times. Each volume is checked in the engine's query and as the volume inside the mesh the 3D view draws. A 3D view that ignores changes fails it.
+- [x] **Coverage, measured** with `sys.monitoring` over the whole suite (no new dependency), V2's files: `graph.py` 98%, `features.py` 91%, `part.py` 94%, `triangulate.py` 100%, the kernels 94–99%, `view3d.py` 97%, `extrude.py` 98%, the Part panel 97%. What's left is mostly guards for states commands can't make (an extrude whose sketch is gone, a profile id that isn't geometry) and kernel failures.
+- [x] **Gaps filled**, each a test that reaches code no test did:
+  - deleting the extrude a cut builds on, or geometry an extrude names: the change applies, the extrude fails with the reason, and undo mends it (`tests/engine/test_extrude.py`);
+  - the graph's other edges: a cut reads the solid before it, a check reads what it measures, and a change reaching a feature by two paths (`tests/engine/test_recompute.py`);
+  - the recompute caches keep only their last few entries;
+  - a part cut away entirely: the 3D view draws nothing and says why (OCCT);
+  - double-clicking a sketch in the Part panel edits it; a depth that isn't a number is explained.
+- [x] **Where V2 is tested**, by area:
+  - The contract and file: `tests/engine/test_part.py`, `tests/engine/io/test_snapshot.py` (schema 3 → 4, byte for byte), the schema-4 golden `tests/engine/fixtures/extruded-plate.caliper`.
+  - Solids: `tests/engine/geometry/test_solid_conformance.py` (both kernels against formulas), `test_triangulate.py` (a property test: 60 cases a run, 5,000 once when it was written).
+  - Extrude, volume queries and checks, undo and redo: `tests/engine/test_extrude.py`.
+  - Recompute and the graph: `tests/engine/test_recompute.py`, which counts a kernel's work.
+  - Replay: `tests/engine/test_milestone.py`, byte for byte, and the bench case `extruded-plate-milestone`.
+  - Naming: `tests/engine/geometry/test_naming_spike.py` (OCCT).
+  - The 3D view and the switch: `tests/app/test_camera3d.py`, `test_view3d.py`.
+  - Sketch mode, the Part panel, and Extrude: `tests/app/test_sketch_mode.py`.
+  - The AI on a part: `tests/ai/test_sketches.py`, `tests/app/test_mcp.py`, `tests/app/test_assistant.py`.
+- [x] **The gate:** 1754 passed with OCCT, none skipped; 1688 passed and 54 skipped without it (what needs OCCT); lint, format, and types clean; the bench 10 of 10 on each kernel.
+- [x] **Performance**, saved as `bench/results/2026-10-01-v2-f8.json` and compared with F3's: the milestone's rebuild counts are unchanged (a width change makes one prism, a label move or undo none), and every timing is within noise. In the saved runs, the window's share of Claude Desktop's stress-plate calls is 8% higher (0.710 → 0.766 s) and its Accept 23.3 → 23.7 ms; profiled, V2's own panels take under 1 ms of that Accept. (Corrected 2026-10-02: an earlier "about 3%, Accept 23 → 29 ms" came from reruns, not the saved files.) 3D frames: the plate 0.41 ms, 24 holes (2,604 triangles) 20 ms median.
+
+## V2, F4: a persistent-naming spike (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+[ADR 0014](../adr/0014-persistent-naming-by-history.md) (Proposed). Done when an ADR records which naming works and what it can't handle: **met**.
+
+- [x] **The spike:** `tests/engine/geometry/test_naming_spike.py`, 13 tests against OCCT. It names the faces of an extruded plate in two ways and rebuilds it after each change V2 makes: width, height, depth, a hole added or removed, the outline drawn from another corner, the same feature rebuilt, and booleans (a boss apart, a hole through, a boss sharing a side, a slot cut across the top).
+- [x] **By position** (OCCT's face order) moves when a hole is added or the outline starts elsewhere. Rejected.
+- [x] **By history** is stable through every rebuild tried, edges included (named by the faces they join). The names are a feature's `start` and `end` caps and the `side <entity>` each sketch edge sweeps, carried through booleans by `Modified` and `IsDeleted`.
+  - The limit: a cut across a face splits one name into two faces. It will be refused as ambiguous, never guessed.
+  - The gotcha: OCCT copies edges into wires, so history is asked about the face's own wire edges.
+- [x] **What V2 can and can't refer to** is in the ADR.
+- [~] **Naming:** ADR 0016's sketch on a face names faces by history (`FaceRef`, `face.not_found`), but places them from the extrude's inputs, with no kernel naming. The kernel method and the ambiguous failure wait for the first feature on edges (fillets); until then a face a later cut removes isn't noticed (C-19).
+
+## V2, F3: extrude as the first feature, recomputed only when needed (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
+
+[ADR 0013](../adr/0013-solids-extrude-and-recomputing-only-what-changed.md) (Proposed). Done when the milestone runs headlessly, and a bench case shows that changing the width recomputes only the sketch and the extrude: **met**.
+
+- [x] **The contract.**
+  - The feature `Extrude(id, sketch, depth, operation, ids)`, with `ExtrudeOperation` add or remove. One solid per part, and the first extrude adds.
+  - `CreateExtrude`: `sketch` left out is the only sketch, and the resolved command records it.
+  - `Metric.VOLUME`, and `solid_properties`, `mesh`, `feature_error`, and `SolidProperties`.
+  - The codes `dependency.cycle` and `feature.failed`. Schema 4 carries extrudes too: it hasn't reached `main`, so there's no second bump.
+- [x] **The graph** (`caliper/engine/graph.py`), items 1 to 3 below:
+  - `inputs`, `dependents`, `affected`, and `order`.
+  - Its 2D layer is the solver's `references` and `referrers`, named rather than moved, and a property test over random sessions holds them equal.
+  - A sketch is one node, whose inputs are its geometry. An extrude reads its sketch and builds on the extrude before it.
+  - A feature reads only what comes before it. `order` refuses a cycle, and so does a file.
+- [x] **Recompute** (`caliper/engine/features.py`), cached by identity:
+  - each extrude's prism, by the kernel, the extrude, its sketch, and its geometry objects;
+  - each solid, by the solid before and the prism;
+  - each document's results, and each solid's meshes.
+
+  A feature whose profile a later edit breaks fails, with the reason, and the ones after it are `feature.failed`. Commands never need a kernel; queries do, except to say there's no solid yet.
+- [x] **Handlers.**
+  - Create an extrude, refused unless its profile is one closed profile now, or if it removes with nothing before it.
+  - Edit any feature through one path, with `build_feature`, the same as a file load uses.
+  - Delete a sketch, and its extrudes go with it.
+  - `inspect` shows the part's solid.
+- [x] **Tests:**
+  - `tests/engine/test_extrude.py`: made, undone, refused, edited, read only from before, broken and failing, deleted, and checked by volume.
+  - `tests/engine/test_recompute.py`: a kernel that counts its work shows what each change builds.
+
+    | Change | What is rebuilt |
+    |---|---|
+    | The width | One face and one prism |
+    | A label | Nothing |
+    | Undo or redo | Nothing |
+    | One of two sketches | Its prism and the join |
+
+    The graph also agrees with the solver over random sessions.
+  - `tests/engine/test_milestone.py`, on both kernels: 60,000, then 70,000, then undo to 60,000; save and reopen; and a byte-identical replay of `fixtures/extruded-plate.script.json`.
+  - The bench case `extruded-plate-milestone`. `bench/run.py --kernel` chooses OCCT or the analytic kernel, and says which it used.
+- [x] **Checks run:**
+  - With OCCT: 1682 passed.
+  - With OCCT hidden: engine, AI, contracts, and top-level tests 1035 passed, 50 skipped; app tests 596 passed.
+  - `ruff`, `mypy`, `bench/run.py` 10 of 10 on OCCT and on the analytic kernel, and `bench/numerics.py` are clean.
+  - `bench/perf.py` is within noise of the N phase's baseline (the stress plate's engine time 0.486 s against 0.491 s). New, `v2/milestone`:
+
+    | Step | Time | Prisms rebuilt |
+    |---|---|---|
+    | The width change | 0.49 ms | 1 |
+    | A label | 0.12 ms | 0 |
+    | Undo | 0.09 ms | 0 |
+- **The suite's time:** 87 s was seen once mid-F3. Run back to back on this Mac, F2's commit took 58.4 s and 56.5 s (1652 tests), and F3 62.7 s and 59.6 s (1682 tests). The difference is F3's 30 new tests, two of which replay in a subprocess. The 87 s was the machine, not a regression.
+
+## V2, F2: the kernel grows solids (branch `shared/v2-milestone`, stacked on F1, 2026-10-01; local, not pushed)
+
+Andre (2026-10-01): F2 to F8 in order, on top of F1, toward the milestone (a 120 x 50 sketch, extruded 10 mm, 60,000 mm³; 140 wide, 70,000; undo, 60,000; save, reopen, replay). Done when the conformance suite passes for both kernels, including volume = area x depth as a property test: **met**.
+
+- [x] **The Kernel protocol (Provisional).**
+  - `extrude(face, frame, depth)`, `union`, `cut`, `volume`, `bounding_box_3d`, and `mesh(solid, tolerance)`. `Frame` says where a face sits in 3D.
+  - Values the app can have: `Point3`, `BoundingBox3`, and `Mesh` in `contracts.queries`. A mesh's triangles face out, and faces don't share vertices.
+  - `kernel.unsupported` is for what one kernel can't do exactly.
+  - `part.frame(plane)` turns ADR 0011's table into frames.
+- [x] **The analytic kernel.**
+  - A solid is prisms whose insides don't overlap, and its volume is area x depth, exactly.
+  - Union and cut are exact where no 3D boolean is needed: solids apart; one inside another on the same frame; a cut through the whole depth, which leaves a hole; and a cut that leaves nothing. Anything else is `kernel.unsupported`, never a guess.
+  - Meshes are walls and caps. The caps come from `engine/geometry/triangulate.py`, which cuts the region into strips at every corner's height, so holes need no special cases. Ear clipping with bridges was tried first: a property test over 5,000 random plates with holes found it stalling on corners that two bridges share, so it was replaced.
+- [x] **OCCT.**
+  - Extrude: the face is moved onto the frame (`gp_Ax3`) and swept (`BRepPrimAPI_MakePrism`).
+  - Booleans: `BRepAlgoAPI_Fuse` and `Cut`. Volume from `VolumeProperties_s`, and bounds from `Bnd`.
+  - Meshes: `BRepMesh_IncrementalMesh`, with a reversed face's triangles turned round.
+- [x] **Tests.** `tests/engine/geometry/test_solid_conformance.py` runs on both kernels:
+  - The milestone plate on each plane is 60,000 mm³, with the bounds ADR 0011's table gives (XZ goes along -Y). At 140 wide it's 70,000.
+  - Property tests of volume = area x depth: rectangles anywhere, on any plane; rounded plates with a round hole.
+  - Unions apart, touching, and contained. A cut through, one that misses, and one that covers.
+  - Two overlapping cubes: refused by the analytic kernel, and exact in OCCT (1,500 and 500 mm³).
+  - A depth of 0 or less is refused.
+  - Meshes enclose the volume (exactly for straight edges, within tolerance for arcs) and face out.
+  - `test_triangulate.py`, the strips against exact areas.
+- [x] **Checks run:** with OCCT, 1652 passed. With OCCT hidden, 953 passed and 49 skipped. `ruff`, `mypy`, `bench/run.py` 9 of 9, and `bench/numerics.py` are clean.
+
+## V2, F1: the part, and the V2 document contract (branch `shared/v2-f1-document`, 2026-09-30; local, not pushed)
+
+Andre (2026-09-30): start V2 with F1 of the Caliper Engine Plan, ADR 0011 and the V2 document contract, and nothing from F2 or F3 until it is settled and tested. Done when ADR 0011 is Accepted (Lucas's review, F7) and every existing file and fixture migrates and replays unchanged. The N phase was merged (#54, #55) and `main` was at 425f73e when it started.
+
+- [x] **[ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on-planes.md) (Proposed).** A document is one part:
+  - `Document.features` in order; F1's one kind is `Sketch(id, plane)` on XY, XZ, or YZ, with each plane's axes fixed.
+  - `Document.entities` keeps its meaning. Geometry names its `sketch`. A dimension or constraint is in the sketch of what it refers to, and isn't stored there, since that would be a derived value. Checks belong to the part.
+  - One id space. A new part has one sketch, `e0` on XY, which the counter never allocates.
+  - Why features aren't entities, as checks became in ADR 0010: 73 tests and the app's Select All, browser, and canvas loop over every entity, and Select All then Delete would delete the sketch.
+- [x] **Contract** (joint).
+  - Types and fields: `Plane`, `Sketch`, `PartFeature`, `FIRST_SKETCH`, and `Document.features`, which defaults to one sketch on XY, what a V1 document is. Geometry gets `sketch`, defaulting to `e0`.
+  - Commands: `CreateSketch`, and an optional `sketch` on the five geometry commands, resolved to the only sketch and recorded in the resolved command. `ModifyEntity` changes a sketch's plane.
+  - Deltas and values: `Delta.features_before` and `features_after`, set only when the list changed. `ParamValue` takes `Plane`.
+  - Queries and errors: `Queries.sketch_of`, and the codes `sketch.required` and `sketch.mixed`.
+- [x] **Engine.**
+  - `caliper/engine/part.py`: which sketch an entity is in, the one-sketch rule, and the sketch a create draws in.
+  - Validation, shared by commands and loading: geometry in a sketch that exists, and a relation's references in one sketch.
+  - Handlers: create a sketch; draw in the named or only sketch; a fillet stays in its lines' sketch; a move takes one sketch's geometry and refuses a sketch's id; deleting a sketch deletes everything drawn in it; a sketch changes plane whole; ids are unique across features and entities.
+  - Queries: distances, boxes, areas, and checks read one sketch. Constraint options and dimension inference refuse references from two sketches. Suggestions stay within one sketch. Picking and `solve_status` stay part-wide.
+  - Every document built from another keeps its features (`replace`): the solver's two places, the delta, and the snapshot.
+  - `inspect` lists the features, and each entity's sketch and the bounds per sketch when there are several.
+- [x] **File schema 4.**
+  - The document gains `"features"`, and geometry gains `"sketch"`.
+  - Migration 3 → 4 puts everything into `e0` on XY. A file that already used `e0` gets `e{next_id}`, with `next_id` moved past it.
+  - On load, features are validated: valid, unique ids, unused by any entity, and a known plane. Files from schemas 1 and 2 go through every step.
+- [x] **V1 preserved, shown by tests, not by eye.**
+  - The 14 schema-3 golden files (5 fixtures, 9 bench cases) are kept in `tests/engine/fixtures/v3/`. Each migrates to its schema-4 golden byte for byte, and every replay script gives those same bytes.
+  - The bench passes 9 of 9.
+  - N1's digests of `main`'s own files still match once the part is taken out again (`one_sketch_as_before`, the inverse of the migration). The reference solver's output for the rectangle, the ball bearing, and the stress plate is unchanged to the byte, with no digest re-pinned.
+  - Schema-1 files go through all three migrations.
+- [x] **Tests, written with the contract (F8).**
+  - Contract: features, planes, the first sketch, which entities store a sketch, and deltas.
+  - Snapshot: migration 3 → 4 of every schema-3 golden, the migration's fields, `e0` already taken, a malformed document, nine invalid schema-4 files, and a two-sketch round trip.
+  - A schema-4 golden of a part with two sketches, replayed byte for byte (`two-sketches`).
+  - `tests/engine/test_part.py`: each rule in the ADR. Every kind of command runs on a two-sketch part, and a handler that drops the part's features fails it (checked by breaking the move). A property test runs over 150 sessions per run. Sketches come and go and planes change. Geometry is drawn by name or by default, points are made coincident across the whole part, and things move, are deleted, undone, and redone. After every step: ids are unique, geometry is in a sketch the part has, every relation is inside one sketch, undo and redo are exact, and save and load give back the document. A sample of 150 sessions reached every command, including 20 constraints refused across sketches.
+- [x] **Checks run:** with OCCT, 1607 passed (1544 before), 0 skipped. With OCCT hidden, as Linux CI has it: 978 passed and 32 skipped across the engine, AI, contract, and top-level tests. `ruff`, `ruff format`, and `mypy` are clean. Benchmarks:
+  - The bench passes 9 of 9.
+  - `bench/numerics.py`: nothing significant.
+  - `bench/perf.py` is within noise of the N phase's baseline: the stress plate is 0.49 s in the engine both times, and in the window 0.74 s against 0.73 s, over three runs.
+- **Not in F1:**
+  - F2 (the kernel's solids), F3 (extrude, and items 1 to 3 of the graph below), F4 (naming), and F5 to F7 (the app).
+  - Offset planes and faces, sketch names, reordering features, and moving geometry between sketches.
+- **For Lucas (F7):**
+  - ADR 0011's "What the app has to decide": an active sketch, File → New, what the canvas draws, picking, Properties, the feature list, and the 3D view's mesh.
+  - App-visible changes:
+    - Properties shows "Sketch e0" read-only on geometry.
+    - The palette leaves `CreateSketch` out, since it has no form for a plane; its test lists it.
+    - Resolved commands, so History and proposals, record the sketch.
+    - Known issue C-14.
 
 ## The N phase: finish and harden 2D (branch `shared/n-phase`, 2026-09-30; PR #54)
 
@@ -127,10 +554,10 @@ Andre (2026-09-28): an overnight audit of the 2D foundation (constraints, editin
 - **Unresolved.** How persistent names are made (by topology, by the generating feature and profile, or both) needs its own ADR and a spike against OCCT. Until then, 3D references to faces are out of scope.
 
 **Items.**
-- [ ] 1. Name the 2D graph: `inputs` and `dependents` in one engine module (`references` and `referrers` move there, same behaviour, same incremental index), with tests against today's functions over random sessions. When: the first second caller, or V2's first feature
-- [ ] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. Needs more than one sketch per document (a contract change: V2)
-- [ ] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s
-- [ ] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology
+- [x] 1. Name the 2D graph: `inputs` and `dependents` in one engine module, with tests against today's functions over random sessions. Done in F3 (`caliper/engine/graph.py`). `references` and `referrers` are named there, not moved (ADR 0013)
+- [x] 2. A sketch as a node: its inputs (the plane or face it's placed on) and its output (its solved geometry), kept by identity; editing one sketch recomputes only it and what reads it. F1 gave the part more than one sketch (ADR 0011); F3 made the sketch a node (its inputs are its geometry)
+- [x] 3. Feature nodes (extrude first): the result, a kernel shape, cached by the identity of the feature and its inputs' results; recompute in topological order; cycles refused as `Error`s. Done in F3 (`caliper/engine/features.py`, ADR 0013)
+- [~] 4. Persistent naming for faces, edges, and vertices: an ADR, a spike against OCCT, then references from sketches and features to generated topology. The spike and the ADR are done (F4, ADR 0014: by history, never position; splits refused as ambiguous); the references wait for the first feature that needs one
 - [ ] 5. Invalid propagation: a failed feature marks its dependents invalid without recomputing them, keeps its last good result for display, and says why
 - [ ] 6. Benchmarks: a 3D chain in `bench/perf.py`; editing an early sketch's dimension must recompute only it and what's downstream, measured against recomputing everything
 - [ ] 7. `docs/architecture.md`: "Doing each thing once" becomes the graph's description once item 1 lands

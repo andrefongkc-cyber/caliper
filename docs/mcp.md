@@ -82,6 +82,21 @@ shell). It uses the same tools. MCP doesn't need it, and it doesn't need MCP.
 
 ## How Claude's changes reach your sketch
 
+Claude works on the tab you're in ([ADR 0015](adr/0015-sketching-in-3d-from-the-parts-planes.md)):
+
+- **2D:** the sketch you test on, as before.
+- **3D:** the part. Drawing goes into the sketch you have open. In a part with no sketch yet,
+  Claude's first drawing makes one on the Top plane. A proposal is shown facing the sketch it
+  draws in, over the part; Accept leaves that sketch open. Claude can extrude too.
+- **Sketches on faces** ([ADR 0016](adr/0016-sketching-at-any-angle-and-on-faces.md)):
+  `create_sketch` starts a sketch on a plane (`"xy"`, `"xz"`, `"yz"`) or on a flat face of an
+  extrude, such as `{"feature": "e3", "face": "end"}` for its top, and Claude's drawing then
+  goes into it. `inspect_faces` lists an extrude's faces and where each is. A sketch on a face
+  follows it when the extrude changes, and a cut from a face goes into the part unless
+  `reversed` says otherwise.
+
+Switching tabs while a proposal is pending drops it, as opening another document does.
+
 - A call that changes something (create, edit, constrain, ...) runs on a draft of your
   sketch. The draft appears as a proposal on the canvas, with ghost geometry and each check
   before and after. Further changes join the same proposal.
@@ -171,7 +186,9 @@ own notes), follow [test-runs-andre/README.md](../test-runs-andre/README.md).
 Caliper times each Claude Desktop task by itself; no stopwatch. The **Timing** panel, above
 Properties, shows the latest run on one line, e.g. `▸ 4m 07s · ~1m 20s left`. Click the
 line for every field. While the run is live its time ticks every second. The numbers stay up
-after the run ends.
+after the run ends. To keep it in sight with the right panel folded away (⌘⌥B, or the strip on
+the view's right edge), pop it out: Agent → Pop Out Timing, or the button on its title bar. It
+then floats over the part's top right corner until you dock it again.
 
 **Time left.** At the start of a task of more than about ten calls, Claude says how many calls
 it plans, and, if it knows, how many are mirrors or patterns and how many are checks (the

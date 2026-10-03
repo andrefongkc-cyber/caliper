@@ -43,6 +43,9 @@ class ErrorCode(StrEnum):
     SELECTION_EMPTY = "selection.empty"
     PROFILE_NOT_CLOSED = "profile.not_closed"
     KERNEL_UNAVAILABLE = "kernel.unavailable"
+    KERNEL_UNSUPPORTED = "kernel.unsupported"
+    """The geometry kernel in use can't do this exactly, though another could: the analytic
+    kernel combines solids only where they don't overlap or one simply contains the other."""
     PROFILE_CONSTRUCTION = "profile.construction"
     """Construction geometry was offered as a profile."""
     CONSTRAINT_NOT_APPLICABLE = "constraint.not_applicable"
@@ -56,6 +59,24 @@ class ErrorCode(StrEnum):
     """A new constraint adds nothing: the ones in `Error.ids` already imply it."""
     SOLVER_NO_CONVERGENCE = "solver.no_convergence"
     """The solver ran out of iterations without either solving or proving a conflict."""
+    SKETCH_REQUIRED = "sketch.required"
+    """Geometry was created without saying which sketch, and the part doesn't have exactly
+    one (ADR 0011). Name it in the command's `sketch`."""
+    DEPENDENCY_CYCLE = "dependency.cycle"
+    """A feature refers to itself or to a feature after it: features read only what comes
+    before them, which keeps the part from depending on itself (ADR 0013)."""
+    FEATURE_FAILED = "feature.failed"
+    """An earlier feature failed, so this one wasn't recomputed. `Error.ids` names the one
+    that failed; its own error says why."""
+    FACE_NOT_FOUND = "face.not_found"
+    """A sketch's face isn't one of its extrude's faces now: a name it doesn't have, or a side
+    whose line is gone or no longer in a closed profile (ADR 0016)."""
+    FACE_NOT_PLANAR = "face.not_planar"
+    """The face named is curved, the side of an arc or a circle: a sketch needs a flat one."""
+    SKETCH_MIXED = "sketch.mixed"
+    """What was given is in more than one sketch, where one is needed: a dimension's or
+    constraint's references, a fillet's lines, geometry moved together, or what a
+    measurement or check reads. `Error.ids` names the sketches."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

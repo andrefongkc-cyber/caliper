@@ -16,7 +16,7 @@ from caliper.contracts.commands import (
     FilletCorner,
     MoveEntities,
 )
-from caliper.contracts.document import EntityId, Point2
+from caliper.contracts.document import ConstraintType, EntityId, Point2
 
 
 def open_palette(window, qtbot) -> None:
@@ -51,6 +51,7 @@ def test_every_command_type_is_listed_or_deliberately_left_out() -> None:
         "CreateConstraint",  # offered per selection from queries.applicable_constraints
         "ModifyEntity",  # the properties panel and on-canvas editing
         "CreateCheck",  # the Checks panel, from the selection or the last measurement
+        "CreateSketch",  # a plane: the New Sketch on XY, XZ, YZ actions, listed as actions
     }
 
 
@@ -323,7 +324,31 @@ def test_the_sidebar_greys_out_actions_as_they_become_unavailable(window, qtbot)
 
     assert not undo_enabled()
     window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5))
-    assert undo_enabled()
+    qtbot.waitUntil(undo_enabled)  # the list catches up when the event loop next turns
+
+
+def test_the_sidebar_refreshes_once_for_many_actions_changing_together(
+    window, qtbot, monkeypatch
+) -> None:
+    """A selection change updates a dozen constraint actions at once; the list is refreshed
+    once for all of them, not once each (Performance V2.2, Perf-2)."""
+    panel = window.command_panel
+    refreshed: list[str] = []
+    real = panel._refilter
+    monkeypatch.setattr(panel, "_refilter", lambda query: (refreshed.append(query), real(query)))
+    (line,) = window.session.execute(
+        CreateLine(start=Point2(x=0, y=0), end=Point2(x=10, y=5))
+    ).created_ids
+    QApplication.processEvents()
+    refreshed.clear()
+    window.session.set_selection(frozenset({line}))
+    QApplication.processEvents()
+    assert refreshed == [""]
+    assert window.constraint_actions[ConstraintType.HORIZONTAL].isEnabled()
+    row = next(
+        i for i in range(panel.results.count()) if panel.results.item(i).text() == "Horizontal"
+    )
+    assert panel.results.item(row).flags() & Qt.ItemFlag.ItemIsEnabled
 
 
 def test_escape_in_the_sidebar_clears_it_and_returns_to_the_canvas(window, qtbot) -> None:

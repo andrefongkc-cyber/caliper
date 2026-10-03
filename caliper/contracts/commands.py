@@ -23,7 +23,13 @@ Conventions:
 Frozen as of V1: a new command type, or a change to an existing one, needs a joint
 `contracts/` PR. ADR 0002 has the reasoning. The post-V1 fixes added `ChangeReason.COMMIT`,
 so committing a transaction is announced like every other change to the undo stack. C-1
-added `CreateCheck` (ADR 0010), and C-4 `Change.source`.
+added `CreateCheck` (ADR 0010), and C-4 `Change.source`. V2's F1 (ADR 0011) added
+`CreateSketch`, the `sketch` a create command draws in, and the feature list in a `Delta`;
+V2's F3 (ADR 0013) added `CreateExtrude`; ADR 0016 its `reversed`, and a sketch on a face.
+
+Geometry goes in a sketch. A command that creates geometry names it in `sketch`; left as
+None, it is the part's only sketch, and a part with none or several refuses the command
+(`sketch.required`). The resolved command carries the sketch, as it carries the id.
 """
 
 from collections.abc import Callable, Mapping
@@ -38,7 +44,11 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    ExtrudeOperation,
+    FaceRef,
     Metric,
+    PartFeature,
+    Plane,
     Point2,
     RadialMeasure,
     Ref,
@@ -50,10 +60,52 @@ from caliper.contracts.queries import DimensionType, Queries
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class CreateSketch:
+    """Add a sketch on `plane` at the end of the part's features (ADR 0011): one of the part's
+    planes, or a flat face of an extrude (`FaceRef`, ADR 0016), refused unless the face is
+    there now (`face.not_found`, `face.not_planar`).
+
+    Its id is allocated like an entity's. Deleting it (`DeleteEntities`) deletes everything
+    drawn in it; `ModifyEntity` moves it to another plane or face, its 2D coordinates
+    unchanged. Deleting the extrude a sketch's face belongs to deletes the sketch too.
+    """
+
+    kind: ClassVar[str] = "create_sketch"
+    plane: Plane | FaceRef
+    id: EntityId | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CreateExtrude:
+    """Add an extrude at the end of the part's features (ADR 0013): the profile in `sketch`
+    swept `depth` mm along its plane's normal, joined to or cut from the part's solid.
+
+    `sketch` left as None is the part's only sketch, as for geometry. `ids` names the
+    profile's geometry; empty is every non-construction geometry entity in the sketch. Refused
+    unless that is one closed profile now (`profile.not_closed`, with the reason), and an
+    extrude that removes needs one that adds before it. The solid itself is worked out when
+    asked for (`Queries.solid_properties`), never stored.
+
+    `reversed` sweeps against the normal (ADR 0016). Left as None, the engine chooses: a cut
+    from a sketch on a face goes into the part, and anything else along the normal. The
+    resolved command records what it chose.
+    """
+
+    kind: ClassVar[str] = "create_extrude"
+    depth: float
+    sketch: EntityId | None = None
+    operation: ExtrudeOperation = ExtrudeOperation.ADD
+    ids: tuple[EntityId, ...] = ()
+    id: EntityId | None = None
+    reversed: bool | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CreatePoint:
     kind: ClassVar[str] = "create_point"
     position: Point2
     construction: bool = False
+    sketch: EntityId | None = None
     id: EntityId | None = None
 
 
@@ -63,6 +115,7 @@ class CreateLine:
     start: Point2
     end: Point2
     construction: bool = False
+    sketch: EntityId | None = None
     id: EntityId | None = None
 
 
@@ -72,6 +125,7 @@ class CreateCircle:
     center: Point2
     radius: float
     construction: bool = False
+    sketch: EntityId | None = None
     id: EntityId | None = None
 
 
@@ -83,6 +137,7 @@ class CreateArc:
     start_angle: float
     sweep_angle: float
     construction: bool = False
+    sketch: EntityId | None = None
     id: EntityId | None = None
 
 
@@ -93,6 +148,7 @@ class CreateRectangle:
     width: float
     height: float
     construction: bool = False
+    sketch: EntityId | None = None
     id: EntityId | None = None
 
 
@@ -209,10 +265,11 @@ class FilletCorner:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MoveEntities:
-    """Translate geometry by (dx, dy).
+    """Translate geometry by (dx, dy), in its sketch's plane.
 
     Dimensions and constraints in `ids` are ignored; they follow their references. Geometry
-    constrained to what moved follows it where the constraints require.
+    constrained to what moved follows it where the constraints require. The geometry must
+    all be in one sketch (`sketch.mixed`), and a sketch's own id is refused.
     """
 
     kind: ClassVar[str] = "move_entities"
@@ -224,7 +281,7 @@ class MoveEntities:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeleteEntities:
     """Delete entities, plus any dimension or constraint referring to a deleted entity, in
-    one delta."""
+    one delta. A sketch's id deletes the sketch and everything drawn in it."""
 
     kind: ClassVar[str] = "delete_entities"
     ids: tuple[EntityId, ...]
@@ -242,17 +299,22 @@ ParamValue = (
     | RadialMeasure
     | ConstraintType
     | Metric
+    | Plane
+    | FaceRef
+    | ExtrudeOperation
     | None
 )
-"""Any value an entity field can hold. None only where the field allows it (`value`)."""
+"""Any value an entity or feature field can hold. None only where the field allows it
+(`value`)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ModifyEntity:
-    """Set one or more fields of an existing entity, e.g. `changes={"width": 120.0}`.
+    """Set one or more fields of an existing entity or feature, e.g. `changes={"width": 120.0}`.
 
     Keys are the entity dataclass's field names. All changes validate together and apply
-    atomically. Rectangle width and height edits keep `corner` fixed.
+    atomically. Rectangle width and height edits keep `corner` fixed. A sketch's `plane` can
+    change; a sketch's `id` and a geometry entity's `sketch` can't.
 
     Setting a dimension's `value` drives geometry to it (None makes it driven again).
     Editing geometry holds the edited fields where they were set and lets the constraints
@@ -265,7 +327,9 @@ class ModifyEntity:
 
 
 Command = (
-    CreatePoint
+    CreateSketch
+    | CreateExtrude
+    | CreatePoint
     | CreateLine
     | CreateCircle
     | CreateArc
@@ -291,13 +355,18 @@ class Delta:
     """What a change did, as whole entity values before and after.
 
     An id only in `before` was removed, only in `after` was added, in both was modified.
-    Holds entity definitions only, never derived geometry.
+    Holds entity definitions only, never derived geometry. The part's features change
+    rarely (adding or deleting a sketch, moving one to another plane), and the whole list
+    before and after is kept when they do; both are None when they didn't. `added`,
+    `removed`, and `modified` name entities only.
     """
 
     before: Mapping[EntityId, Entity]
     after: Mapping[EntityId, Entity]
     next_id_before: int
     next_id_after: int
+    features_before: tuple[PartFeature, ...] | None = None
+    features_after: tuple[PartFeature, ...] | None = None
 
     @property
     def added(self) -> frozenset[EntityId]:
@@ -317,6 +386,8 @@ class Delta:
             after=self.before,
             next_id_before=self.next_id_after,
             next_id_after=self.next_id_before,
+            features_before=self.features_after,
+            features_after=self.features_before,
         )
 
     @classmethod

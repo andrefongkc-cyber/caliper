@@ -138,7 +138,7 @@ def bench(
     app: QApplication, count: int, runs: int, warmup: int, constrained: bool = False
 ) -> list[tuple[str, list[float]]]:
     session = DocumentSession()
-    window = MainWindow(session)
+    window = MainWindow(session, mode="2d")
     session.setParent(window)
     window.confirm_discard = lambda: True  # type: ignore[method-assign]
     window.resize(1440, 900)

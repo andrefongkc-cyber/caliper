@@ -1,6 +1,11 @@
 """History: every change with who made it, newest first. Click a row to go back to it.
 
 Undone changes stay listed, dimmed, until a new change replaces them, just like redo.
+
+A change adds its row, and undo and redo dim or brighten the rows between where the history
+was and where it is: the list isn't rebuilt per change, which grew with the session (7.5 ms a
+change after 2,000; Performance V2.2, Perf-3). Each row keeps when it was made, and shows
+how long ago as of the latest change to the history, as rebuilding did.
 """
 
 import time
@@ -17,12 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from caliper.app import theme
-from caliper.app.session import Author, DocumentSession
+from caliper.app.session import Author, DocumentSession, HistoryEntry
 from caliper.app.tokens import RADIUS, SPACE
 
 POSITION_ROLE = Qt.ItemDataRole.UserRole
 AUTHOR_ROLE = Qt.ItemDataRole.UserRole + 1
 WHEN_ROLE = Qt.ItemDataRole.UserRole + 2
+"""When the change was made, in seconds since the epoch: shown as how long ago."""
 UNDONE_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
@@ -51,7 +57,9 @@ class _Row(QStyledItemDelegate):
         font.setItalic(undone)
         painter.setFont(font)
         right = rect.right()
-        when = index.data(WHEN_ROLE) or ""
+        at = index.data(WHEN_ROLE)
+        history = self.parent()
+        when = ago(at, history.now) if isinstance(history, HistoryList) and at is not None else ""
         author = index.data(AUTHOR_ROLE) or ""
         small = theme.font(size=11)
         painter.setFont(small)
@@ -94,27 +102,68 @@ class HistoryList(QListWidget):
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setUniformItemSizes(True)
         self.itemClicked.connect(self._go_to)
-        session.history_changed.connect(self.rebuild)
+        self.now = time.time()
+        """The time the rows' ages are shown against: the latest change to the history."""
+        self._entries: list[HistoryEntry] = []
+        """The entries the rows show, oldest first; row 0 is the newest, the last is Start."""
+        self._position = 0
+        session.history_changed.connect(self._sync)
         self.rebuild()
 
     def rebuild(self, now: float | None = None) -> None:
-        now = time.time() if now is None else now
+        """Every row again, for another history (a document opened, the other tab)."""
+        self.now = time.time() if now is None else now
         self.clear()
         history, position = self.session.history, self.session.history_position
         for index in range(len(history) - 1, -1, -1):
-            entry = history[index]
-            item = QListWidgetItem(entry.label)
-            item.setData(POSITION_ROLE, index + 1)
-            item.setData(AUTHOR_ROLE, str(entry.author))
-            item.setData(WHEN_ROLE, ago(entry.at, now))
-            item.setData(UNDONE_ROLE, index >= position)
-            item.setSizeHint(item.sizeHint().expandedTo(self._row_size()))
-            self.addItem(item)
-        start = QListWidgetItem("Start" if history else "No changes yet")
+            self.addItem(self._row(history[index], index, position))
+        start = QListWidgetItem()
         start.setData(POSITION_ROLE, 0)
-        start.setData(UNDONE_ROLE, position > 0 or not history)
         start.setSizeHint(self._row_size())
         self.addItem(start)
+        self._entries, self._position = list(history), position
+        self._mark_start()
+
+    def _sync(self) -> None:
+        """Catch up with the history: rows for the changes made since, rows dropped for the
+        ones a new change replaced, and the dimmed ones moved with undo and redo."""
+        history, position = self.session.history, self.session.history_position
+        shown = self._entries
+        kept = len(shown)
+        if kept > len(history) or (kept and history[kept - 1] is not shown[-1]):
+            kept = next(  # a new change replaced undone ones: keep what's still the same
+                (i for i, (a, b) in enumerate(zip(shown, history, strict=False)) if a is not b),
+                min(kept, len(history)),
+            )
+            if kept == 0 and shown:
+                self.rebuild()  # another history altogether
+                return
+        self.now = time.time()
+        for _ in range(len(shown) - kept):
+            self.takeItem(0)  # the newest rows: the changes replaced
+        for index in range(kept, len(history)):
+            self.insertItem(0, self._row(history[index], index, position))
+        low, high = sorted((min(self._position, kept), position))
+        for index in range(low, min(high, kept)):  # undone or redone since: dim or brighten
+            self.item(len(history) - 1 - index).setData(UNDONE_ROLE, index >= position)
+        self._entries, self._position = list(history), position
+        self._mark_start()
+        self.viewport().update()  # the ages, as of now
+
+    def _row(self, entry: HistoryEntry, index: int, position: int) -> QListWidgetItem:
+        item = QListWidgetItem(entry.label)
+        item.setData(POSITION_ROLE, index + 1)
+        item.setData(AUTHOR_ROLE, str(entry.author))
+        item.setData(WHEN_ROLE, entry.at)
+        item.setData(UNDONE_ROLE, index >= position)
+        item.setSizeHint(item.sizeHint().expandedTo(self._row_size()))
+        return item
+
+    def _mark_start(self) -> None:
+        start = self.item(self.count() - 1)
+        history = self._entries
+        start.setText("Start" if history else "No changes yet")
+        start.setData(UNDONE_ROLE, self._position > 0 or not history)
 
     def _row_size(self) -> QSize:
         return QSize(0, self.fontMetrics().height() + 2 * SPACE.s)

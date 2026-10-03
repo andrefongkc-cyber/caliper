@@ -17,6 +17,7 @@ from caliper.contracts.commands import (
     ModifyEntity,
 )
 from caliper.contracts.document import (
+    FIRST_SKETCH,
     ConstraintType,
     Document,
     EntityId,
@@ -62,6 +63,10 @@ def stored(workspace: Workspace) -> list[Expectation]:
 def test_every_command_is_a_tool_with_a_schema_for_its_fields() -> None:
     tools = {t.name: t for t in TOOLS}
     assert "create_check" not in tools  # run_check measures a check, then stores it (C-1)
+    plane = tools["create_sketch"].input_schema["properties"]["plane"]  # type: ignore[index]
+    assert plane["anyOf"][0]["enum"] == ["xy", "xz", "yz"]  # type: ignore[index]
+    assert plane["anyOf"][1]["required"] == ["feature", "face"]  # type: ignore[index]
+    assert "inspect_faces" in plane["description"]  # type: ignore[index]
     for command in get_args(Command):
         if command is CreateCheck:
             continue
@@ -120,9 +125,12 @@ def test_a_command_tool_runs_the_command_and_reports_what_changed() -> None:
     assert outcome.content["changed"]["added"]["e1"]["width"] == 100.0  # type: ignore[index]
     rectangle = workspace.document.entities[E1]
     assert rectangle == Rectangle(corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0)
-    # The resolved command: ids filled in and ints made floats, as replay records it.
+    # The resolved command: ids and the sketch filled in and ints made floats, as replay
+    # records it.
     assert workspace.commands == (
-        CreateRectangle(corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0, id=E1),
+        CreateRectangle(
+            corner=Point2(x=20.0, y=0.0), width=100.0, height=50.0, sketch=FIRST_SKETCH, id=E1
+        ),
     )
 
 
@@ -277,7 +285,7 @@ def test_a_check_is_measured_and_remembered_for_review() -> None:
     failed = workspace.call(
         call("run_check", metric="bbox_height", expected=60, tolerance=0.001, ids=["e1"])
     )
-    broken = workspace.call(call("run_check", metric="volume", expected=1, tolerance=0))
+    broken = workspace.call(call("run_check", metric="mass", expected=1, tolerance=0))
     assert (passed.content["passed"], passed.content["actual"]) == (True, 120.0)  # type: ignore[index]
     assert (failed.content["passed"], failed.content["actual"]) == (False, 50.0)  # type: ignore[index]
     assert broken.content["error"]["code"] == "value.out_of_range"  # type: ignore[index]
@@ -353,7 +361,7 @@ def test_a_check_that_shouldn_t_be_there_can_be_taken_back() -> None:
     again = workspace.call(call("remove_check", metric="bbox_height", ids=["e1"]))
     assert again.is_error
     assert "no check of that measurement" in again.content["error"]  # type: ignore[index]
-    bad = workspace.call(call("remove_check", metric="volume"))
+    bad = workspace.call(call("remove_check", metric="mass"))
     assert bad.is_error
 
 

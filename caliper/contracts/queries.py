@@ -10,7 +10,12 @@ constraint queries (`solve_status`, `applicable_constraints`, `infer_dimension`,
 `dimension_type`, `suggest_constraints`, `constraints_on`) and `reference_at_point`. The
 post-V1 fixes added the position metrics (`Metric.POSITION_X`, `Metric.POSITION_Y`), and
 C-1 moved `Metric` and `Expectation` to the document contract, since checks are stored now;
-they are still importable from here.
+they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and measurements
+read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
+sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part. V2's F3
+(ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`. ADR 0016
+moved `Frame` here from the kernel contract, and added `plane_frame`, `faces`, `face_at`,
+and `entities_in_polygon`.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -26,7 +31,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from caliper.contracts.document import ConstraintType, EntityId, Point2, Ref
+from caliper.contracts.document import ConstraintType, EntityId, FaceRef, Plane, Point2, Ref
 from caliper.contracts.document import Expectation as Expectation  # moved there (C-1)
 from caliper.contracts.document import Metric as Metric
 from caliper.contracts.errors import Error
@@ -75,6 +80,65 @@ class AreaProperties:
     """Second moment of area about the centroid's y axis, mm⁴."""
     ixy: float
     """Product of inertia about the centroid, mm⁴."""
+
+
+# --- 3D (V2) ----------------------------------------------------------------------------
+# Solids are derived: worked out by a geometry kernel from the part's features and never stored
+# (ADR 0005). These are what queries give back about them.
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Point3:
+    """A point or a direction in the part's 3D space, in mm, Z up from the XY plane."""
+
+    x: float
+    y: float
+    z: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Frame:
+    """Where a face drawn in 2D sits in 3D: a 2D point (u, v) is `origin + u * x + v * y`.
+
+    `x` and `y` are unit directions at right angles; the normal, the way an extrusion goes, is
+    x cross y. A sketch's plane gives its frame. It moved here from the kernel contract (ADR
+    0016), which still exports it, because `Queries.plane_frame` gives one back.
+    """
+
+    origin: Point3
+    x: Point3
+    y: Point3
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BoundingBox3:
+    x_min: float
+    y_min: float
+    z_min: float
+    x_max: float
+    y_max: float
+    z_max: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SolidProperties:
+    volume: float
+    """mm³. 0 for a solid that is nothing, such as one cut away entirely."""
+    bounding_box: BoundingBox3 | None
+    """None when there's nothing to bound."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Mesh:
+    """Triangles approximating a solid's surface, for drawing it. Never stored.
+
+    Each triangle is three indexes into `vertices`, counter-clockwise seen from outside the
+    solid, so its normal (b - a) x (c - a) points out. Faces don't share vertices, so each
+    face can be lit flat or smooth on its own.
+    """
+
+    vertices: tuple[Point3, ...]
+    triangles: tuple[tuple[int, int, int], ...]
 
 
 # --- Assertions -------------------------------------------------------------------------
@@ -174,12 +238,14 @@ class Queries(Protocol):
     def measure_distance(self, a: Ref, b: Ref) -> Distance | Error:
         """Distance from `a` to `b`, with the signed dx and dy. `a` and `b` may be equal.
 
-        A bad reference is reported as in `feature_point`, with `a.` or `b.` as the field.
+        A bad reference is reported as in `feature_point`, with `a.` or `b.` as the field;
+        references in two sketches as `sketch.mixed`.
         """
         ...
 
     def bounding_box(self, ids: Sequence[EntityId] = ()) -> BoundingBox | Error:
-        """Tight bounds of geometry entities. Empty `ids` means the whole document.
+        """Tight bounds of geometry entities, in their sketch's plane. Empty `ids` means all
+        the geometry, which must then be in one sketch (`sketch.mixed` otherwise).
 
         Annotations are never included, even when named: what a dimension measures is the
         geometry, and where its label sits depends on rendered text size. A view that must
@@ -296,6 +362,68 @@ class Queries(Protocol):
         `tolerance` mm or `angle_tolerance` degrees. Skips what existing constraints
         already say or imply. Sorted by deviation, then type, then references.
         """
+        ...
+
+    def solid_properties(self, ids: Sequence[EntityId] = ()) -> SolidProperties | Error:
+        """The part's solid: empty `ids` for the whole part after its last feature, or one
+        feature's id for the part as it stands after that feature.
+
+        Worked out by the geometry kernel and never stored; recomputed only where what a
+        feature reads has changed. `kernel.unavailable` without one. `selection.empty` when no
+        feature has made a solid yet. A feature that fails gives its own error (the profile's
+        `profile.not_closed`, a kernel's `kernel.unsupported`), and every feature after it
+        `feature.failed`.
+        """
+        ...
+
+    def mesh(self, ids: Sequence[EntityId] = (), tolerance: float = 0.05) -> Mesh | Error:
+        """Triangles for drawing the part's solid, within `tolerance` mm of its surface. `ids`
+        and the errors as for `solid_properties`; a solid that is nothing has no triangles."""
+        ...
+
+    def feature_error(self, id: EntityId) -> Error | None:
+        """Why a feature fails, or None when it works or `id` isn't a feature. A sketch fails
+        when its face can't be found (ADR 0016), with no kernel needed to say so; an extrude
+        fails when its profile isn't one closed profile any more, its sketch geometry is gone,
+        its sketch fails, or the kernel can't build it."""
+        ...
+
+    def plane_frame(self, plane: Plane | FaceRef) -> Frame | Error:
+        """Where a plane or a face is in the part: the frame a sketch on it draws in (ADR
+        0016). A face's is worked out from its extrude's inputs, with no kernel; it is
+        `face.not_found` or `face.not_planar` when the extrude has no such flat face now, and
+        the error of the extrude's own sketch when that fails."""
+        ...
+
+    def face_at(self, point: Point3, normal: Point3, tolerance: float) -> FaceRef | None:
+        """The named flat face a point of the part's surface is on, for picking (ADR 0016):
+        `point` within `tolerance` mm of the face's plane and inside its outline as its extrude
+        made it (later cuts aren't seen), `normal` within half a degree of the way it faces out.
+        The latest feature wins: it made the surface there. None when nothing matches, or for
+        input it can't use (not finite, a zero normal, a negative tolerance)."""
+        ...
+
+    def entities_in_polygon(
+        self, corners: Sequence[Point2], *, crossing: bool
+    ) -> tuple[EntityId, ...]:
+        """`entities_in_box` for a convex polygon, as a box selection seen at an angle covers
+        the sketch's plane (ADR 0016): geometry wholly inside it, or also touching it if
+        `crossing`. An axis-aligned rectangle's corners give exactly `entities_in_box`'s
+        answer. Fewer than three corners, any not finite, no area, or not convex matches
+        nothing."""
+        ...
+
+    def faces(self, id: EntityId) -> tuple[FaceRef, ...] | Error:
+        """The flat faces of extrude `id` a sketch can sit on: `start`, `end`, then each line's
+        and rectangle's sides in the profile's order. `entity.not_found` for an id the part
+        doesn't have, `entity.wrong_kind` for one that isn't an extrude, and the profile's
+        error when it isn't one closed profile now."""
+        ...
+
+    def sketch_of(self, id: EntityId) -> EntityId | None:
+        """The sketch an entity is in: geometry's own `sketch`, and a dimension's or
+        constraint's, the sketch of the geometry it refers to. None for a check (it belongs
+        to the part), a feature, or an id the document doesn't have."""
         ...
 
     def constraints_on(self, ids: Sequence[EntityId]) -> tuple[EntityId, ...]:

@@ -35,8 +35,8 @@ import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
-from itertools import permutations
+from dataclasses import dataclass, field, replace
+from itertools import pairwise, permutations
 from types import MappingProxyType
 
 from caliper.contracts.document import (
@@ -759,7 +759,7 @@ def _settle(
         solved.update(entities)
     if not solved:
         return after
-    return Document(entities=MappingProxyType({**after.entities, **solved}), next_id=after.next_id)
+    return replace(after, entities=MappingProxyType({**after.entities, **solved}))
 
 
 def _split_safe(before: Document, after: Document, fixed: frozenset[EntityId]) -> bool:
@@ -1124,7 +1124,11 @@ def _redundancy(
     equations = system.equations(order, values)
     _, gradients, owners = _evaluate(equations, system.frame(values, everything))
     rows = _dense(gradients, columns)
-    basis = _extended(tuple(system.params[i] for i in canonical), rows)
+    entries = tuple(
+        tuple(sorted((columns[i], d) for i, d in g.items() if i in columns and d != 0.0))
+        for g in gradients
+    )
+    basis = _extended(tuple(system.params[i] for i in canonical), rows, entries)
     if local:
         # A kept row's last entry in `lower` is what was left of it after the rows before it.
         close = tolerance.DECIDED * tolerance.INDEPENDENT
@@ -1186,49 +1190,99 @@ class _Factored:
 
 
 _FACTORED = threading.local()
-"""Each thread's last redundancy check's factorization (`_extended`)."""
+"""Each thread's last few redundancy checks' factorizations (`_extended`), the latest last."""
+FACTORIZATIONS_KEPT = 4
+"""Enough for checks that take turns: a new line's own cluster, then the chain it joins."""
 
 
-def _extended(columns: tuple[Param, ...], rows: list[list[float]]) -> RowBasis:
-    """`rows` factorized, carrying on from the last check's factorization for as many rows as
-    this check starts with, to the bit, in the same columns. A factorization only ever
-    appends: each row's part depends only on the rows before it, so the last one's state after
-    its first k rows is exactly what factorizing those k rows again would give, and it's kept
-    whole inside it. A command adding to a cluster reuses every row; an edit that moves some
-    geometry reuses the rows before the first it changed. New columns are new geometry, last
-    in the order and zero in the old rows. The reference solver works everything out afresh."""
+def _extended(
+    columns: tuple[Param, ...],
+    rows: list[list[float]],
+    entries: tuple[tuple[tuple[int, float], ...], ...] | None = None,
+) -> RowBasis:
+    """`rows` factorized, carrying on from whichever of the last few checks' factorizations
+    starts with the most of the same rows, to the bit. A factorization only ever appends: each
+    row's part depends only on the rows before it, so a check's state after its first k rows
+    is exactly what factorizing those k rows again would give, and it's kept whole inside it.
+    A command adding to a cluster reuses every row; an edit that moves some geometry reuses
+    the rows before the first it changed. New columns are geometry new to the cluster: zero
+    in the old rows wherever they fall in the order, so they change none of its arithmetic
+    (Performance V2.2, Perf-5: inserted columns, and a check of another cluster in between,
+    used to start it again). The reference solver works everything out afresh."""
     width = len(columns)
-    entries = tuple(tuple((c, x) for c, x in enumerate(row) if x != 0.0) for row in rows)
+    if entries is None:
+        entries = tuple(tuple((c, x) for c, x in enumerate(row) if x != 0.0) for row in rows)
     fresh = _REFERENCE.get()
-    last: _Factored | None = None if fresh else getattr(_FACTORED, "last", None)
-    start = 0
-    if last is not None and columns[: len(last.columns)] == last.columns:
-        for kept, now in zip(last.rows, entries, strict=False):
-            if kept != now:
-                break
-            start += 1
-    basis = RowBasis(width) if last is None or not start else _truncated(last.basis, start, width)
+    recent: list[_Factored] = [] if fresh else _FACTORED.__dict__.setdefault("recent", [])
+    best: _Factored | None = None
+    start, place = 0, list[int]()
+    for last in recent:
+        at = _placed(last.columns, columns)
+        if at is not None and (same := _same_rows(last.rows, entries, at)) > start:
+            best, start, place = last, same, at
+    basis = RowBasis(width) if best is None else _truncated(best.basis, start, place, width)
     for i in range(start, len(rows)):
         basis.add(i, rows[i])
     if not fresh:
-        _FACTORED.last = _Factored(columns, entries, basis)
+        recent.append(_Factored(columns, entries, basis))
+        del recent[:-FACTORIZATIONS_KEPT]
     return basis
 
 
-def _truncated(basis: RowBasis, rows: int, width: int) -> RowBasis:
-    """A copy of `basis` as it was after its first `rows` rows, over `width` columns (the new
-    ones zero in every row)."""
-    grow = [0.0] * (width - basis.width)
+def _placed(old: tuple[Param, ...], new: tuple[Param, ...]) -> list[int] | None:
+    """Where each of `old`'s columns is in `new`, when all of them are there in the same
+    order (new ones may come anywhere between them)."""
+    if new[: len(old)] == old:
+        return list(range(len(old)))
+    index = {column: i for i, column in enumerate(new)}
+    at = [index.get(column, -1) for column in old]
+    if at and at[0] >= 0 and all(a < b for a, b in pairwise(at)):
+        return at
+    return None
+
+
+def _same_rows(
+    old: tuple[tuple[tuple[int, float], ...], ...],
+    new: tuple[tuple[tuple[int, float], ...], ...],
+    at: list[int],
+) -> int:
+    """How many leading rows of `old`, with its columns moved to `at`, are `new`'s."""
+    moved = bool(at) and at[-1] != len(at) - 1
+    same = 0
+    for kept, now in zip(old, new, strict=False):
+        if (tuple((at[c], x) for c, x in kept) if moved else kept) != now:
+            break
+        same += 1
+    return same
+
+
+def _truncated(basis: RowBasis, rows: int, at: list[int], width: int) -> RowBasis:
+    """A copy of `basis` as it was after its first `rows` rows, its columns moved to `at` in
+    `width` columns (the new ones zero in every row)."""
     kept = [i for i in basis.kept if i < rows]
     n = len(kept)
+    if not at or at[-1] == len(at) - 1:
+        grow = [0.0] * (width - basis.width)
+        q = [[*row, *grow] for row in basis.q[:n]]
+        supports = basis.supports[:n]
+        masks = basis.masks[:n]
+    else:
+        q = []
+        for row in basis.q[:n]:
+            spread = [0.0] * width
+            for c, x in zip(at, row, strict=True):
+                spread[c] = x
+            q.append(spread)
+        supports = [tuple(at[c] for c in support) for support in basis.supports[:n]]
+        masks = [sum(1 << c for c in support) for support in supports]
     return RowBasis(
         width,
-        q=[[*row, *grow] for row in basis.q[:n]],
+        q=q,
         lower=[row[:] for row in basis.lower[:n]],
         kept=kept,
         dependent={i: row[:] for i, row in basis.dependent.items() if i < rows},
-        supports=basis.supports[:n],
-        masks=basis.masks[:n],
+        supports=supports,
+        masks=masks,
     )
 
 
@@ -1321,9 +1375,7 @@ def implied(
             geometry.update(joined.geometry)
             fixed.update(joined.fixed)
             relations.update(joined.relations)
-    with_it = Document(
-        entities=_Adding(document.entities, id, constraint), next_id=document.next_id
-    )
+    with_it = replace(document, entities=_Adding(document.entities, id, constraint))
     joined = Cluster(
         tuple(sorted(geometry)), tuple(sorted(relations)), tuple(sorted(fixed - geometry))
     )

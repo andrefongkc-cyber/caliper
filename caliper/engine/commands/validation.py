@@ -29,16 +29,22 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     Expectation,
+    Extrude,
+    FaceRef,
     Feature,
     Geometry,
     Line,
+    PartFeature,
+    Plane,
     Point,
     Point2,
     RadialDimension,
     Rectangle,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
+from caliper.engine import faces, part
 from caliper.engine.constraints.relations import Match, RefKind, match, ref_kind
 
 GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
@@ -51,19 +57,86 @@ _POSITIVE_FIELDS: Mapping[type, tuple[str, ...]] = {
 }
 
 
-def _field_types(entity_type: type[Entity]) -> Mapping[str, object]:
-    hints = get_type_hints(entity_type)
-    return MappingProxyType({f.name: hints[f.name] for f in fields(entity_type)})
+def _field_types(kind: type) -> Mapping[str, object]:
+    hints = get_type_hints(kind)
+    return MappingProxyType({f.name: hints[f.name] for f in fields(kind)})
 
 
-_FIELD_TYPES: Mapping[type[Entity], Mapping[str, object]] = {
-    entity_type: _field_types(entity_type) for entity_type in get_args(Entity)
+FEATURES: tuple[type[PartFeature], ...] = get_args(PartFeature)
+_FIELD_TYPES: Mapping[type, Mapping[str, object]] = {
+    kind: _field_types(kind) for kind in (*get_args(Entity), *FEATURES)
 }
 
 
-def field_types(entity_type: type[Entity]) -> Mapping[str, object]:
-    """Field name → annotated type, in declaration order."""
-    return _FIELD_TYPES[entity_type]
+def field_types(kind: type[Entity] | type[PartFeature]) -> Mapping[str, object]:
+    """Field name → annotated type, in declaration order, for an entity or feature type."""
+    return _FIELD_TYPES[kind]
+
+
+def build_feature(
+    kind: type[PartFeature], values: Mapping[str, object], document: Document, *, position: int
+) -> PartFeature | list[Error]:
+    """Normalize `values` into a feature standing at `position` in the part's features, and
+    apply the rules about it on its own and what it names (ADR 0011, ADR 0013).
+
+    Whether an extrude's profile is closed is the command's to check (`CreateExtrude`): an
+    edit to the sketch may break it later, and then the extrude fails rather than the file."""
+    errors: list[Error] = []
+    normalized = {
+        name: normalize(tp, values[name], name, errors) for name, tp in field_types(kind).items()
+    }
+    if errors:
+        return errors
+    construct: Callable[..., PartFeature] = kind
+    feature = construct(**normalized)
+    if isinstance(feature, Extrude):
+        if not feature.depth > 0:
+            errors.append(
+                _error(ErrorCode.VALUE_NOT_POSITIVE, "depth", "depth must be greater than 0")
+            )
+        errors += _read_errors(feature.sketch, document, position, "sketch", Sketch)
+    if isinstance(feature, Sketch) and isinstance(feature.plane, FaceRef):
+        # A sketch on a face reads the extrude whose face it is, which must come before it
+        # (ADR 0016): so no sketch sits on itself, or on what is built from it.
+        errors += _read_errors(feature.plane.feature, document, position, "plane", Extrude)
+    return errors or feature
+
+
+def _read_errors(
+    read: EntityId, document: Document, position: int, field: str, kind: type[PartFeature]
+) -> list[Error]:
+    """Whether the feature at `position` may read the feature `read`: one of the part's
+    features of `kind`, before it (ADR 0013)."""
+    noun = kind.kind
+    for index, each in enumerate(document.features):
+        if each.id != read:
+            continue
+        if index >= position:
+            message = (
+                f"{read!r} comes at or after this feature: features read only what comes "
+                "before them"
+            )
+            return [_error(ErrorCode.DEPENDENCY_CYCLE, field, message)]
+        if not isinstance(each, kind):
+            return [
+                _error(
+                    ErrorCode.ENTITY_WRONG_KIND,
+                    field,
+                    f"{read!r} is {with_article(each.kind)}, not {with_article(noun)}",
+                )
+            ]
+        return []
+    if read in document.entities:
+        message = (
+            f"{read!r} is {with_article(document.entities[read].kind)}, not {with_article(noun)}"
+        )
+        return [_error(ErrorCode.ENTITY_WRONG_KIND, field, message)]
+    return [_error(ErrorCode.ENTITY_NOT_FOUND, field, f"no {noun} {read!r}")]
+
+
+def with_article(kind: str) -> str:
+    """ "a line", "an extrude"."""
+    return f"{'an' if kind[0] in 'aeiou' else 'a'} {kind.replace('_', ' ')}"
 
 
 def build_entity(
@@ -117,7 +190,23 @@ def normalize(tp: object, value: object, field: str, errors: list[Error]) -> obj
         return normalize_ids(value, field, errors)
     if isinstance(tp, type) and issubclass(tp, StrEnum):
         return normalize_enum(tp, value, field, errors)
+    if tp == Plane | FaceRef:
+        return normalize_place(value, field, errors)
     raise TypeError(f"no normalizer for field type {tp!r}")
+
+
+def normalize_place(value: object, field: str, errors: list[Error]) -> Plane | FaceRef:
+    """One of the part's planes, or a face of an extrude by name (ADR 0016)."""
+    if not isinstance(value, FaceRef):
+        return normalize_enum(Plane, value, field, errors)
+    feature = normalize_id(value.feature, f"{field}.feature", errors)
+    if faces.parse(value.face) is None:
+        message = (
+            f"{value.face!r} isn't a face's name: start, end, side <line>, or "
+            "side <rectangle>.<bottom|right|top|left>"
+        )
+        errors.append(_error(ErrorCode.FACE_NOT_FOUND, f"{field}.face", message))
+    return FaceRef(feature=feature, face=value.face if isinstance(value.face, str) else "")
 
 
 def normalize_float(value: object, field: str, errors: list[Error]) -> float:
@@ -255,10 +344,34 @@ def domain_errors(entity: Entity) -> list[Error]:
 
 
 def reference_errors(entity: Entity, document: Document) -> list[Error]:
-    """Rules about what a dimension or constraint refers to.
+    """Rules about what an entity refers to: the sketch geometry is in, and what a dimension
+    or constraint relates, all in one sketch (ADR 0011).
 
     None for a check: what it measures may be gone, and it fails until put right (C-1).
     Whether a new or edited check can be evaluated is up to the command (`CreateCheck`)."""
+    if isinstance(entity, GEOMETRY):
+        return _sketch_errors(entity.sketch, document)
+    errors = _relation_errors(entity, document)  # a constraint's sketch is checked in there
+    if errors or not isinstance(entity, DistanceDimension | AngleDimension):
+        return errors
+    ids = (entity.a.entity, entity.b.entity)
+    mixed = part.one_sketch(document, ids, field="b", what="a dimension's references")
+    return [mixed] if mixed else []
+
+
+def _sketch_errors(sketch: EntityId, document: Document) -> list[Error]:
+    """Whether `sketch` names one of the part's sketches."""
+    found = part.feature(document, sketch)
+    if isinstance(found, Sketch):
+        return []
+    if found is not None or sketch in document.entities:
+        kind = found.kind if found is not None else document.entities[sketch].kind
+        message = f"{sketch!r} is {with_article(kind)}; geometry goes in a sketch"
+        return [_error(ErrorCode.ENTITY_WRONG_KIND, "sketch", message)]
+    return [_error(ErrorCode.ENTITY_NOT_FOUND, "sketch", f"no sketch {sketch!r}")]
+
+
+def _relation_errors(entity: Entity, document: Document) -> list[Error]:
     match entity:
         case DistanceDimension(a=a, b=b, orientation=orientation):
             errors = feature_errors(a, "a", document, curves=True)
@@ -321,7 +434,7 @@ def reference_errors(entity: Entity, document: Document) -> list[Error]:
 def constraint_errors(
     type_: ConstraintType, refs: tuple[Ref, ...], document: Document
 ) -> list[Error]:
-    """Whether `refs` are real features that a `type_` constraint can relate."""
+    """Whether `refs` are real features, in one sketch, that a `type_` constraint can relate."""
     errors: list[Error] = []
     for i, ref in enumerate(refs):
         errors += feature_errors(ref, f"refs[{i}]", document, curves=True)
@@ -329,6 +442,9 @@ def constraint_errors(
         return errors
     if len(set(refs)) != len(refs):
         return [_error(ErrorCode.REFERENCE_DEGENERATE, "refs", "a reference is repeated")]
+    what = "a constraint's references"
+    if mixed := part.one_sketch(document, (r.entity for r in refs), field="refs", what=what):
+        return [mixed]
     found = match(document, type_, refs)
     if isinstance(found, str):
         code = (

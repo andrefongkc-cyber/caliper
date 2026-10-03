@@ -23,18 +23,24 @@ from caliper.contracts.document import (
     Document,
     Entity,
     Expectation,
+    Extrude,
+    FaceRef,
+    PartFeature,
     Point2,
     RadialDimension,
     Ref,
+    Sketch,
 )
-from caliper.contracts.errors import LoadError
-from caliper.contracts.queries import BoundingBox, ConstraintState, SolveStatus
+from caliper.contracts.errors import Error, ErrorCode, LoadError
+from caliper.contracts.queries import BoundingBox, ConstraintState, Queries, SolveStatus
+from caliper.engine import part
 from caliper.engine.commands.bus import Bus
+from caliper.engine.commands.validation import GEOMETRY
 from caliper.engine.io import script, snapshot
 
-_HIDDEN_FIELDS = frozenset({"offset", "label_angle", "value", "construction"})
+_HIDDEN_FIELDS = frozenset({"offset", "label_angle", "value", "construction", "sketch"})
 """Fields inspect shows another way: placement not at all, measured values after `=`, the
-driving value and construction flag as markers."""
+driving value and construction flag as markers, and the sketch only when there are several."""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -73,12 +79,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _replay(script_path: Path, output: Path | None, *, history: bool) -> int:
     try:
-        commands = script.load(script_path)
+        read = script.read(script_path.read_text(encoding="utf-8"))
     except (OSError, LoadError) as e:
         return _fail(str(e))
-    bus = Bus()
+    bus = Bus(read.start())
     resolved: list[Command] = []
-    for index, command in enumerate(commands):
+    for index, command in enumerate(read.commands):
         result = bus.execute(command)
         if isinstance(result, Rejected):
             for error in result.errors:
@@ -113,7 +119,10 @@ def _inspect(path: Path) -> int:
     print(f"  units           {snapshot.UNITS['length']}, {snapshot.UNITS['angle']}")
     print(f"  entities        {len(document.entities)}" + (f": {counts}" if counts else ""))
     print(f"  next id         {document.next_id}")
-    print(f"  bounds          {_bounds(bounds) if isinstance(bounds, BoundingBox) else 'none'}")
+    features = ", ".join(_feature(f) for f in document.features)
+    print(f"  features        {len(document.features)}" + (f": {features}" if features else ""))
+    print(f"  bounds          {_part_bounds(document, bounds)}")
+    print(f"  solid           {_solid(queries)}")
     status = queries.solve_status()
     print(f"  sketch          {_status(status)}")
     print(f"  history         {_history(read.history)}")
@@ -124,6 +133,11 @@ def _inspect(path: Path) -> int:
     for id in sorted(document.entities):
         entity = document.entities[id]
         line = f"  {id:<{id_width}}  {entity.kind:<{kind_width}}  {_fields(entity)}"
+        if (
+            len(part.sketches(document)) > 1
+            and (sketch := part.sketch_of(document, id)) is not None
+        ):
+            line += f" (in {sketch})"
         if isinstance(entity, DistanceDimension | RadialDimension | AngleDimension):
             value = queries.dimension_value(id)
             line += f" = {value!r}" if isinstance(value, float) else f" = ? ({value.message})"
@@ -183,6 +197,52 @@ def _history(history: tuple[Command, ...] | None) -> str:
     if history is None:
         return "none"
     return f"{len(history)} command" + ("" if len(history) == 1 else "s")
+
+
+def _part_bounds(document: Document, whole: BoundingBox | Error) -> str:
+    """The geometry's bounds, or each sketch's when it's in several: a box across two planes
+    means nothing."""
+    if isinstance(whole, BoundingBox):
+        return _bounds(whole)
+    if whole.code is not ErrorCode.SKETCH_MIXED:
+        return "none"
+    queries = Bus(document).queries
+    found = []
+    for sketch in part.sketches(document):
+        ids = [id for id in document.entities if part.sketch_of(document, id) == sketch]
+        box = queries.bounding_box(
+            [id for id in ids if isinstance(document.entities[id], GEOMETRY)]
+        )
+        if isinstance(box, BoundingBox):
+            found.append(f"{sketch}: {_bounds(box)}")
+    return "; ".join(found)
+
+
+def _solid(queries: Queries) -> str:
+    """The part's solid: its volume and bounds, why there isn't one, or "none" before any."""
+    found = queries.solid_properties()
+    if isinstance(found, Error):
+        return "none" if found.code is ErrorCode.SELECTION_EMPTY else f"? ({found.message})"
+    box = found.bounding_box
+    bounds = (
+        ""
+        if box is None
+        else f", x {box.x_min!r} to {box.x_max!r}, y {box.y_min!r} to {box.y_max!r}, "
+        f"z {box.z_min!r} to {box.z_max!r}"
+    )
+    return f"{found.volume!r} mm³{bounds}"
+
+
+def _feature(feature: PartFeature) -> str:
+    match feature:
+        case Sketch(plane=plane):
+            where = (
+                f"{plane.face} of {plane.feature}" if isinstance(plane, FaceRef) else plane.value
+            )
+            return f"{feature.id} sketch on {where}"
+        case Extrude(sketch=sketch, depth=depth, operation=operation, reversed=back):
+            way = ", reversed" if back else ""
+            return f"{feature.id} extrude of {sketch}, {depth!r} mm, {operation.value}{way}"
 
 
 def _fields(entity: Entity) -> str:

@@ -34,10 +34,15 @@ from caliper.contracts.document import Document, EntityId
 from caliper.engine.commands.handlers import Executed
 
 SYSTEM = f"""\
-You are the assistant inside Caliper, a parametric 2D sketcher. You change the user's sketch \
-only by calling Caliper's tools: one tool per Caliper command, plus tools to inspect the \
-sketch, measure, and check. Caliper validates every command; a rejected command changes \
-nothing and says why, so read the error, fix the arguments, and try again.
+You are the assistant inside Caliper, a parametric CAD app: sketches on a part's planes, \
+extruded into a solid. You change the document in the tab the user has open, the 3D part or \
+a 2D sketch, only by calling Caliper's tools: one tool per Caliper command, plus tools to \
+inspect it, measure, and check. Drawing goes into the sketch the user is editing; in a part \
+with no sketch yet, one is made on XY, the Top plane. create_sketch starts another, on a \
+plane or on a flat face of an extrude (inspect_faces lists them), and drawing then goes into \
+it; a cut from a face goes into the part. Caliper validates every command; a \
+rejected command changes nothing and says why, so read the error, fix the arguments, and try \
+again.
 
 {CONVENTIONS}
 
@@ -99,17 +104,20 @@ class Assistant:
         *,
         on_step: Callable[[ToolOutcome], None] | None = None,
         stop: Callable[[], bool] | None = None,
+        sketch: EntityId | None = None,
     ) -> Turn:
         """`stop` is asked before each request to the model (the user pressed Stop): when it
-        says so, the turn ends there and is forgotten, as if never asked, with no changes."""
+        says so, the turn ends there and is forgotten, as if never asked, with no changes.
+        `sketch` is the one the user is editing, where drawing that names none goes."""
         self._forget_old_turns()
         seen, start = self._last_seen, len(self.conversation)
-        workspace = Workspace(document, frozenset(selection))
+        workspace = Workspace(document, frozenset(selection), sketch)
         context = describe(
             document,
             selection=selection,
             limit=self.context_limit,
             changes_since=self._last_seen,
+            editing=sketch,
         )
         self._last_seen = document
         self.conversation.append(

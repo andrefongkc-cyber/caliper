@@ -117,7 +117,7 @@ class DimensionTool(Tool):
 
     def release(self, pointer: Pointer) -> None:
         self.current = pointer.raw
-        queries = self.session.queries
+        queries = self.session.sketch_queries
         match self.phase:
             case DimensionPhase.FIRST:
                 ref = queries.reference_at_point(pointer.raw, pointer.tolerance)
@@ -190,7 +190,7 @@ class DimensionTool(Tool):
             return
         if self.typed is not None:
             # What the typed value would do to the geometry.
-            before = self.session.document.entities
+            before = self.session.sketch_view.entities
             painter.set_pen(cosmetic_pen(theme.PREVIEW, theme.GEOMETRY_WIDTH, Qt.PenStyle.DashLine))
             for id, entity in shown.bus.document.entities.items():
                 if isinstance(entity, GEOMETRY_TYPES) and before.get(id) != entity:
@@ -203,7 +203,7 @@ class DimensionTool(Tool):
 
     def _fits(self, refs: tuple[Ref, ...]) -> bool:
         """Whether some dimension kind accepts these references."""
-        options = self.session.queries.applicable_constraints(refs)
+        options = self.session.sketch_queries.applicable_constraints(refs)
         return any(isinstance(o.type, DimensionType) and o.error is None for o in options)
 
     def _place(self, at: Point2) -> None:
@@ -215,7 +215,7 @@ class DimensionTool(Tool):
         self.entry_request = ((KIND_NAME[preview.kind],), format_number(round(preview.measured, 6)))
 
     def _preview(self, at: Point2, *, quiet: bool = True) -> Preview | None:
-        kind = self.session.queries.infer_dimension(self.refs, at)
+        kind = self.session.sketch_queries.infer_dimension(self.refs, at)
         if isinstance(kind, Error):
             if not quiet:
                 self.session.message.emit(kind.message)
@@ -234,7 +234,7 @@ class DimensionTool(Tool):
         return CreateDimension(refs=self.refs, placement=at, type=kind)
 
     def _run(self, command: CreateDimension) -> Preview | None:
-        scratch = Bus(self.session.document)
+        scratch = Bus(self.session.sketch_view)
         result = scratch.execute(command)
         if not isinstance(result, Applied):
             return None

@@ -1,7 +1,8 @@
 # Known issues
 
-What breaks in Caliper today, on `main` at `b598af0` (2026-09-30, the N phase merged in #54).
-Each entry was checked against the code or found in a test run. It's sorted by side:
+What breaks in Caliper today, on `main` at `b598af0` (2026-09-30, the N phase merged in #54),
+updated for V2 (F1 to F8) on `shared/v2-milestone`. Each entry was checked against the code or
+found in a test run. It's sorted by side:
 
 - **AI side**: `caliper/ai`, the `caliper-mcp` server, the in-app assistant, and Claude Desktop
   setup.
@@ -13,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited) | C-6 | |
+| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | C-16, C-18 |
 
 ---
 
@@ -47,21 +48,65 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Workaround:** draw the slot as one outline of two lines and two arcs (`create_outline`, or
   lines and arcs joined end to end): it's a loop, and has an area.
 
-### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
+### C-15. Without the `occt` extra, the app has no solids or volumes
+- **What happens:** a part's solid is worked out by a geometry kernel (ADR 0013). The app uses
+  OCCT, so without the `occt` extra, `solid_properties`, `mesh`, and volume checks answer
+  `kernel.unavailable`. Volume checks are still stored, and measured wherever a kernel is,
+  as area checks are. Engine tests and the bench use the analytic kernel instead, which builds
+  extrusions exactly but can't combine solids that overlap.
+- **Where:** `caliper/engine/geometry/__init__.py` (`default_kernel`).
+- **Fix, if it matters:** `uv sync --extra occt`. Or fall back to the analytic kernel in the
+  app for the parts it can build, a decision for ADR 0001's successor rather than a quiet
+  default.
+
+### C-6. An edit that moves a large, tightly joined shape factorizes again what it moved
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the
-  clusters it touches, and a redundancy check carries on from the last one's factorization up
-  to the first row that changed (see Recently fixed). But an edit that moves geometry changes
-  the rows of everything it moved, so where every row moves the check starts again: each
-  constraint on the stress plate's 12-point star (24 lines, one cluster) still takes about
-  29 ms.
+  clusters it touches, and a redundancy check carries on from whichever of the last few
+  checks' factorizations starts with the most of the same rows, up to the first row that
+  changed: across geometry newly joining the cluster, wherever its columns fall, and across a
+  check of another cluster in between (see Recently fixed). But an edit that moves geometry
+  changes the rows of everything it moved, and those are factorized again.
 - **Where:** `caliper/engine/constraints/sketch.py`, `_redundancy`, `_extended`, and
   `_truncated`; called from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
 - **Fix, if it matters:** update the factorization in place for rows that changed (a rank
-  update) instead of redoing them, or solve only the part of a cluster a command can move.
-- **Measured 2026-09-30:** the carry-on costs where it can't carry on. A chain of 150
-  constraints (`bench/perf.py`, `synthetic/many-constraints/chain-150`) takes 1.5 ms a call at
-  the median, against 0.5 ms before f4a9e92, and 2.5 s for all 299 calls against 2.3 s; the
-  same change took a 12-point star's circular pattern from 2.35 s to 0.33 s.
+  update), or check only the part of a cluster a command can move. Neither gives the bits a
+  fresh factorization gives, so either would change which near-threshold relations are
+  accepted; Performance V2.2 keeps the solver bit-identical (Andre, 2026-10-01), so it's a
+  decision of its own.
+- **Measured 2026-10-02 (Performance V2.2, Perf-5):** the earlier diagnosis was wrong. The
+  12-point star's checks didn't start again because rows moved (they hadn't), but because
+  each copy's columns were inserted in the middle of the order, and a 150-constraint chain's
+  because each new line's own cluster was checked between two checks of the chain. Carrying
+  on across both: the star's circular pattern 333 → 188 ms, the chain's 299 calls 2.6 → 1.0 s
+  (median 1.6 → 0.5 ms, p95 35 → 12 ms).
+
+### C-16. A proposed extrude can't be seen before it's accepted
+- **What happens:** a proposal is drawn as dashed geometry on the sketch it changes. An
+  extrude changes no geometry, so there is nothing to draw: the card, over the 3D view, lists
+  it, and its volume check is measured on the proposed solid, but the 3D view shows the solid
+  as it is until Accept.
+- **Where:** `caliper/app/viewport/view3d.py`, which meshes `session.document`.
+- **Fix, if it matters:** mesh `proposal.result` in the 3D view while a proposal is shown,
+  in the agent colour. The engine's `mesh` query already works on any document.
+
+### C-18. Switching tabs drops a pending proposal
+- **What happens:** each tab is its own document, and Claude works on the one shown. Switching
+  tabs while Claude's proposal waits drops it, as opening a file does, and Claude's next call
+  is told the document changed.
+- **Where:** `caliper/app/agent/ui.py` and `mcp_host.py`, on `document_replaced`.
+- **Fix, if it matters:** keep a proposal with its tab, and show it again on the way back.
+
+### C-19. A sketch on a face a later cut removed stays where the face was
+- **What happens:** a sketch on a face is placed from its extrude's inputs (ADR 0016), not
+  from the solid. If a later cut takes the whole face away, the sketch doesn't notice: it
+  stays on the plane the face was on, and what's built from it is built there. A face split
+  by a cut still gives its one plane, which is all a sketch needs, so that case is right.
+- **Where:** `caliper/engine/faces.py`.
+- **Fix, if it matters:** ADR 0014's naming in both kernels, carried through every boolean,
+  so a lost face fails the sketch. Deferred until a feature needs edges (fillets).
+- **Also, for tests:** the analytic kernel cuts and joins exactly only on parallel planes
+  (pockets from a top or bottom face). A cut from a side face needs OCCT, as non-parallel cuts
+  always have, so those tests run in CI's `occt (Linux)` job.
 
 ---
 
@@ -82,6 +127,43 @@ In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
   stress plate pushed Accept off the card. More than two are counted in one line.
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
+
+On `shared/3d-sketching-2` (ADR 0016, stacked on `contracts/sketch-on-faces`, not pushed):
+
+- C-17: drawing in 3D needed the view to face the sketch. The canvas now draws on the sketch's
+  plane seen at an angle, up to 70° from it (a `PlaneView`: drawing, picking, snapping,
+  dimensions, the grid, and box selection); past that, drawing waits for N as before.
+
+On `shared/performance-v2.2` (Performance V2.2, stacked on the 3D sketching, not pushed):
+
+- C-6, mostly: a redundancy check carries on across columns inserted anywhere (geometry
+  joining the cluster) and from any of the last four checks (another cluster's in between),
+  still to the bit: the star's pattern 333 → 188 ms, the chain 2.6 → 1.0 s. Edits that move
+  a whole cluster still factorize it again (above).
+
+On `shared/v2-3d-sketching` (ADR 0015):
+
+- A part started in the 2D tab and was only seen in 3D, and a sketch was edited by jumping to
+  2D, with no way to say it was done. The 3D tab is now the part, from its Top, Front, and
+  Right planes; a sketch is edited in 3D facing its plane, and closed with Finish or Cancel.
+  The 2D tab is a sketch to test on, with its own file.
+
+On `shared/v2-milestone` (V2's F6 and F7):
+
+- C-14: a part with more than one sketch couldn't be worked on in the app: every sketch was
+  drawn on one canvas, and drawing was refused with `sketch.required`. Sketch mode edits one
+  sketch at a time. The canvas, the tools, the browser, and Select All see only the active
+  sketch, and drawing goes into it. A sketch on XZ or YZ is drawn in its own 2D coordinates.
+  The 3D view shows the solid, but not the sketches on their planes yet.
+- With two sketches, the in-app assistant's and Claude Desktop's drawing calls were refused
+  with `sketch.required` unless the model named a sketch. They now draw in the sketch the user
+  is editing, as the window's tools do, and the document summary says which one that is (F7).
+- With two sketches, the Checks panel's "Sketch width" and "Sketch height" measured every
+  sketch's geometry at once and were refused. They measure the sketch being edited (F7).
+- A proposal's dashed preview drew another sketch's changes on the edited sketch's canvas, in
+  the wrong place. It shows only the edited sketch's (F7).
+- An extrude proposed with its volume check was called "Assistant Changes" on the card and in
+  the undo menu, because a change to no entity looked like one more check. It's "Extrude" (F7).
 
 On `shared/n-phase-final` (closing out the N phase):
 

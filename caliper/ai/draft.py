@@ -94,6 +94,7 @@ class Draft:
         arguments: Mapping[str, object],
         *,
         call_id: str = "mcp",
+        sketch: EntityId | None = None,
     ) -> Answer:
         """Run one tool call against the user's `document` as it is now."""
         if self._workspace is not None and self._workspace.base is not document:
@@ -103,7 +104,7 @@ class Draft:
         workspace = self._workspace
         if workspace is None:
             # A fresh look at the document. It becomes the draft only if a change lands.
-            workspace = Workspace(document, frozenset(selection))
+            workspace = Workspace(document, frozenset(selection), sketch)
         before = workspace.commands
         outcome = workspace.call(call)
         if self._workspace is None:

@@ -14,6 +14,13 @@ pass the same conformance suite.
 N4 (2026-09-30): a face was one Rectangle or Circle. It is now bounded by `Loop`s, one outer
 and any holes, of lines and arcs joined end to end; the engine finds them
 (`caliper.engine.profiles`), so a kernel is given loops, not a pile of edges.
+
+V2's F2 (2026-10-01): solids. A face is extruded from a sketch's plane (`Frame`), solids
+combine by `union` and `cut`, and a solid gives its `volume`, `bounding_box_3d`, and a `mesh`
+to draw. Shapes stay opaque and are never serialized.
+
+ADR 0016 (2026-10-03): `Frame` moved to the queries, which give one back
+(`Queries.plane_frame`); it is still importable from here.
 """
 
 from collections.abc import Sequence
@@ -22,7 +29,8 @@ from typing import Protocol
 
 from caliper.contracts.document import Geometry
 from caliper.contracts.errors import ErrorCode
-from caliper.contracts.queries import AreaProperties, BoundingBox
+from caliper.contracts.queries import AreaProperties, BoundingBox, BoundingBox3, Mesh
+from caliper.contracts.queries import Frame as Frame  # moved there (ADR 0016)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -69,4 +77,32 @@ class Kernel(Protocol):
 
     def is_valid(self, shape: Shape) -> bool:
         """Whether the shape passes the kernel's own topology and geometry checks."""
+        ...
+
+    # --- Solids (V2) --------------------------------------------------------------------
+
+    def extrude(self, face: Shape, frame: Frame, depth: float) -> Shape:
+        """The solid swept by `face`, placed on `frame`, `depth` mm along the frame's normal.
+        `depth` must be more than 0: `value.not_positive` otherwise."""
+        ...
+
+    def union(self, a: Shape, b: Shape) -> Shape:
+        """Everything in `a` or `b`. `kernel.unsupported` where this kernel can't be exact."""
+        ...
+
+    def cut(self, a: Shape, b: Shape) -> Shape:
+        """What of `a` isn't in `b`, which may be nothing: a solid with no volume.
+        `kernel.unsupported` where this kernel can't be exact."""
+        ...
+
+    def volume(self, solid: Shape) -> float:
+        """mm³: 0 for a solid that is nothing."""
+        ...
+
+    def bounding_box_3d(self, solid: Shape) -> BoundingBox3:
+        """Tight bounds of a solid with volume; `selection.empty` for one with none."""
+        ...
+
+    def mesh(self, solid: Shape, tolerance: float) -> Mesh:
+        """Triangles within `tolerance` mm of the solid's surface, wound outward."""
         ...
