@@ -36,12 +36,14 @@ from caliper.contracts.commands import (
     Rejected,
 )
 from caliper.contracts.document import (
+    FACE_PATTERN,
     POINT_FEATURES,
     AngleDimension,
     DistanceDimension,
     Document,
     EntityId,
     Expectation,
+    FaceRef,
     Feature,
     Metric,
     Point2,
@@ -49,6 +51,7 @@ from caliper.contracts.document import (
     Ref,
 )
 from caliper.contracts.errors import Error
+from caliper.contracts.queries import Frame, Point3
 from caliper.engine import part
 from caliper.engine.commands.bus import Bus
 from caliper.engine.commands.handlers import Executed
@@ -83,6 +86,16 @@ def _schema(tp: object) -> dict[str, object]:
                 "feature": {"type": "string", "enum": [f.value for f in Feature]},
             },
             "required": ["entity", "feature"],
+            "additionalProperties": False,
+        }
+    if tp is FaceRef:
+        return {
+            "type": "object",
+            "properties": {
+                "feature": {"type": "string"},
+                "face": {"type": "string", "pattern": f"^(?:{FACE_PATTERN})$"},
+            },
+            "required": ["feature", "face"],
             "additionalProperties": False,
         }
     if isinstance(tp, type) and issubclass(tp, StrEnum):
@@ -128,6 +141,20 @@ _FIELD_DESCRIPTIONS: dict[str | tuple[str, str], str] = {
         "The id of the sketch to draw in. Leave it out to draw in the sketch the user is "
         "editing, or the part's only sketch; in a part with no sketch yet, one is made on XY "
         "(the Top plane)."
+    ),
+    ("create_sketch", "plane"): (
+        'Where the sketch sits: "xy" (Top), "xz" (Front), "yz" (Right), or a flat face of an '
+        'extrude, {"feature": "<extrude id>", "face": "end"}: "end" is the cap at its depth, '
+        '"start" the cap on its sketch\'s plane, "side <line id>" the side swept from a line, '
+        'and "side <rectangle id>.bottom" (or .right, .top, .left) a rectangle\'s side; '
+        "inspect_faces lists them. A sketch on a face follows it when the extrude changes. Its "
+        "x is level and its y up the face, and on a level face its coordinates are the part's "
+        "own x and y, so a hole on a plate's top is drawn where it is on the plate. Drawing "
+        "that names no sketch goes into the new one."
+    ),
+    ("create_extrude", "reversed"): (
+        "True to sweep against the sketch's normal. Leave it out and a cut from a sketch on a "
+        "face goes into the part, anything else along the normal (out of the face)."
     ),
 }
 """What a command field is for, where its name and type don't say: by (command, field), or
@@ -312,6 +339,20 @@ QUERY_TOOLS = (
         },
     ),
     ToolSpec(
+        name="inspect_faces",
+        description=(
+            "The flat faces of an extrude a sketch can sit on (create_sketch's plane), with "
+            "where each is: its origin, its x and y, and the way it faces out of the part. "
+            '"end" is the cap at the extrude\'s depth, "start" the cap on its sketch\'s plane.'
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"extrude": {"type": "string"}},
+            "required": ["extrude"],
+            "additionalProperties": False,
+        },
+    ),
+    ToolSpec(
         name="undo",
         description="Undo your last change that isn't applied yet. Applied changes are kept.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
@@ -322,12 +363,11 @@ REPEAT_TOOLS = (patterns.MIRROR, patterns.PATTERN, patterns.CIRCULAR)
 DRAWING_TOOLS = (construct.ARC_THROUGH, construct.OUTLINE)
 
 COMMAND_TOOLS: Mapping[str, type[Command]] = {
-    kind: cls for kind, cls in COMMAND_KINDS.items() if cls not in (CreateCheck, CreateSketch)
+    kind: cls for kind, cls in COMMAND_KINDS.items() if cls is not CreateCheck
 }
-"""A tool for each command but two. Not `CreateCheck`: `run_check` measures a check before it
+"""A tool for each command but one. Not `CreateCheck`: `run_check` measures a check before it
 stores it, and a check that can't be measured isn't stored, so the model has one way to check,
-not two. Not `CreateSketch` yet: the app can't show a second sketch on its plane or pick one to
-draw in until it has sketch mode (V2's F6, ADR 0011), and the model has no more than the UI."""
+not two. `CreateSketch`, on a plane or a face (ADR 0016), as the window's Sketch does."""
 
 TOOLS: tuple[ToolSpec, ...] = (
     *(_command_spec(kind, cls) for kind, cls in COMMAND_TOOLS.items()),
@@ -395,6 +435,7 @@ class Workspace:
             "remove_check": self._remove_check,
             "solve_status": self._solve_status,
             "applicable_constraints": self._applicable_constraints,
+            "inspect_faces": self._inspect_faces,
             "undo": self._undo,
         }
 
@@ -460,12 +501,19 @@ class Workspace:
             return {"applied": True, "changed": "nothing: the document already was that way"}
         # No echo of the command: what it created and changed, in stored form, says all the
         # resolved command would (ids, inferred kinds, canonical order), in half the tokens.
-        return {
+        made: dict[str, JSON] = {
             "applied": True,
             "label": result.label,
             "created": [str(id) for id in result.created_ids],
             "changed": _changes(result.delta),
         }
+        if isinstance(result.command, CreateSketch):
+            # Drawing that names no sketch goes into the new one, as in the window.
+            (self.sketch,) = result.created_ids
+            frame = self._bus.queries.plane_frame(result.command.plane)
+            if not isinstance(frame, Error):
+                made["placement"] = _placement(frame)
+        return made
 
     def _drawn_in_new_sketch(self, sketch: CreateSketch, command: Command) -> JSON:
         """`command` in a part with no sketch (the app's 3D tab starts with none): a sketch on
@@ -585,6 +633,21 @@ class Workspace:
 
     def _in_sketch(self, command: Command) -> Command:
         return part.in_sketch(self.document, command, self.sketch)
+
+    def _inspect_faces(self, arguments: Mapping[str, object]) -> JSON:
+        extrude = arguments.get("extrude")
+        if not isinstance(extrude, str):
+            raise _ToolError({"error": "extrude must be an extrude's id"})
+        queries = self._bus.queries
+        found = queries.faces(EntityId(extrude))
+        if isinstance(found, Error):
+            raise _ToolError({"error": _error(found)})
+        faces: list[JSON] = []
+        for ref in found:
+            frame = queries.plane_frame(ref)
+            if not isinstance(frame, Error):
+                faces.append({"face": ref.face, **_placement(frame)})
+        return {"extrude": extrude, "faces": faces}
 
     def _inspect_entities(self, arguments: Mapping[str, object]) -> JSON:
         queries = self._bus.queries
@@ -807,3 +870,20 @@ def _ref(value: object, field: str) -> Ref:
             {"error": f"{field} names no feature; features: {[f.value for f in Feature]}"}
         )
     return Ref(entity=EntityId(entity), feature=Feature(feature))
+
+
+def _placement(frame: Frame) -> dict[str, JSON]:
+    """Where a plane or face is in the part: its origin, its x and y, and its normal, the way
+    an extrude from it goes."""
+    x, y = frame.x, frame.y
+    normal = Point3(x=x.y * y.z - x.z * y.y, y=x.z * y.x - x.x * y.z, z=x.x * y.y - x.y * y.x)
+
+    def rounded(p: Point3) -> JSON:
+        return {"x": round(p.x, 9) + 0.0, "y": round(p.y, 9) + 0.0, "z": round(p.z, 9) + 0.0}
+
+    return {
+        "origin": rounded(frame.origin),
+        "x": rounded(x),
+        "y": rounded(y),
+        "normal": rounded(normal),
+    }
