@@ -8,6 +8,7 @@ per mm. It is UI state, never in the document.
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from caliper.contracts.queries import BoundingBox3, Point3
@@ -53,13 +54,25 @@ class Camera:
         return right, up, back
 
     def project(self, p: Point3, width: float, height: float) -> Projected:
-        right, up, back = self.axes()
-        d = Point3(x=p.x - self.target.x, y=p.y - self.target.y, z=p.z - self.target.z)
-        return Projected(
-            x=width / 2 + _dot(d, right) * self.scale,
-            y=height / 2 - _dot(d, up) * self.scale,
-            depth=_dot(d, back),
-        )
+        x, y, depth = self.projector(width, height)(p)
+        return Projected(x=x, y=y, depth=depth)
+
+    def projector(self, width: float, height: float) -> Callable[[Point3], tuple[float, ...]]:
+        """`project` for a frame's many points, as (x, y, depth): the axes worked out once,
+        not for every point (Performance V2.2, Perf-8), and each point's sums the same."""
+        (rx, ry, rz), (ux, uy, uz), (bx, by, bz) = ((a.x, a.y, a.z) for a in self.axes())
+        tx, ty, tz, scale = self.target.x, self.target.y, self.target.z, self.scale
+        cx, cy = width / 2, height / 2
+
+        def project(p: Point3) -> tuple[float, ...]:
+            dx, dy, dz = p.x - tx, p.y - ty, p.z - tz
+            return (
+                cx + (dx * rx + dy * ry + dz * rz) * scale,
+                cy - (dx * ux + dy * uy + dz * uz) * scale,
+                dx * bx + dy * by + dz * bz,
+            )
+
+        return project
 
     def orbited(self, dx: float, dy: float) -> "Camera":
         """Turned by a drag of (dx, dy) pixels: across turns about Z, up and down tilts."""

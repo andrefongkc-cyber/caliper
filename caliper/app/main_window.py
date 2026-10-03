@@ -1110,7 +1110,7 @@ class MainWindow(QMainWindow):
                 camera = self._backdrop.camera(
                     self.canvas.view, self.views.width(), self.views.height()
                 )
-            self._backdrop = Backdrop(plane, sketch, self.view3d.paint_scene)
+            self._backdrop = Backdrop(plane, sketch, self.view3d.paint_scene, self.view3d.shows)
             look(self.canvas.view, plane, camera, self.views.width(), self.views.height())
         self.sketch_title.setText(f"{PLANE_NAMES[plane]}  ·  proposal")
         self._show_views()
