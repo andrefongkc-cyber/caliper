@@ -326,6 +326,28 @@ def _nested(loops: list[tuple[Loop, list[Edge]]]) -> Profile | Error:
     )
 
 
+def contains(profile: Profile, p: Point2, tolerance: float) -> bool:
+    """Whether `p` is in the region `profile` bounds (inside its outer loop, outside its
+    holes), or within `tolerance` of one of its boundaries."""
+    loops = [traversed(profile.outer), *(traversed(hole) for hole in profile.holes)]
+    if any(distance(e, p) <= tolerance for walked in loops for e in walked):
+        return True
+    return _inside(p, loops[0]) and not any(_inside(p, hole) for hole in loops[1:])
+
+
+def distance(e: Edge, p: Point2) -> float:
+    """From `p` to the edge `e`."""
+    if e.center is None:
+        ex, ey = e.b.x - e.a.x, e.b.y - e.a.y
+        length = ex * ex + ey * ey
+        t = 0.0 if length == 0 else ((p.x - e.a.x) * ex + (p.y - e.a.y) * ey) / length
+        t = min(1.0, max(0.0, t))
+        return math.hypot(p.x - (e.a.x + t * ex), p.y - (e.a.y + t * ey))
+    if _on_arc(e, p, 0.0):
+        return abs(math.hypot(p.x - e.center.x, p.y - e.center.y) - e.radius)
+    return min(_apart(p, e.a), _apart(p, e.b))
+
+
 def _inside(p: Point2, walked: list[Edge]) -> bool:
     """Whether `p` is inside the loop, by counting where a ray from it crosses the edges."""
     vx, vy = _RAY
