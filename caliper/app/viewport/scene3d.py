@@ -8,6 +8,7 @@ engine's mesh.
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import pairwise
 
@@ -21,6 +22,7 @@ from caliper.contracts.document import (
     Circle,
     Document,
     EntityId,
+    FaceRef,
     Line,
     Plane,
     Point,
@@ -45,6 +47,13 @@ CREASE_DEGREES = 25.0
 """Faces meeting at more than this show the edge between them."""
 AMBIENT = 1 / 3
 """How much light a face turned away from the light still gets."""
+SAME_DEPTH = 1e-6
+"""mm: a face and a plane this close in depth are one surface, and the face is what's picked
+(the planes are drawn see-through)."""
+FACE_TOLERANCE = 1e-4
+"""How far, in mm, a point of the mesh may stray from its face's plane and still be on it."""
+FACING = math.cos(math.radians(0.5))
+"""A triangle facing within half a degree of a face's way is facing it (as `face_at`)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +65,11 @@ class Curve:
     construction: bool = False
 
 
-Picked = EntityId | Plane | None
-"""What a click found: a sketch (by id), a plane, or nothing."""
+Picked = EntityId | Plane | FaceRef | None
+"""What a click found: a sketch (by id), a plane, a flat face of the solid (ADR 0016), or
+nothing."""
+FaceNamer = Callable[[Point3, Point3], FaceRef | None]
+"""`Queries.face_at` for a point of the solid and the way its triangle faces."""
 
 
 @dataclass(slots=True)
@@ -114,18 +126,19 @@ class Scene:
         width: float,
         height: float,
         *,
-        picked: Plane | None = None,
+        picked: Plane | FaceRef | None = None,
         selected: frozenset[EntityId] = frozenset(),
         hidden: EntityId | None = None,
+        tinted: frozenset[int] = frozenset(),
     ) -> None:
         """The planes behind everything, then the sketches, then the solid, which hides what's
         behind it; a picked sketch last, in sight wherever it is. `hidden` is the sketch the
-        canvas draws itself."""
+        canvas draws itself; `tinted`, the triangles of a picked face."""
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._planes(painter, camera, width, height, picked)
+        self._planes(painter, camera, width, height, picked if isinstance(picked, Plane) else None)
         self._sketches(painter, camera, width, height, selected, hidden, picked_only=False)
         if self.mesh is not None and self.mesh.triangles:
-            self._solid(painter, camera, width, height)
+            self._solid(painter, camera, width, height, tinted)
         self._sketches(painter, camera, width, height, selected, hidden, picked_only=True)
         o = camera.project(part.frame(Plane.XY).origin, width, height)
         painter.setPen(_pen(theme.TEXT_DIM, 1.0))
@@ -153,7 +166,14 @@ class Scene:
             painter.setFont(theme.font())
             painter.drawText(QPointF(corner[0] + 6, corner[1] + 16), PLANE_NAMES[plane])
 
-    def _solid(self, painter: QPainter, camera: Camera, width: float, height: float) -> None:
+    def _solid(
+        self,
+        painter: QPainter,
+        camera: Camera,
+        width: float,
+        height: float,
+        tinted: frozenset[int] = frozenset(),
+    ) -> None:
         """The triangles facing the viewer, farthest first (the painter's algorithm), each
         edge drawn just after the nearer of its two faces: a nearer face then covers the
         stretch of it that's out of sight, as the top of a plate covers its hole's far edge."""
@@ -190,8 +210,9 @@ class Scene:
                 continue
             a, b, c = mesh.triangles[index]
             shade = AMBIENT + (1 - AMBIENT) * light[index]
+            tint = theme.ACCENT if index in tinted else base
             color = QColor.fromRgbF(
-                base.redF() * shade, base.greenF() * shade, base.blueF() * shade
+                tint.redF() * shade, tint.greenF() * shade, tint.blueF() * shade
             )
             painter.setPen(QPen(color, 0.75))  # covers the hairline seams between triangles
             painter.setBrush(color)
@@ -237,15 +258,23 @@ class Scene:
         y: float,
         *,
         hidden: EntityId | None = None,
+        faces: FaceNamer | None = None,
     ) -> Picked:
-        """What's under the pixel (x, y): a sketch's curve within `PICK_PX`, else the nearest
-        plane there, else nothing. The solid isn't picked yet: faces have no names (ADR 0014)."""
+        """What's under the pixel (x, y): a sketch's curve within `PICK_PX`; else, with `faces`
+        to name them, the solid where it's nearer than any plane there (its flat face, or
+        nothing on a curved one: the solid hides what's behind it); else the nearest plane
+        there; else nothing."""
+        solid = self.solid_hit(camera, width, height, x, y) if faces is not None else None
+        # A curve the solid is in front of is hidden by it; one on its surface isn't.
+        behind = 2 * PICK_PX / camera.scale
         best: tuple[float, EntityId] | None = None
         for curve in self.curves:
             if curve.sketch == hidden:
                 continue
             flat = [camera.project(p, width, height) for p in curve.points]
-            gap = _distance(flat, x, y)
+            gap, depth = _nearest(flat, x, y)
+            if solid is not None and solid[0] - depth > behind:
+                continue
             if gap <= PICK_PX and (best is None or gap < best[0]):
                 best = (gap, curve.sketch)
         if best is not None:
@@ -274,7 +303,70 @@ class Scene:
                 depth = -s  # larger is nearer the viewer
                 if nearest is None or depth > nearest[0]:
                     nearest = (depth, plane)
+        if solid is not None and (nearest is None or solid[0] >= nearest[0] - SAME_DEPTH):
+            assert faces is not None
+            return faces(solid[1], solid[2])
         return nearest[1] if nearest is not None else None
+
+    def solid_hit(
+        self, camera: Camera, width: float, height: float, x: float, y: float
+    ) -> tuple[float, Point3, Point3] | None:
+        """The solid under the pixel (x, y): the nearest triangle facing the viewer there, as
+        its depth (larger is nearer), the point on it, and its outward normal."""
+        mesh = self.mesh
+        if mesh is None or not mesh.triangles:
+            return None
+        project = camera.projector(width, height)
+        back = camera.axes()[2]
+        v = mesh.vertices
+        best: tuple[float, Point3, Point3] | None = None
+        for index, (i, j, k) in enumerate(mesh.triangles):
+            n = self.normals[index]
+            if n.x * back.x + n.y * back.y + n.z * back.z <= 0:
+                continue
+            (ax, ay, ad), (bx, by, bd), (cx, cy, cd) = project(v[i]), project(v[j]), project(v[k])
+            area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+            if area == 0:
+                continue
+            u = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / area
+            w = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / area
+            r = 1.0 - u - w
+            if min(u, w, r) < -1e-9:
+                continue
+            depth = u * ad + w * bd + r * cd
+            if best is None or depth > best[0]:
+                a, b, c = v[i], v[j], v[k]
+                point = Point3(
+                    x=u * a.x + w * b.x + r * c.x,
+                    y=u * a.y + w * b.y + r * c.y,
+                    z=u * a.z + w * b.z + r * c.z,
+                )
+                best = (depth, point, n)
+        return best
+
+    def face_triangles(self, frame: Frame, ref: FaceRef, faces: FaceNamer) -> frozenset[int]:
+        """The triangles of the face `ref`: on its plane, facing its way, and named it."""
+        mesh = self.mesh
+        if mesh is None:
+            return frozenset()
+        n = _cross(frame.x, frame.y)
+        o = frame.origin
+        v = mesh.vertices
+        found = set()
+        for index, (i, j, k) in enumerate(mesh.triangles):
+            m = self.normals[index]
+            if _dot(m, n) < FACING:
+                continue
+            a = v[i]
+            if abs(_dot(Point3(x=a.x - o.x, y=a.y - o.y, z=a.z - o.z), n)) > FACE_TOLERANCE:
+                continue
+            b, c = v[j], v[k]
+            centre = Point3(
+                x=(a.x + b.x + c.x) / 3, y=(a.y + b.y + c.y) / 3, z=(a.z + b.z + c.z) / 3
+            )
+            if faces(centre, m) == ref:
+                found.add(index)
+        return frozenset(found)
 
 
 def facing_camera(frame: Frame, center: Point2, scale: float) -> Camera:
@@ -359,6 +451,21 @@ def _on(frame: Frame, p: Point2) -> Point3:
         y=o.y + p.x * x.y + p.y * y.y,
         z=o.z + p.x * x.z + p.y * y.z,
     )
+
+
+def _nearest(flat: list[Projected], x: float, y: float) -> tuple[float, float]:
+    """How far the polyline is from (x, y) on screen, and its depth there."""
+    if len(flat) == 1:
+        return math.hypot(flat[0].x - x, flat[0].y - y), flat[0].depth
+    best = (math.inf, 0.0)
+    for a, b in pairwise(flat):
+        dx, dy = b.x - a.x, b.y - a.y
+        length = dx * dx + dy * dy
+        t = 0.0 if length == 0 else max(0.0, min(1.0, ((x - a.x) * dx + (y - a.y) * dy) / length))
+        gap = math.hypot(a.x + t * dx - x, a.y + t * dy - y)
+        if gap < best[0]:
+            best = (gap, a.depth + t * (b.depth - a.depth))
+    return best
 
 
 def _distance(flat: list[Projected], x: float, y: float) -> float:
