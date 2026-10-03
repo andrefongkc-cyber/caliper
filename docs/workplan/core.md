@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: the final validation against the Perf-0 baseline
+Status: Performance V2.2 done on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 landed, Perf-4 investigated and not landed; final validation recorded; next: Andre's and Lucas's review (after PR #56)
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -175,6 +175,52 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
 
   - **The GPU threshold, recorded, not acted on:** frames now cost about 3.4 µs a triangle, against 7–8. 30 frames a second holds to about 9,000 triangles, against about 3,500. ADR 0012's rule stands: move to `QOpenGLWidget` when typical parts pass about 10,000 triangles, which is when `3d/frame` passes 33 ms on the reference parts.
   - **Memory:** one canvas-sized image for the backdrop, and up to four meshes' normals and creases.
+
+### Performance V2.2, final validation (2026-10-02, at `281ca3e`)
+
+The whole of `bench/perf.py` against the Perf-0 baseline, saved as [`bench/results/2026-10-02-pv2.2-final.json`](../../bench/results/2026-10-02-pv2.2-final.json). Two rows that read slower in the full run were rerun:
+- the rectangle session's 0.1 ms calls, back to 1.0–1.06× (the full run starts with them, cold);
+- the plate's widen, 0.49–0.63 ms with the solver from before Perf-5 as with this one: noise.
+
+Gates:
+- 1,815 tests pass with OCCT, and 1,749 plus 54 skipped without it;
+- ruff, format, and mypy are clean;
+- `bench/run.py` is 10/10 on both kernels;
+- the fast solver's pinned output is unchanged.
+
+| Metric | Perf-0 | Final | Change |
+|---|---|---|---|
+| Opening 10,000 entities (window) | 37.8 s | 0.47 s | 0.01× |
+| Opening 2,000 entities / the stress plate | 1.49 s / 53 ms | 73 ms / 33 ms | 0.05× / 0.62× |
+| Sketch browser rebuild, 10,000 / 2,000 | 17.9 s / 755 ms | 136 / 25 ms | 0.01× / 0.03× |
+| Selection change (palette refilters) | 6.6 ms (17) | 2.9 ms (1) | 0.44× |
+| Startup, the window (palette refilters) | 25.1 ms (51) | 17.3 ms (2) | 0.69× |
+| Tab round trip (refilters, 3D scenes built) | 49.5 ms (68, 3) | 15.4 ms (2, 1) | 0.31× |
+| History, one change after 2,000 (rebuilds) | 8.9 ms (1) | 1.2 ms (0) | 0.14× |
+| Redo of the stress plate's accepted proposal | 21.3 ms | 14.8 ms | 0.70× |
+| Solver: the stress plate's solve, all 265 commands | 441 ms | 447 ms | 1.01× (unchanged) |
+| Solver: chain-150, all 299 calls (p95) | 2.62 s (35.5 ms) | 1.05 s (12.4 ms) | 0.40× (0.35×) |
+| Solver: star-12's circular pattern / grid-5x4's linear pattern | 333 / 114 ms | 195 / 105 ms | 0.59× / 0.92× |
+| Picking: first move after an edit, 10,000 / 2,000 (grid builds) | 9.97 / 1.86 ms (1) | 2.90 / 0.66 ms (0.08) | 0.29× / 0.36× |
+| File loading: 10,000 entities / 3,000 / the stress plate | 196 / 59.6 / 6.7 ms | 74 / 25.0 / 2.9 ms | 0.38× / 0.42× / 0.44× |
+| Type-hint lookups to load 10,000 entities | 23,001 | 0 | |
+| 3D frame: 2,604 / 8,652 / 20,748 triangles | 22.4 / 68.7 / 162 ms | 11.2 / 29.5 / 71.7 ms | 0.50× / 0.43× / 0.44× |
+| 3D orbit frame / `v2/render-3d` holes-24 | 22.6 / 19.8 ms | 10.8 / 8.1 ms | 0.48× / 0.41× |
+| A line drawn in a 3D sketch over the part (volume calls) | 36.6 ms (3) | 4.3 ms (0) | 0.12× |
+| Rows factorized, chain-150 (Newton's included) | 135,363 | 102,136 | 0.75× |
+| MCP stress plate: engine / window / window in 3D | 0.487 / 0.755 / 0.757 s | 0.488 / 0.743 / 0.770 s | 1.00× / 0.98× / 1.02× |
+| MCP stress plate: Accept in 2D / in 3D | 24 / 29 ms | 19 / 21 ms | 0.77× / 0.73× |
+| MCP: UI share per call / bridge round trip / results | 0.475 / 0.133 ms / 92 KiB | 0.465 / 0.146 ms / 92 KiB | 0.98× / 1.10× (noise) / 1.00× |
+| Replay from the command line, the stress plate | 0.517 s | 0.515 s | 1.00× |
+| Memory, the stress plate's engine session: peak / retained | 2.29 / 0.53 MiB | 2.95 / 1.05 MiB | 1.29× / 1.97× (Perf-5's kept factorizations) |
+
+**Left as they were, measured:**
+- the stress plate's solve (Perf-4: Newton's evaluation and linear algebra, A2);
+- a dimension edit's full-layer repaint (13 ms on the stress plate, A1);
+- select-all (6.3 ms);
+- solve status on the chain (69 ms);
+- validation on load (half of a 10,000-entity load);
+- the plan's "not worth optimizing" list.
 
 ## 3D-first, the engine's part (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
 
