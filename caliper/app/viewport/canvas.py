@@ -942,7 +942,13 @@ class Canvas(QWidget):
         backdrop = self.backdrop
         if backdrop is None:
             return None
-        return (id(backdrop), backdrop.plane, backdrop.sketch, self.session.document)
+        return (
+            id(backdrop),
+            backdrop.plane,
+            backdrop.frame,
+            backdrop.sketch,
+            self.session.document,
+        )
 
     def _paint_glyphs(
         self, qp: QPainter, laid_out: list[glyphs.Glyph], colours: dict[EntityId, QColor]
