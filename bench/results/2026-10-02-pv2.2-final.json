@@ -1,0 +1,409 @@
+{
+ "3d/frame/20748": {
+  "axes_per_frame": 7.0,
+  "frame_ms": 71.68529205955565,
+  "occt": 1.0,
+  "scene_ms": 9.165124967694283,
+  "triangles": 20748.0
+ },
+ "3d/frame/2604": {
+  "axes_per_frame": 7.0,
+  "frame_ms": 11.17204106412828,
+  "occt": 1.0,
+  "scene_ms": 1.1261249892413616,
+  "triangles": 2604.0
+ },
+ "3d/frame/8652": {
+  "axes_per_frame": 7.0,
+  "frame_ms": 29.52779200859368,
+  "occt": 1.0,
+  "scene_ms": 3.791667055338621,
+  "triangles": 8652.0
+ },
+ "3d/orbit/holes-24": {
+  "frame_ms": 10.842104093171656,
+  "scene_builds": 0.0
+ },
+ "3d/sketch-edit-over-part/holes-24": {
+  "edit_ms": 4.347520996816456,
+  "scene_builds": 1.0,
+  "volume_calls": 0.0
+ },
+ "bridge/round-trip": {
+  "calls": 200.0,
+  "max_ms": 1.6092918813228607,
+  "median_ms": 0.14602113515138626,
+  "p95_ms": 0.19766693003475666,
+  "total": 0.032228500582277775
+ },
+ "file/10000": {
+  "dumps_ms": 36.68083297088742,
+  "loads_ms": 73.83529096841812,
+  "size_kib": 2350.296875,
+  "type_hint_lookups": 0.0
+ },
+ "file/stress-plate": {
+  "dumps_ms": 1.0984998662024736,
+  "loads_ms": 2.9167078901082277,
+  "size_kib": 71.75,
+  "type_hint_lookups": 0.0
+ },
+ "repeat/circular-pattern/star-12": {
+  "calls": 3.0,
+  "commands": 162,
+  "max_ms": 200.90266596525908,
+  "median_ms": 194.87975002266467,
+  "p95_ms": 200.90266596525908,
+  "total": 0.5822812910191715
+ },
+ "repeat/linear-pattern/grid-5x4": {
+  "calls": 3.0,
+  "commands": 133,
+  "max_ms": 110.73308321647346,
+  "median_ms": 104.61595910601318,
+  "p95_ms": 110.73308321647346,
+  "total": 0.3143937923014164
+ },
+ "repeat/mirror/half-star": {
+  "calls": 3.0,
+  "commands": 36,
+  "max_ms": 22.15945813804865,
+  "median_ms": 18.355708103626966,
+  "p95_ms": 22.15945813804865,
+  "total": 0.05843991623260081
+ },
+ "replay/cli/part-schema2": {
+  "total": 0.058156542014330626
+ },
+ "replay/cli/stress-plate": {
+  "total": 0.5146732500288635
+ },
+ "session/ball-bearing/accept-engine": {
+  "replay": 0.10913745895959437,
+  "total": 0.000866167014464736
+ },
+ "session/ball-bearing/engine": {
+  "calls": 74.0,
+  "check_ms": 0.4168353043496609,
+  "checks": 5.0,
+  "commands": 71.0,
+  "deferred": 0.0,
+  "evaluations": 861.0,
+  "max_ms": 8.878207998350263,
+  "median_ms": 0.23727095685899258,
+  "p95_ms": 6.675249896943569,
+  "solve_ms": 104.8498754389584,
+  "status_ms": 2.0122919231653214,
+  "total": 0.11276192124933004
+ },
+ "session/ball-bearing/memory": {
+  "accept_peak_mib": 0.06609821319580078,
+  "peak_mib": 1.2083196640014648,
+  "retained_mib": 0.7292518615722656
+ },
+ "session/ball-bearing/results": {
+  "calls": 74.0,
+  "max_kib": 1.57421875,
+  "total_kib": 27.1474609375
+ },
+ "session/ball-bearing/window": {
+  "calls": 74.0,
+  "max_ms": 9.42108384333551,
+  "median_ms": 1.4690204989165068,
+  "p95_ms": 7.575582945719361,
+  "total": 0.1888298778794706,
+  "ui_share_ms": 0.6319375243037939
+ },
+ "session/ball-bearing/window-accept": {
+  "entities": 71.0,
+  "total": 0.014620249858126044
+ },
+ "session/ball-bearing/window-reject": {
+  "total": 0.0002484999131411314
+ },
+ "session/ball-bearing/workflow": {
+  "total": 0.20345012773759663
+ },
+ "session/rectangle/accept-engine": {
+  "replay": 0.0007116671185940504,
+  "total": 0.00012145796790719032
+ },
+ "session/rectangle/engine": {
+  "calls": 10.0,
+  "check_ms": 0.26954198256134987,
+  "checks": 2.0,
+  "commands": 8.0,
+  "deferred": 0.0,
+  "evaluations": 10.0,
+  "max_ms": 0.3086670767515898,
+  "median_ms": 0.21368754096329212,
+  "p95_ms": 0.3086670767515898,
+  "solve_ms": 0.5992078222334385,
+  "status_ms": 0.17175008542835712,
+  "total": 0.002112084999680519
+ },
+ "session/rectangle/memory": {
+  "accept_peak_mib": 0.012066841125488281,
+  "peak_mib": 0.046100616455078125,
+  "retained_mib": 0.025957107543945312
+ },
+ "session/rectangle/results": {
+  "calls": 10.0,
+  "max_kib": 0.3203125,
+  "total_kib": 2.03125
+ },
+ "session/rectangle/window": {
+  "calls": 10.0,
+  "max_ms": 6.661792052909732,
+  "median_ms": 1.5210830606520176,
+  "p95_ms": 6.661792052909732,
+  "total": 0.020513914991170168,
+  "ui_share_ms": 0.6267499411478639
+ },
+ "session/rectangle/window-accept": {
+  "entities": 8.0,
+  "total": 0.009675791952759027
+ },
+ "session/rectangle/window-reject": {
+  "total": 0.00023554102517664433
+ },
+ "session/rectangle/workflow": {
+  "total": 0.030189706943929195
+ },
+ "session/stress-plate-build/accept-engine": {
+  "replay": 0.46158879110589623,
+  "total": 0.004800250055268407
+ },
+ "session/stress-plate-build/engine": {
+  "calls": 281.0,
+  "check_ms": 1.0502899531275034,
+  "checks": 10.0,
+  "commands": 265.0,
+  "deferred": 2.0,
+  "evaluations": 1793.0,
+  "max_ms": 29.293500119820237,
+  "median_ms": 0.31579192727804184,
+  "p95_ms": 11.158624896779656,
+  "solve_ms": 447.265793569386,
+  "status_ms": 17.825082875788212,
+  "total": 0.48845862806774676
+ },
+ "session/stress-plate-build/memory": {
+  "accept_peak_mib": 0.2503013610839844,
+  "peak_mib": 2.9447202682495117,
+  "retained_mib": 1.0473804473876953
+ },
+ "session/stress-plate-build/results": {
+  "calls": 281.0,
+  "max_kib": 5.1396484375,
+  "total_kib": 92.1318359375
+ },
+ "session/stress-plate-build/window": {
+  "calls": 281.0,
+  "max_ms": 30.685667181387544,
+  "median_ms": 1.2127500958740711,
+  "p95_ms": 12.205666862428188,
+  "total": 0.7431212502997369,
+  "ui_share_ms": 0.4652088973671198
+ },
+ "session/stress-plate-build/window-3d": {
+  "calls": 281.0,
+  "max_ms": 30.99987516179681,
+  "median_ms": 1.25979189760983,
+  "p95_ms": 12.560375034809113,
+  "total": 0.7696977963205427,
+  "ui_share_ms": 0.5052078049629927
+ },
+ "session/stress-plate-build/window-3d-accept": {
+  "total": 0.021245082840323448
+ },
+ "session/stress-plate-build/window-accept": {
+  "entities": 265.0,
+  "total": 0.018837457988411188
+ },
+ "session/stress-plate-build/window-reject": {
+  "total": 0.0002586669288575649
+ },
+ "session/stress-plate-build/workflow": {
+  "total": 0.761958708288148
+ },
+ "solver/counts/chain-150": {
+  "duals": 1926645.0,
+  "matches": 46793.0,
+  "newton_solves": 597.0,
+  "points": 492189.0,
+  "redundancy_checks": 299.0,
+  "rows_added": 102136.0
+ },
+ "solver/counts/stress-plate": {
+  "duals": 576908.0,
+  "matches": 8767.0,
+  "newton_solves": 268.0,
+  "points": 132531.0,
+  "redundancy_checks": 192.0,
+  "rows_added": 11274.0
+ },
+ "synthetic/file/2000": {
+  "dumps_ms": 9.988666977733374,
+  "loads_ms": 24.94979207403958,
+  "save_ms": 10.589417070150375,
+  "size_kib": 669.1181640625
+ },
+ "synthetic/inspect-document/2000": {
+  "calls": 4.0,
+  "max_kib": 41.9248046875,
+  "max_ms": 4.453958943486214,
+  "median_ms": 3.3359795343130827,
+  "p95_ms": 4.453958943486214,
+  "total": 0.01385875092819333
+ },
+ "synthetic/many-checks/prepare-200": {
+  "calls": 20.0,
+  "max_ms": 0.5672499537467957,
+  "median_ms": 0.5273750284686685,
+  "p95_ms": 0.5672499537467957,
+  "total": 0.010599210625514388
+ },
+ "synthetic/many-constraints/chain-150": {
+  "calls": 299.0,
+  "max_ms": 23.847125004976988,
+  "median_ms": 0.489500118419528,
+  "p95_ms": 12.417666846886277,
+  "status_ms": 68.64779209718108,
+  "total": 1.045005756430328
+ },
+ "synthetic/many-entities/create": {
+  "calls": 50.0,
+  "max_ms": 0.22504106163978577,
+  "median_ms": 0.14962500426918268,
+  "p95_ms": 0.16762502491474152,
+  "total": 0.007637168746441603
+ },
+ "synthetic/render/2000": {
+  "badges_ms": 11.024834122508764,
+  "no_badges_ms": 6.823749979957938
+ },
+ "timing/overhead": {
+  "per_call_us": 17.042038962244987
+ },
+ "ui/browser-rebuild/10000": {
+  "inserts": 0.0,
+  "rebuild_ms": 135.52604196593165,
+  "rows": 10000.0,
+  "rows_made": 10000.0
+ },
+ "ui/browser-rebuild/2000": {
+  "inserts": 0.0,
+  "rebuild_ms": 25.276165921241045,
+  "rows": 2000.0,
+  "rows_made": 2000.0
+ },
+ "ui/edit/stress-plate": {
+  "checks_refreshes": 1.8,
+  "edit_ms": 13.308562571182847,
+  "feature_rebuilds": 1.8,
+  "history_rebuilds": 0.0,
+  "refilters": 0.1
+ },
+ "ui/history/2000": {
+  "change_ms": 1.2363125570118427,
+  "history_rebuilds": 0.0
+ },
+ "ui/open/10000": {
+  "browser_rebuilds": 2,
+  "loads_ms": 109.84950000420213,
+  "rows_made": 10000,
+  "total_ms": 471.8787919264287
+ },
+ "ui/open/2000": {
+  "browser_rebuilds": 2,
+  "loads_ms": 14.578458853065968,
+  "rows_made": 2000,
+  "total_ms": 73.45058396458626
+ },
+ "ui/open/stress-plate": {
+  "browser_rebuilds": 2,
+  "loads_ms": 3.3058749977499247,
+  "rows_made": 255,
+  "total_ms": 32.80258388258517
+ },
+ "ui/pointer-after-edit/10000": {
+  "first_move_ms": 2.9004166135564446,
+  "grid_builds": 0.08333333333333333,
+  "steady_move_ms": 0.21710339933633804
+ },
+ "ui/pointer-after-edit/2000": {
+  "first_move_ms": 0.6626249523833394,
+  "grid_builds": 0.08333333333333333,
+  "steady_move_ms": 0.08254148997366428
+ },
+ "ui/redo-accepted/stress-plate": {
+  "inserts": 265.0,
+  "redo_ms": 14.80045891366899,
+  "undo_ms": 3.4547499381005764
+ },
+ "ui/select-all/stress-plate": {
+  "change_ms": 6.353094067890197,
+  "refilters": 1.0
+ },
+ "ui/selection-change/stress-plate": {
+  "change_ms": 2.879271050915122,
+  "refilters": 1.0
+ },
+ "ui/startup": {
+  "refilters": 2.0,
+  "window_ms": 17.251125071197748
+ },
+ "ui/tab-switch/stress-plate": {
+  "browser_rebuilds": 4.0,
+  "feature_rebuilds": 9.0,
+  "refilters": 2.0,
+  "round_trip_ms": 15.424042008817196,
+  "scene_builds": 1.0
+ },
+ "ui/undo-redo/stress-plate": {
+  "redo_ms": 10.784729151055217,
+  "undo_ms": 10.81150013487786
+ },
+ "v2/features-chain": {
+  "analytic": 0.0,
+  "first_ms": 11.764750117436051,
+  "first_prisms": 1.0,
+  "first_unions": 9.0,
+  "label_ms": 0.125042162835598,
+  "label_prisms": 0.0,
+  "label_unions": 0.0,
+  "last_ms": 2.902209060266614,
+  "last_prisms": 1.0,
+  "last_unions": 1.0
+ },
+ "v2/milestone": {
+  "analytic": 0.0,
+  "build_ms": 1.9770420622080564,
+  "build_prisms": 1.0,
+  "label_ms": 0.06091594696044922,
+  "label_prisms": 0.0,
+  "undo_ms": 0.02733408473432064,
+  "undo_prisms": 0.0,
+  "widen_ms": 0.6290830206125975,
+  "widen_prisms": 1.0
+ },
+ "v2/render-3d/holes-24": {
+  "calls": 20.0,
+  "max_ms": 8.534249849617481,
+  "median_ms": 8.086292073130608,
+  "occt": 1.0,
+  "p95_ms": 8.534249849617481,
+  "total": 0.16237162705510855,
+  "triangles": 2604.0
+ },
+ "v2/render-3d/plate": {
+  "calls": 20.0,
+  "max_ms": 0.8251250255852938,
+  "median_ms": 0.753499916754663,
+  "occt": 1.0,
+  "p95_ms": 0.8251250255852938,
+  "total": 0.015075915260240436,
+  "triangles": 12.0
+ }
+}

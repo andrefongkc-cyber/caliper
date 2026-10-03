@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 done, Perf-4 not landed (measured); next: final validation. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 done, Perf-4 not landed (measured), final validation recorded; next: review, after PR #56. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -30,7 +30,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] F7, the contract reviewed from the app's side ([shell.md](docs/workplan/shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): no contract change needed; four app bugs found and fixed (the assistant's and Claude Desktop's drawing with two sketches, the sketch-size checks, the proposal preview, an extrude's label). ADR 0011's questions answered as built; Lucas to confirm
     - [x] F8, V2's tests ([core.md](docs/workplan/core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): the milestone end to end through the window on both kernels, from the rectangle to a byte-identical headless replay, with the 3D view's mesh measured at each step; coverage of V2's files measured (91–100%) and the gaps filled. 1754 passed with OCCT; 1688 passed and 54 skipped without it
     - [x] 3D-first, after F8 ([ADR 0015](docs/adr/0015-sketching-in-3d-from-the-parts-planes.md), Proposed; [shell.md](docs/workplan/shell.md)): the app starts in 3D on a part with its Top, Front, and Right planes; a sketch is made on a plane and edited in 3D facing it, with Finish and Cancel; the 2D tab is a sketch to test on, its own document and file; Claude works on the tab shown
-  - [~] **Performance V2.2** (measured plan 2026-10-01 on `bf1dcc9`; [core.md](docs/workplan/core.md)): make what exists faster, solver bit-identical
+  - [x] **Performance V2.2** (measured plan 2026-10-01 on `bf1dcc9`; [core.md](docs/workplan/core.md), with the final table): make what exists faster, solver bit-identical
     - [x] Perf-0: missing benchmarks and counters (`bench/perf_v22.py`); baseline `bench/results/2026-10-02-pv2.2-baseline.json`; two stale figures corrected
     - [x] Perf-1: sketch browser in linear time, one rebuild per document swap: open at 10k 37.8 s → 0.50 s, at 2k 1.49 s → 0.10 s; rebuild at 10k 17.9 s → 137 ms
     - [x] Perf-2: one command-palette refresh per event-loop turn: selection change 6.6 → 2.7 ms (17 refilters → 1), tab round trip → 18.8 ms, startup 25 → 16 ms
