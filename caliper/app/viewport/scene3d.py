@@ -15,7 +15,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from caliper.app import theme
-from caliper.app.viewport.camera3d import Camera, Projected, facing, normal
+from caliper.app.viewport.camera3d import Camera, Projected, normal
 from caliper.contracts.document import (
     Arc,
     Circle,
@@ -69,28 +69,20 @@ class Scene:
     half: float = MIN_HALF
     """Half the side of each plane: they grow with the part."""
     normals: list[Point3] = field(default_factory=list)
-    creases: list[tuple[Point3, Point3, int, int]] = field(default_factory=list)
+    creases: list[tuple[int, int, int, int]] = field(default_factory=list)
+    """Each crease's two vertices and the faces either side of it."""
 
     @classmethod
     def of(cls, document: Document, mesh: Mesh | None) -> "Scene":
         curves = tuple(_curves(document))
         normals: list[Point3] = []
-        creases: list[tuple[Point3, Point3, int, int]] = []
-        if mesh is not None:
-            v = mesh.vertices
-            normals = [normal(v[a], v[b], v[c]) for a, b, c in mesh.triangles]
-            creases = _creases(mesh, normals)
+        creases: list[tuple[int, int, int, int]] = []
         reach = max(
-            (
-                max(abs(p.x), abs(p.y), abs(p.z))
-                for points in (
-                    *(c.points for c in curves),
-                    mesh.vertices if mesh is not None else (),
-                )
-                for p in points
-            ),
-            default=0.0,
+            (max(abs(p.x), abs(p.y), abs(p.z)) for c in curves for p in c.points), default=0.0
         )
+        if mesh is not None:
+            normals, creases, solid = _shape(mesh)
+            reach = max(reach, solid)
         return cls(
             mesh=mesh,
             curves=curves,
@@ -146,20 +138,21 @@ class Scene:
         self, painter: QPainter, camera: Camera, width: float, height: float, picked: Plane | None
     ) -> None:
         h = self.half
+        project = camera.projector(width, height)
         for plane in PLANES:
             frame = part.frame(plane)
             corners = [
-                camera.project(_on(frame, Point2(x=u, y=v)), width, height)
+                project(_on(frame, Point2(x=u, y=v)))
                 for u, v in ((-h, -h), (h, -h), (h, h), (-h, h))
             ]
             chosen = plane is picked
             painter.setPen(_pen(theme.ACCENT if chosen else theme.PLANE, 1.5 if chosen else 1.0))
             painter.setBrush(theme.PICKED_PLANE_FILL if chosen else theme.PLANE_FILL)
-            painter.drawPolygon(QPolygonF([QPointF(c.x, c.y) for c in corners]))
+            painter.drawPolygon(QPolygonF([QPointF(c[0], c[1]) for c in corners]))
             corner = corners[3]  # the plane's own top left: where Onshape names it
             painter.setPen(theme.ACCENT if chosen else theme.PLANE)
             painter.setFont(theme.font())
-            painter.drawText(QPointF(corner.x + 6, corner.y + 16), PLANE_NAMES[plane])
+            painter.drawText(QPointF(corner[0] + 6, corner[1] + 16), PLANE_NAMES[plane])
 
     def _solid(self, painter: QPainter, camera: Camera, width: float, height: float) -> None:
         """The triangles facing the viewer, farthest first (the painter's algorithm), each
@@ -167,13 +160,18 @@ class Scene:
         stretch of it that's out of sight, as the top of a plate covers its hole's far edge."""
         mesh = self.mesh
         assert mesh is not None
-        flat = [camera.project(p, width, height) for p in mesh.vertices]
+        project = camera.projector(width, height)
+        flat = [project(p) for p in mesh.vertices]  # each vertex once, for faces and creases
+        back = camera.axes()[2]
+        bx, by, bz = back.x, back.y, back.z
+        normals = self.normals
         depth: dict[int, float] = {}
         light: dict[int, float] = {}
         for index, (a, b, c) in enumerate(mesh.triangles):
-            lit = facing(self.normals[index], camera)
+            n = normals[index]
+            lit = n.x * bx + n.y * by + n.z * bz  # `facing`, the axes worked out once
             if lit > 0:  # facing away: hidden behind the faces that face the viewer
-                depth[index] = (flat[a].depth + flat[b].depth + flat[c].depth) / 3
+                depth[index] = (flat[a][2] + flat[b][2] + flat[c][2]) / 3
                 light[index] = lit
         # (depth, 0 for a face or 1 for an edge, which) so an edge comes after its face.
         order: list[tuple[float, int, int]] = [(d, 0, i) for i, d in depth.items()]
@@ -187,9 +185,9 @@ class Scene:
         for _, kind, index in order:
             if kind == 1:
                 p, q, _, _ = self.creases[index]
-                a, b = camera.project(p, width, height), camera.project(q, width, height)
+                a, b = flat[p], flat[q]
                 painter.setPen(edge)
-                painter.drawLine(QPointF(a.x, a.y), QPointF(b.x, b.y))
+                painter.drawLine(QPointF(a[0], a[1]), QPointF(b[0], b[1]))
                 continue
             a, b, c = mesh.triangles[index]
             shade = AMBIENT + (1 - AMBIENT) * light[index]
@@ -198,7 +196,7 @@ class Scene:
             )
             painter.setPen(QPen(color, 0.75))  # covers the hairline seams between triangles
             painter.setBrush(color)
-            painter.drawPolygon(QPolygonF([QPointF(flat[i].x, flat[i].y) for i in (a, b, c)]))
+            painter.drawPolygon(QPolygonF([QPointF(flat[i][0], flat[i][1]) for i in (a, b, c)]))
 
     def _sketches(
         self,
@@ -212,6 +210,7 @@ class Scene:
         picked_only: bool,
     ) -> None:
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        project = camera.projector(width, height)
         for curve in self.curves:
             if curve.sketch == hidden or (curve.sketch in selected) != picked_only:
                 continue
@@ -222,11 +221,11 @@ class Scene:
             else:
                 pen = _pen(theme.GEOMETRY, theme.GEOMETRY_WIDTH)
             painter.setPen(pen)
-            flat = [camera.project(p, width, height) for p in curve.points]
+            flat = [project(p) for p in curve.points]
             if len(flat) == 1:
-                painter.drawEllipse(QPointF(flat[0].x, flat[0].y), 2.0, 2.0)
+                painter.drawEllipse(QPointF(flat[0][0], flat[0][1]), 2.0, 2.0)
             else:
-                painter.drawPolyline(QPolygonF([QPointF(p.x, p.y) for p in flat]))
+                painter.drawPolyline(QPolygonF([QPointF(p[0], p[1]) for p in flat]))
 
     # --- Picking ------------------------------------------------------------------------
 
@@ -387,18 +386,38 @@ def _cross(a: Point3, b: Point3) -> Point3:
     return Point3(x=a.y * b.z - a.z * b.y, y=a.z * b.x - a.x * b.z, z=a.x * b.y - a.y * b.x)
 
 
-def _creases(mesh: Mesh, normals: list[Point3]) -> list[tuple[Point3, Point3, int, int]]:
+_SHAPES: list[tuple[Mesh, tuple[list[Point3], list[tuple[int, int, int, int]], float]]] = []
+"""The last few meshes' normals, creases, and reach, each kept with its mesh. The engine keeps
+a solid's mesh by identity (ADR 0013), so a scene for a document whose solid didn't change, as
+after a sketch edit, doesn't work them out again (Performance V2.2, Perf-8)."""
+SHAPES_KEPT = 4
+
+
+def _shape(mesh: Mesh) -> tuple[list[Point3], list[tuple[int, int, int, int]], float]:
+    for kept, shape in _SHAPES:
+        if kept is mesh:
+            return shape
+    v = mesh.vertices
+    normals = [normal(v[a], v[b], v[c]) for a, b, c in mesh.triangles]
+    reach = max((max(abs(p.x), abs(p.y), abs(p.z)) for p in v), default=0.0)
+    shape = (normals, _creases(mesh, normals), reach)
+    _SHAPES.append((mesh, shape))
+    del _SHAPES[:-SHAPES_KEPT]
+    return shape
+
+
+def _creases(mesh: Mesh, normals: list[Point3]) -> list[tuple[int, int, int, int]]:
     """Edges where two triangles meet at more than `CREASE_DEGREES`, or a triangle meets none:
-    the part's own edges, not the mesh's. Faces don't share vertices, so edges are matched by
-    where their ends are."""
+    the part's own edges, not the mesh's, by their vertices and the faces either side. Faces
+    don't share vertices, so edges are matched by where their ends are."""
     limit = math.cos(math.radians(CREASE_DEGREES))
-    seen: dict[tuple[tuple[float, ...], ...], tuple[Point3, Point3, int]] = {}
-    found: list[tuple[Point3, Point3, int, int]] = []
+    seen: dict[tuple[tuple[float, ...], ...], tuple[int, int, int]] = {}
+    found: list[tuple[int, int, int, int]] = []
     v = mesh.vertices
     for index, triangle in enumerate(mesh.triangles):
         for i, j in ((0, 1), (1, 2), (2, 0)):
-            p, q = v[triangle[i]], v[triangle[j]]
-            key = tuple(sorted((_key(p), _key(q))))
+            p, q = triangle[i], triangle[j]
+            key = tuple(sorted((_key(v[p]), _key(v[q]))))
             other = seen.pop(key, None)
             if other is None:
                 seen[key] = (p, q, index)

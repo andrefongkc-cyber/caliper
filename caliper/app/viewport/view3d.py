@@ -23,7 +23,7 @@ from caliper.app import theme
 from caliper.app.session import DocumentSession, Space
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import Picked, Scene
-from caliper.contracts.document import Extrude, Plane, Sketch
+from caliper.contracts.document import EntityId, Extrude, Plane, Sketch
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import Mesh, Point3
 
@@ -79,6 +79,11 @@ class View3D(QWidget):
     def refresh(self) -> None:
         """Ask the engine for the part's solid again, if the document changed since."""
         if not self._stale:
+            return
+        if self.session.space is not Space.PART:
+            # The 2D tab's sketch is never drawn here, so nothing is built for it (Performance
+            # V2.2, Perf-8). It has no solid: the part's is asked for again on coming back.
+            self.mesh = None
             return
         self._stale = False
         document = self.session.document
@@ -140,6 +145,14 @@ class View3D(QWidget):
         painter.fillRect(QRectF(0, 0, width, height), theme.CANVAS)
         self.scene.paint(painter, camera, width, height, **options)  # type: ignore[arg-type]
         self.paint_triad(painter, camera, height)
+
+    def shows(self, hidden: EntityId | None) -> object:
+        """What `paint_scene` draws with the sketch `hidden` left out, as a value equal only
+        when it draws the same: the solid (the engine keeps its mesh by identity, so an
+        unchanged one compares at once), the other sketches' curves, and the planes' size."""
+        self.refresh()
+        scene = self.scene
+        return (scene.mesh, tuple(c for c in scene.curves if c.sketch != hidden), scene.half)
 
     # --- Drawing ------------------------------------------------------------------------
 
