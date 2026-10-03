@@ -5,10 +5,10 @@ shape of the data and leaves scalars as they came, so wrong types and bad values
 as `Error`s from validation (with a field and a code) rather than as decode failures.
 """
 
-from collections.abc import Mapping
-from dataclasses import MISSING, fields, is_dataclass
+from collections.abc import Callable, Mapping, Set
+from dataclasses import MISSING, dataclass, fields, is_dataclass
 from enum import StrEnum
-from types import MappingProxyType, NoneType, UnionType
+from types import MappingProxyType, UnionType
 from typing import Any, Union, cast, get_args, get_origin, get_type_hints
 
 from caliper.contracts.commands import Command
@@ -97,35 +97,104 @@ def _decode_tagged(data: object, path: str, kinds: Mapping[str, type[Any]]) -> o
     return _decode_dataclass(cls, {k: v for k, v in obj.items() if k != "kind"}, path)
 
 
-def _decode_dataclass(cls: type[Any], obj: Mapping[str, object], path: str) -> object:
-    required = {
-        f.name for f in fields(cls) if f.default is MISSING and f.default_factory is MISSING
-    }
-    _check_keys(obj, path, required=required, optional={f.name for f in fields(cls)} - required)
-    hints = get_type_hints(cls)
-    return cls(**{name: _decode_value(hints[name], obj[name], f"{path}.{name}") for name in obj})
+type _Decode = Callable[[object, str], object]
+"""Decodes a value found at a path. A type whose data is kept as it came has none."""
 
 
-def _decode_value(tp: object, data: object, path: str) -> object:
-    origin = get_origin(tp)
-    if is_dataclass(tp) and isinstance(tp, type):
-        return _decode_dataclass(tp, data, path) if isinstance(data, dict) else data
-    if origin is tuple and isinstance(data, list):
-        item_type = get_args(tp)[0]
-        return tuple(_decode_value(item_type, item, f"{path}[{i}]") for i, item in enumerate(data))
-    if origin is Mapping and isinstance(data, dict):
-        value_type = get_args(tp)[1]
-        return MappingProxyType(
-            {key: _decode_value(value_type, value, f"{path}.{key}") for key, value in data.items()}
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Shape:
+    """A dataclass's fields and how each is decoded."""
+
+    required: frozenset[str]
+    optional: frozenset[str]
+    decoders: Mapping[str, _Decode | None]
+
+
+_SHAPES: dict[type[Any], _Shape] = {}
+"""Each class's shape, worked out the first time one is decoded: looking up its type hints
+for every object was half the time of opening a file (Performance V2.2, Perf-7). Two
+threads making one at once make the same one."""
+
+
+def _shape(cls: type[Any]) -> _Shape:
+    shape = _SHAPES.get(cls)
+    if shape is None:
+        hints = get_type_hints(cls)
+        names = [f.name for f in fields(cls)]
+        required = frozenset(
+            f.name for f in fields(cls) if f.default is MISSING and f.default_factory is MISSING
         )
+        shape = _SHAPES[cls] = _Shape(
+            required=required,
+            optional=frozenset(names) - required,
+            decoders={name: _decoder(hints[name]) for name in names},
+        )
+    return shape
+
+
+def _decode_dataclass(cls: type[Any], obj: Mapping[str, object], path: str) -> object:
+    shape = _shape(cls)
+    _check_keys(obj, path, required=shape.required, optional=shape.optional)
+    decoders = shape.decoders
+    return cls(
+        **{
+            name: data if (decode := decoders[name]) is None else decode(data, f"{path}.{name}")
+            for name, data in obj.items()
+        }
+    )
+
+
+def _decoder(tp: object) -> _Decode | None:
+    """How data of type `tp` is decoded: dataclasses and containers rebuilt from the shape of
+    the data, and anything else (scalars, and data of the wrong shape) left as it came."""
+    if is_dataclass(tp) and isinstance(tp, type):
+        cls: type[Any] = tp
+        return lambda data, path: (
+            _decode_dataclass(cls, data, path) if isinstance(data, dict) else data
+        )
+    origin = get_origin(tp)
+    if origin is tuple:
+        item = _decoder(get_args(tp)[0])
+
+        def decode_tuple(data: object, path: str) -> object:
+            if not isinstance(data, list):
+                return data
+            if item is None:
+                return tuple(data)
+            return tuple(item(value, f"{path}[{i}]") for i, value in enumerate(data))
+
+        return decode_tuple
+    if origin is Mapping:
+        value_of = _decoder(get_args(tp)[1])
+
+        def decode_mapping(data: object, path: str) -> object:
+            if not isinstance(data, dict):
+                return data
+            if value_of is None:
+                return MappingProxyType(dict(data))
+            return MappingProxyType(
+                {key: value_of(value, f"{path}.{key}") for key, value in data.items()}
+            )
+
+        return decode_mapping
     if origin in (UnionType, Union):
-        if data is None and NoneType in get_args(tp):
-            return None
-        if isinstance(data, dict):
-            for member in get_args(tp):
-                if is_dataclass(member) and set(data) == {f.name for f in fields(member)}:
-                    return _decode_dataclass(cast(type[Any], member), data, path)
-    return data
+        members = [
+            (frozenset(f.name for f in fields(member)), cast(type[Any], member))
+            for member in get_args(tp)
+            if is_dataclass(member)
+        ]
+        if not members:
+            return None  # None, or a scalar, as it came
+
+        def decode_union(data: object, path: str) -> object:
+            if isinstance(data, dict):
+                for names, member in members:
+                    if data.keys() == names:
+                        return _decode_dataclass(member, data, path)
+            return data
+
+        return decode_union
+    return None
 
 
 def _object(data: object, path: str) -> dict[str, object]:
@@ -135,7 +204,7 @@ def _object(data: object, path: str) -> dict[str, object]:
 
 
 def _check_keys(
-    obj: Mapping[str, object], path: str, *, required: set[str], optional: set[str]
+    obj: Mapping[str, object], path: str, *, required: Set[str], optional: Set[str]
 ) -> None:
     if missing := required - obj.keys():
         raise DecodeError(path, f"missing field(s): {', '.join(sorted(missing))}")
