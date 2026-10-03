@@ -170,6 +170,14 @@ or cut from, the part's one solid.
   reads only what comes before it, so the graph has no cycles.
 - **Commands never need a kernel.** Queries do: OCCT, or the analytic kernel in tests and the
   bench.
+- **Sketches on faces** ([ADR 0016](adr/0016-sketching-at-any-angle-and-on-faces.md)). A
+  sketch sits on a plane or on a flat face of an earlier extrude, named by what made it
+  (`FaceRef`: `end`, `start`, `side e3`, `side e1.right`). `caliper/engine/faces.py` works out
+  where every face is from its extrude's inputs alone, with no kernel, so a sketch follows its
+  face when the depth or a line changes; it also answers which face a point of the surface is
+  on (`face_at`). A face's axes are level and up the face, which gives the three planes' own
+  axes, and frames are interned so the identity caches keep hitting. What it can't see is a
+  later cut removing the face (`docs/known-issues.md`, C-19).
 
 ## The app on a part: two tabs, and sketching in 3D
 

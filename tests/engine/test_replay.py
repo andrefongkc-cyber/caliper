@@ -85,6 +85,18 @@ def test_a_part_with_two_sketches_replays_to_identical_bytes() -> None:
     assert second.stdout == first.stdout
 
 
+def test_a_part_modelled_on_its_faces_replays_to_identical_bytes() -> None:
+    """ADR 0016: a plate on Top; a pocket cut down from its top face (the cut goes into the
+    part, recorded as reversed); a boss on its right side; the plate made deeper, which every
+    sketch on its faces follows; and a hole down from the pocket's floor."""
+    script = FIXTURES / "face-sketches.script.json"
+    expected = FIXTURES / "face-sketches.caliper"
+    first, second = replay(script), replay(script)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == expected.read_bytes()
+    assert second.stdout == first.stdout
+
+
 def test_replay_can_write_a_file(tmp_path: Path) -> None:
     output = tmp_path / "milestone.caliper"
     result = replay(SCRIPT, "-o", output)

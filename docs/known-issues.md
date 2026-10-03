@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-15 (needs OCCT) | C-6 | C-16, C-17, C-18 |
+| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | C-16, C-17, C-18 |
 
 ---
 
@@ -103,6 +103,18 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   is told the document changed.
 - **Where:** `caliper/app/agent/ui.py` and `mcp_host.py`, on `document_replaced`.
 - **Fix, if it matters:** keep a proposal with its tab, and show it again on the way back.
+
+### C-19. A sketch on a face a later cut removed stays where the face was
+- **What happens:** a sketch on a face is placed from its extrude's inputs (ADR 0016), not
+  from the solid. If a later cut takes the whole face away, the sketch doesn't notice: it
+  stays on the plane the face was on, and what's built from it is built there. A face split
+  by a cut still gives its one plane, which is all a sketch needs, so that case is right.
+- **Where:** `caliper/engine/faces.py`.
+- **Fix, if it matters:** ADR 0014's naming in both kernels, carried through every boolean,
+  so a lost face fails the sketch. Deferred until a feature needs edges (fillets).
+- **Also, for tests:** the analytic kernel cuts and joins exactly only on parallel planes
+  (pockets from a top or bottom face). A cut from a side face needs OCCT, as non-parallel cuts
+  always have, so those tests run in CI's `occt (Linux)` job.
 
 ---
 

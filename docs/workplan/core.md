@@ -1,4 +1,4 @@
-Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): the kernel's parallel planes, reversed extrudes (schema 5), sketches on faces, and face picking and angled selection done; next: face planes against both kernels, a replay fixture, docs (E)
+Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): contract and engine done (parallel planes, reversed extrudes, schema 5, sketches on faces, face picking, angled selection, both kernels, a replay fixture); next: the canvas at an angle and picking faces in the app (P2, P3) on `shared/3d-sketching-2`
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -22,7 +22,10 @@ Andre asked for Onshape's two things: drawing on a sketch's plane with the view 
   - `face_at(point, normal, tolerance)` (`faces.at`): the named flat face a point of the surface is on, with no kernel. A cap by its plane, its outward normal (within 0.5°), and the extrude's profile region (`profiles.contains`); a side by its plane, normal, and the segment over the depth. The latest extrude wins, as it made the surface there (a refilled pocket, a boss on a boss). Outlines are as each extrude made them: a later cut isn't seen, which picking can't tell apart from the mesh, since a hit is always on real surface.
   - `entities_in_polygon(corners, crossing)`: a convex polygon on the sketch plane, for a box selection seen at an angle. An axis-aligned rectangle is handed to `entities_in_box`, so the two agree to the bit; anything else is tested edge by edge (window: each edge against the entity's farthest point out; crossing: Cyrus–Beck for lines, separating axes for rectangles, distance for circles, edge crossings within the sweep for arcs).
   - **Tests:** `tests/engine/test_face_picking.py` (13: every face of a plate, holes, pockets, bosses, the latest winning, tolerances, every named face picked at its middle, nonsense input); `tests/engine/test_polygon_selection.py` (6, two of them property tests: a box's corners in any order give exactly `entities_in_box`; a sketch and its box turned together by any angle keep every decision that isn't on a boundary). Also run once with 2,000 examples each.
-- [ ] Face planes against both kernels' meshes; a replayed part sketched on its faces; docs.
+- [x] **Against both kernels, replayed, documented.**
+  - `tests/engine/geometry/test_face_planes.py`, on the analytic kernel and on OCCT: for random plates (a rectangle, or polygons of lines drawn either way round) on each plane, either way, a point inside every named face lies on a triangle of the kernel's mesh in that plane, facing the same way; every triangle of the mesh is on a named face whose plane it lies in (`face_at`); a pocket's floor and walls are on the surface; and the replayed part below has the volume its numbers give.
+  - `tests/engine/fixtures/face-sketches.script.json` and `.caliper` (schema 5, born there): a plate, a pocket cut down from its top, a boss on its right side, the plate made deeper (everything on its faces follows), and a hole down from the pocket's floor. Replays byte for byte.
+  - `docs/architecture.md` (sketches on faces), `docs/known-issues.md` C-19 (a face a later cut removed isn't noticed).
 
 ## Performance V2.2 (branch `shared/performance-v2.2`, stacked on `shared/v2-3d-sketching`, 2026-10-02; local, not pushed)
 
@@ -285,7 +288,7 @@ Done when every part of V2 has tests on both kernels, and the milestone runs end
   - The limit: a cut across a face splits one name into two faces. It will be refused as ambiguous, never guessed.
   - The gotcha: OCCT copies edges into wires, so history is asked about the face's own wire edges.
 - [x] **What V2 can and can't refer to** is in the ADR.
-- [ ] **No naming code in `caliper/` yet.** The first feature that refers to a face or edge (a sketch on a face, a fillet) adds the kernel method, the contract's reference type, and the two failures (lost and ambiguous), with tests on both kernels.
+- [~] **Naming:** ADR 0016's sketch on a face names faces by history (`FaceRef`, `face.not_found`), but places them from the extrude's inputs, with no kernel naming. The kernel method and the ambiguous failure wait for the first feature on edges (fillets); until then a face a later cut removes isn't noticed (C-19).
 
 ## V2, F3: extrude as the first feature, recomputed only when needed (branch `shared/v2-milestone`, 2026-10-01; local, not pushed)
 
