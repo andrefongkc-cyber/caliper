@@ -40,6 +40,7 @@ from caliper.contracts.queries import BoundingBox3
 from caliper.engine import features, graph
 from caliper.engine.commands.bus import Bus
 from caliper.engine.constraints import sketch
+from caliper.engine.document.recent import ByIdentity
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from tests.engine.constraints.test_constraint_properties import PROPERTIES, sessions
 
@@ -227,7 +228,7 @@ def test_the_graph_names_the_solvers_references_and_referrers(
 def test_the_caches_keep_only_their_last_few_entries() -> None:
     """Recompute keeps prisms, solids, and meshes by the objects they came from, but only the
     last few: a long session's edits mustn't hold every solid ever built (F8)."""
-    cache: features._ByIdentity[int] = features._ByIdentity(2)
+    cache: ByIdentity[int] = ByIdentity(2)
     a, b, c = object(), object(), object()
     cache.put((a,), 1)
     cache.put((b,), 2)

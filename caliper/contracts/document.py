@@ -23,7 +23,7 @@ and `AngleDimension` (file schema 2). C-1 (`contracts/checks-authors-labels`) mo
 V2's F1 (ADR 0011) made the document a part: `Document.features` in order, `Sketch` on a
 `Plane`, and each geometry entity's `sketch` (file schema 4). V2's F3 (ADR 0013) added the
 second feature, `Extrude`, and `Metric.VOLUME`. ADR 0016 (`contracts/sketch-on-faces`) added
-`Extrude.reversed` (file schema 5).
+`FaceRef`, a sketch on a face, and `Extrude.reversed` (file schema 5).
 """
 
 from collections.abc import Mapping
@@ -62,12 +62,34 @@ class Plane(StrEnum):
     | XZ    | +X       | +Z       | -Y                 |
     | YZ    | +Y       | +Z       | +X                 |
 
-    Every plane passes through the part's origin. Offset planes and faces come later.
+    Every plane passes through the part's origin. A sketch on a face of the part names it with
+    `FaceRef` instead (ADR 0016); offset planes come later.
     """
 
     XY = "xy"
     XZ = "xz"
     YZ = "yz"
+
+
+FACE_PATTERN = rf"start|end|side {ID_PATTERN}(\.(bottom|right|top|left))?"
+"""A face's name (ADR 0014): `start`, the cap on its extrude's sketch plane; `end`, the cap at
+its depth; `side <id>`, the side swept from line <id>; `side <id>.<side>`, one side of
+rectangle <id> (`bottom`, `right`, `top`, or `left`)."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FaceRef:
+    """A flat face of an extrude, by what made it, for a sketch to sit on (ADR 0016).
+
+    `face` is one of `FACE_PATTERN`'s names. Where it is comes from the extrude's inputs, never
+    from a kernel, so a sketch on it follows edits to them: change the extrude's depth and the
+    sketch on its `end` moves with it. The sketch's normal points out of the part there, and
+    its x is level (+X on a level face), its y up the face. A value, like `Ref`: it has no
+    `kind`."""
+
+    feature: EntityId
+    """An extrude before the sketch."""
+    face: str
 
 
 FIRST_SKETCH = EntityId("e0")
@@ -77,14 +99,14 @@ handed out to anything else, and a V1 file migrates into it with its ids unchang
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Sketch:
-    """A sketch placed on a plane. Its geometry names it (`sketch`); its dimensions and
-    constraints are in it through the geometry they refer to; its coordinates are 2D, along
-    the plane's axes."""
+    """A sketch placed on a plane, or on a flat face of the part (ADR 0016). Its geometry names
+    it (`sketch`); its dimensions and constraints are in it through the geometry they refer
+    to; its coordinates are 2D, along the plane's or face's axes."""
 
     kind: ClassVar[str] = "sketch"
     id: EntityId
     """Unique across the document's features and entities."""
-    plane: Plane
+    plane: Plane | FaceRef
 
 
 class ExtrudeOperation(StrEnum):

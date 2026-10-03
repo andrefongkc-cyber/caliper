@@ -30,10 +30,12 @@ from caliper.contracts.document import (
     EntityId,
     Expectation,
     Extrude,
+    FaceRef,
     Feature,
     Geometry,
     Line,
     PartFeature,
+    Plane,
     Point,
     Point2,
     RadialDimension,
@@ -42,7 +44,7 @@ from caliper.contracts.document import (
     Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.engine import part
+from caliper.engine import faces, part
 from caliper.engine.constraints.relations import Match, RefKind, match, ref_kind
 
 GEOMETRY = (Point, Line, Circle, Arc, Rectangle)
@@ -92,13 +94,20 @@ def build_feature(
             errors.append(
                 _error(ErrorCode.VALUE_NOT_POSITIVE, "depth", "depth must be greater than 0")
             )
-        errors += _read_errors(feature.sketch, document, position, "sketch")
+        errors += _read_errors(feature.sketch, document, position, "sketch", Sketch)
+    if isinstance(feature, Sketch) and isinstance(feature.plane, FaceRef):
+        # A sketch on a face reads the extrude whose face it is, which must come before it
+        # (ADR 0016): so no sketch sits on itself, or on what is built from it.
+        errors += _read_errors(feature.plane.feature, document, position, "plane", Extrude)
     return errors or feature
 
 
-def _read_errors(read: EntityId, document: Document, position: int, field: str) -> list[Error]:
-    """Whether the feature at `position` may read the sketch `read`: one of the part's
-    sketches, before it (ADR 0013)."""
+def _read_errors(
+    read: EntityId, document: Document, position: int, field: str, kind: type[PartFeature]
+) -> list[Error]:
+    """Whether the feature at `position` may read the feature `read`: one of the part's
+    features of `kind`, before it (ADR 0013)."""
+    noun = kind.kind
     for index, each in enumerate(document.features):
         if each.id != read:
             continue
@@ -108,19 +117,21 @@ def _read_errors(read: EntityId, document: Document, position: int, field: str) 
                 "before them"
             )
             return [_error(ErrorCode.DEPENDENCY_CYCLE, field, message)]
-        if not isinstance(each, Sketch):
+        if not isinstance(each, kind):
             return [
                 _error(
                     ErrorCode.ENTITY_WRONG_KIND,
                     field,
-                    f"{read!r} is {with_article(each.kind)}, not a sketch",
+                    f"{read!r} is {with_article(each.kind)}, not {with_article(noun)}",
                 )
             ]
         return []
     if read in document.entities:
-        message = f"{read!r} is {with_article(document.entities[read].kind)}, not a sketch"
+        message = (
+            f"{read!r} is {with_article(document.entities[read].kind)}, not {with_article(noun)}"
+        )
         return [_error(ErrorCode.ENTITY_WRONG_KIND, field, message)]
-    return [_error(ErrorCode.ENTITY_NOT_FOUND, field, f"no sketch {read!r}")]
+    return [_error(ErrorCode.ENTITY_NOT_FOUND, field, f"no {noun} {read!r}")]
 
 
 def with_article(kind: str) -> str:
@@ -179,7 +190,23 @@ def normalize(tp: object, value: object, field: str, errors: list[Error]) -> obj
         return normalize_ids(value, field, errors)
     if isinstance(tp, type) and issubclass(tp, StrEnum):
         return normalize_enum(tp, value, field, errors)
+    if tp == Plane | FaceRef:
+        return normalize_place(value, field, errors)
     raise TypeError(f"no normalizer for field type {tp!r}")
+
+
+def normalize_place(value: object, field: str, errors: list[Error]) -> Plane | FaceRef:
+    """One of the part's planes, or a face of an extrude by name (ADR 0016)."""
+    if not isinstance(value, FaceRef):
+        return normalize_enum(Plane, value, field, errors)
+    feature = normalize_id(value.feature, f"{field}.feature", errors)
+    if faces.parse(value.face) is None:
+        message = (
+            f"{value.face!r} isn't a face's name: start, end, side <line>, or "
+            "side <rectangle>.<bottom|right|top|left>"
+        )
+        errors.append(_error(ErrorCode.FACE_NOT_FOUND, f"{field}.face", message))
+    return FaceRef(feature=feature, face=value.face if isinstance(value.face, str) else "")
 
 
 def normalize_float(value: object, field: str, errors: list[Error]) -> float:
