@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-6 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-7, file loading
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3, Perf-6 and Perf-7 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-5, the redundancy check (spike-gated)
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -106,7 +106,18 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   | Moves after the first | unchanged | unchanged |
 
   The plan's ~1 ms at 10k isn't met: what's left of the first move is the canvas laying out labels and glyphs for the new document, not picking.
-- [ ] Perf-7: per-class decoders for file loading
+- [x] **Perf-7, file loading with a decoder per class** (`caliper/engine/io/codec.py`). Decoding read a dataclass's type hints, and its fields twice, for every object it rebuilt: 23,001 lookups to open 10,000 entities, half of decoding. Now each class's shape (required and optional fields, and how each field is decoded) is worked out the first time one is decoded and kept, and a field whose data is kept as it came (scalars, which validation judges) isn't visited at all. What's rebuilt, what's left as it came, and every error are unchanged; validation is untouched.
+  - **Checked against the old decoder** (a copy kept for the run, not committed): the same values, of the same types all the way down, and the same errors with the same paths, on the 43 documents and 528 commands in the repo's files and recorded sessions, and 36,000 random corruptions of them over three seeds (about half refused). Only `DecodeError` was ever raised.
+  - **Tests** (`tests/engine/io/test_codec.py`): containers rebuilt as the contracts hold them (tuples, `MappingProxyType`, a union's dataclass); data of the wrong shape left as it came (six of the seven also pass on the old decoder); a class's hints read once, and none on a second load.
+
+  | Loading | Perf-0 | Perf-7 |
+  |---|---|---|
+  | The stress plate (265 entities) | 6.66 ms, 744 type-hint lookups | 2.98 ms (0.45×) |
+  | 3,000 entities (`synthetic/file/2000`) | 59.6 ms | 24.2 ms (0.41×) |
+  | 10,000 entities | 195.7 ms, 23,001 lookups | 74.8 ms (0.38×), 0 |
+  | Replay of the stress plate from the command line | 0.517 s | 0.514 s (Python's start-up and the solve; decoding 265 commands was never the cost) |
+
+  Old and new interleaved in one process gave the same: −57%, −59%, −63%. Saving is unchanged. What's left of a load at 10,000 is validation (about half, untouched), decoding (a third), and JSON parsing.
 - [ ] Perf-5: redundancy check rank update (C-6), spike-gated
 - [ ] Perf-8: the 3D render path on the current renderer
 
