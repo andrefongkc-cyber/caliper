@@ -1058,7 +1058,9 @@ class MainWindow(QMainWindow):
         elif len(picked) == 1:
             self.edit_sketch(picked[0])
         else:
-            self.show_message("Pick a plane (Top, Front, Right) or a sketch, then Sketch")
+            self.show_message(
+                "Pick a plane (Top, Front, Right), a flat face, or a sketch, then Sketch"
+            )
             menu = self.sketch_button.menu()
             if menu is not None and self.sketch_button.isVisible():  # the planes, to pick one
                 menu.popup(self.sketch_button.mapToGlobal(self.sketch_button.rect().bottomLeft()))

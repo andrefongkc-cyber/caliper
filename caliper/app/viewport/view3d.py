@@ -22,8 +22,8 @@ from PySide6.QtWidgets import QWidget
 from caliper.app import theme
 from caliper.app.session import DocumentSession, Space
 from caliper.app.viewport.camera3d import Camera
-from caliper.app.viewport.scene3d import Picked, Scene
-from caliper.contracts.document import EntityId, Extrude, Plane, Sketch
+from caliper.app.viewport.scene3d import FACE_TOLERANCE, Picked, Scene
+from caliper.contracts.document import EntityId, Extrude, FaceRef, Plane, Sketch
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import Mesh, Point3
 
@@ -52,6 +52,8 @@ class View3D(QWidget):
         self._drag: tuple[Qt.MouseButton, QPointF, bool] | None = None
         self._pressed: QPointF | None = None
         """Where a left press was, until it moves far enough to be an orbit."""
+        self._tint: tuple[tuple[object, FaceRef], frozenset[int]] | None = None
+        """The picked face's triangles, for the scene they were found in."""
         self.setObjectName("view-3d")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(200, 150)
@@ -161,13 +163,15 @@ class View3D(QWidget):
         painter = QPainter(self)
         width, height = self.width(), self.height()
         painter.fillRect(self.rect(), theme.CANVAS)
+        picked = self.session.picked_plane
         self.scene.paint(
             painter,
             self.camera,
             width,
             height,
-            picked=self.session.picked_plane,
+            picked=picked,
             selected=self.session.selection,
+            tinted=self._tinted(picked),
         )
         self.paint_triad(painter, self.camera, height)
         if self.problem:
@@ -196,11 +200,32 @@ class View3D(QWidget):
     # --- Picking ------------------------------------------------------------------------
 
     def pick(self, x: float, y: float) -> Picked:
+        """What a click at (x, y) picks: a sketch, a flat face of the solid (ADR 0016), or a
+        plane; the solid hides the planes behind it."""
         self.refresh()
-        return self.scene.pick(self.camera, self.width(), self.height(), x, y)
+        return self.scene.pick(self.camera, self.width(), self.height(), x, y, faces=self._face_at)
+
+    def _face_at(self, point: Point3, normal: Point3) -> FaceRef | None:
+        return self.session.queries.face_at(point, normal, FACE_TOLERANCE)
+
+    def _tinted(self, picked: object) -> frozenset[int]:
+        """The triangles of the picked face, worked out once per scene."""
+        if not isinstance(picked, FaceRef):
+            return frozenset()
+        key = (self.scene, picked)
+        if self._tint is not None and self._tint[0] == key:
+            return self._tint[1]
+        frame = self.session.queries.plane_frame(picked)
+        found = (
+            frozenset()
+            if isinstance(frame, Error)
+            else self.scene.face_triangles(frame, picked, self._face_at)
+        )
+        self._tint = (key, found)
+        return found
 
     def _choose(self, found: Picked) -> None:
-        if isinstance(found, Plane):
+        if isinstance(found, Plane | FaceRef):
             self.session.set_picked_plane(found)
         elif found is None:
             self.session.set_picked_plane(None)
