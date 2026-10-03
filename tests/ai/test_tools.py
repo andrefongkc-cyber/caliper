@@ -13,7 +13,6 @@ from caliper.contracts.commands import (
     CreateCheck,
     CreateConstraint,
     CreateRectangle,
-    CreateSketch,
     DeleteEntities,
     ModifyEntity,
 )
@@ -64,10 +63,12 @@ def stored(workspace: Workspace) -> list[Expectation]:
 def test_every_command_is_a_tool_with_a_schema_for_its_fields() -> None:
     tools = {t.name: t for t in TOOLS}
     assert "create_check" not in tools  # run_check measures a check, then stores it (C-1)
-    # Not until the app has sketch mode and can show a sketch on its plane (ADR 0011, F6).
-    assert "create_sketch" not in tools
+    plane = tools["create_sketch"].input_schema["properties"]["plane"]  # type: ignore[index]
+    assert plane["anyOf"][0]["enum"] == ["xy", "xz", "yz"]  # type: ignore[index]
+    assert plane["anyOf"][1]["required"] == ["feature", "face"]  # type: ignore[index]
+    assert "inspect_faces" in plane["description"]  # type: ignore[index]
     for command in get_args(Command):
-        if command in (CreateCheck, CreateSketch):
+        if command is CreateCheck:
             continue
         tool = tools[command.kind]
         names = {f.name for f in dataclasses.fields(command)}

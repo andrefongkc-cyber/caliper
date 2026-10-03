@@ -198,3 +198,68 @@ def test_an_extrude_in_a_part_with_no_sketch_is_refused() -> None:
     outcome = workspace.call(call("create_extrude", depth=3.0))
     assert outcome.is_error
     assert workspace.document == part.no_sketch()
+
+
+# --- Sketches on faces (ADR 0016) --------------------------------------------------------
+
+
+def plate_part() -> tuple[Workspace, str, str]:
+    """Claude draws a 120 x 50 plate in a part with no sketch, and extrudes it 10 deep."""
+    w = Workspace(part.no_sketch())
+    outcome = w.call(
+        call(
+            "create_rectangle",
+            corner={"x": 0.0, "y": 0.0},
+            width=120.0,
+            height=50.0,
+        )
+    )
+    assert not outcome.is_error, outcome.content
+    rectangle = outcome.content["created"][0]  # type: ignore[index]
+    extrude = w.call(call("create_extrude", depth=10.0))
+    assert not extrude.is_error, extrude.content
+    return w, rectangle, extrude.content["created"][0]  # type: ignore[index]
+
+
+def test_claude_lists_an_extrudes_faces_with_where_each_is() -> None:
+    w, rectangle, extrude = plate_part()
+    found = w.call(call("inspect_faces", extrude=extrude))
+    assert not found.is_error, found.content
+    faces = {f["face"]: f for f in found.content["faces"]}  # type: ignore[index]
+    assert list(faces) == [
+        "start",
+        "end",
+        *(f"side {rectangle}.{s}" for s in ("bottom", "right", "top", "left")),
+    ]
+    assert faces["end"]["origin"] == {"x": 0.0, "y": 0.0, "z": 10.0}
+    assert faces["end"]["normal"] == {"x": 0.0, "y": 0.0, "z": 1.0}
+    assert faces[f"side {rectangle}.right"]["normal"] == {"x": 1.0, "y": 0.0, "z": 0.0}
+    wrong = w.call(call("inspect_faces", extrude=rectangle))
+    assert wrong.is_error
+    assert "entity.wrong_kind" in str(wrong.content)
+
+
+def test_claude_sketches_on_the_top_face_draws_in_it_and_cuts_into_the_part() -> None:
+    w, _, extrude = plate_part()
+    made = w.call(call("create_sketch", plane={"feature": extrude, "face": "end"}))
+    assert not made.is_error, made.content
+    sketch = made.content["created"][0]  # type: ignore[index]
+    assert made.content["placement"]["origin"] == {"x": 0.0, "y": 0.0, "z": 10.0}  # type: ignore[index]
+    assert w.sketch == sketch
+    hole = w.call(call("create_circle", center={"x": 60.0, "y": 25.0}, radius=5.0))
+    assert not hole.is_error, hole.content
+    (circle,) = hole.content["created"]  # type: ignore[index]
+    assert w.document.entities[EntityId(circle)].sketch == sketch  # drawn in the new sketch
+    cut = w.call(call("create_extrude", depth=4.0, sketch=sketch, operation="remove"))
+    assert not cut.is_error, cut.content
+    resolved = w.commands[-1]
+    assert resolved.reversed is True  # type: ignore[union-attr]
+    describe(w.document)  # the summary takes a face sketch in its stride
+
+
+def test_claude_is_told_why_a_face_isnt_there() -> None:
+    w, _, extrude = plate_part()
+    refused = w.call(call("create_sketch", plane={"feature": extrude, "face": "side e99"}))
+    assert refused.is_error
+    assert "face.not_found" in str(refused.content)
+    assert w.sketch is None
