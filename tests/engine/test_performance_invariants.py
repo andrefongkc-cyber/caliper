@@ -230,7 +230,7 @@ def test_a_factorization_carried_on_is_bit_for_bit_a_fresh_one(
     first = rows[: max(1, int(split * len(rows)))]
     columns = tuple((EntityId(f"e{n}"), "x") for n in range(width + grow))
     padded = [[*row, *[0.0] * grow] for row in rows]
-    sketch._FACTORED.last = None
+    sketch._FACTORED.recent = []
     sketch._extended(columns[:width], first)
     carried = sketch._extended(columns, padded)
     fresh = RowBasis(width + grow)
@@ -255,6 +255,108 @@ def test_a_factorization_carried_on_is_bit_for_bit_a_fresh_one(
     assert again.dependent == fresh.dependent
     assert again.q == fresh.q
     assert again.supports == fresh.supports
+
+
+def _fresh(width: int, rows: list[list[float]]) -> RowBasis:
+    basis = RowBasis(width)
+    for i, row in enumerate(rows):
+        basis.add(i, row)
+    return basis
+
+
+def _same(a: RowBasis, b: RowBasis) -> None:
+    assert a.kept == b.kept
+    assert a.lower == b.lower
+    assert a.dependent == b.dependent
+    assert a.q == b.q
+    assert a.supports == b.supports
+    assert a.masks == b.masks
+
+
+@given(
+    case=sparse_rows(),
+    split=st.floats(min_value=0.0, max_value=1.0),
+    inserted=st.lists(st.integers(0, 24), max_size=6),
+    between=sparse_rows(),
+)
+def test_a_factorization_carried_on_across_new_columns_and_other_checks_is_a_fresh_one(
+    case: tuple[int, list[list[float]]],
+    split: float,
+    inserted: list[int],
+    between: tuple[int, list[list[float]]],
+) -> None:
+    """Geometry joining a cluster can bring columns anywhere in its order, not only last (an
+    entity made earlier, joined now), and another cluster's check can come between two of the
+    same cluster's (a new line's own, then the chain it joins: Perf-5). Carried on across
+    both, the factorization is still what factorizing afresh gives, and the rows it had are
+    reused, not factorized again."""
+    width, rows = case
+    first = rows[: max(1, int(split * len(rows)))]
+    old = tuple((EntityId(f"e{n}"), "x") for n in range(width))
+    columns = list(old)
+    for k, position in enumerate(inserted):
+        columns.insert(min(position, len(columns)), (EntityId(f"n{k}"), "x"))
+    new = tuple(columns)
+    place = [new.index(column) for column in old]
+
+    def spread(row: list[float]) -> list[float]:
+        moved = [0.0] * len(new)
+        for c, x in zip(place, row, strict=True):
+            moved[c] = x
+        return moved
+
+    grown = [spread(row) for row in rows]
+    for k in range(len(inserted)):  # rows of the geometry that joined
+        grown.append([*grown[k % len(grown)]])
+        grown[-1][new.index((EntityId(f"n{k}"), "x"))] = 1.0 + k
+    other_width, other_rows = between
+    others = tuple((EntityId(f"o{n}"), "y") for n in range(other_width))
+
+    sketch._FACTORED.recent = []
+    sketch._extended(old, first)
+    sketch._extended(others, other_rows)
+    added: list[int] = []
+    real = RowBasis.add
+    RowBasis.add = lambda self, i, row: (added.append(i), real(self, i, row))[1]  # type: ignore[method-assign]
+    try:
+        carried = sketch._extended(new, grown)
+    finally:
+        RowBasis.add = real  # type: ignore[method-assign]
+    _same(carried, _fresh(len(new), grown))
+    assert added == list(range(len(first), len(grown)))
+    # The factorizations it carried on from are as they were.
+    _same(sketch._extended(old, first), _fresh(width, first))
+    _same(sketch._extended(others, other_rows), _fresh(other_width, other_rows))
+
+
+@PROPERTIES
+@given(session=sessions())
+def test_any_session_decides_and_solves_exactly_as_it_would_afresh(session) -> None:  # type: ignore[no-untyped-def]
+    """Random constrained sketches, built command by command, with every redundancy check
+    carrying on from the last few (Perf-5) and then each starting afresh: every outcome,
+    message, and document the same."""
+    _, history = session
+
+    def build() -> list[object]:
+        bus, seen = Bus(kernel=None), []
+        for command in history:
+            result = bus.execute(command)
+            seen.append(result.errors if isinstance(result, Rejected) else bus.document)
+        return seen
+
+    sketch._FACTORED.recent = []
+    carried = build()
+    real = sketch._extended
+
+    def afresh(columns, rows, entries=None):  # type: ignore[no-untyped-def]
+        sketch._FACTORED.recent = []
+        return real(columns, rows, entries)
+
+    sketch._extended = afresh  # type: ignore[assignment]
+    try:
+        assert build() == carried
+    finally:
+        sketch._extended = real
 
 
 def test_a_chain_decides_and_solves_exactly_as_it_would_afresh(
@@ -298,9 +400,9 @@ def test_a_chain_decides_and_solves_exactly_as_it_would_afresh(
     carried = build()
     real = sketch._extended
 
-    def afresh(columns, rows):  # type: ignore[no-untyped-def]
-        sketch._FACTORED.last = None
-        return real(columns, rows)
+    def afresh(columns, rows, entries=None):  # type: ignore[no-untyped-def]
+        sketch._FACTORED.recent = []
+        return real(columns, rows, entries)
 
     monkeypatch.setattr(sketch, "_extended", afresh)
     assert build() == carried
