@@ -895,7 +895,7 @@ class Canvas(QWidget):
         layer.setDevicePixelRatio(ratio)
         qp = QPainter(layer)
         if self.backdrop is not None:
-            self.backdrop.paint(qp, view, self.width(), self.height())  # the part, behind
+            self.backdrop.draw(qp, view, self.width(), self.height(), ratio)  # the part, behind
         else:
             qp.fillRect(QRectF(0, 0, self.width(), self.height()), theme.CANVAS)
         if self.show_grid:
