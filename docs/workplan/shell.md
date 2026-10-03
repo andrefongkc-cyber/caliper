@@ -1,4 +1,4 @@
-Status: 3D-first on `shared/v2-3d-sketching` (local, not pushed; ADR 0015 Proposed): the app starts in 3D on a part with its planes, sketches are edited in 3D facing their plane with Finish and Cancel, and the 2D tab is a test sketch with its own file; next: Andre tries it, then Lucas's review of ADRs 0011 to 0015
+Status: 3D sketching part 2 (ADR 0016) on `shared/3d-sketching-2` (local, not pushed): drawing on a sketch's plane seen at up to 70°, a click picks a flat face of the part to sketch on, sketches on faces follow them; next: Andre tries it, then Lucas's review of `PlaneView`, the 70° gate, and the solid hiding the planes from picks
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,15 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## 3D sketching part 2: at an angle, and on faces (branch `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
+
+[ADR 0016](../adr/0016-sketching-at-any-angle-and-on-faces.md) (Proposed). The details, with the engine side and the numbers, are in [core.md](core.md#3d-sketching-part-2-in-the-app-branch-shared3d-sketching-2-stacked-on-contractssketch-on-faces-local-not-pushed).
+
+- [x] The window places every sketch by its frame: a sketch on a face opens facing it, follows it, is named for it, and shows failing when its face is gone (`tests/app/test_face_sketches.py`)
+- [x] Drawing at an angle up to 70° (`transform.PlaneView`, `canvas.mapping`, `Backdrop.drawable`): drawing, picking, snapping, glyphs, the slanted grid, and box selection through `entities_in_polygon`; facing and in 2D the canvas is what it was (`tests/app/test_angled_sketching.py`, `test_viewport_math.py`)
+- [x] Picking a flat face in the 3D view (`Scene.solid_hit`, `face_at`), tinted; double-click sketches on it; the Extrude form's Direction
+- [x] Claude Desktop's sketch on a face, reviewed facing it (`tests/app/test_mcp.py`)
 
 ## 3D-first: sketching on the part's planes (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
 

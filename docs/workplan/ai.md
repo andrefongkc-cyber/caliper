@@ -1,4 +1,4 @@
-Status: 3D-first on `shared/v2-3d-sketching` (local, not pushed): Claude works on the tab the user is in, and its first drawing in a part with no sketch makes one on Top; N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: that run
+Status: 3D sketching part 2 on `shared/3d-sketching-2` (local, not pushed): Claude makes sketches on a plane or a flat face (`create_sketch`) and lists an extrude's faces (`inspect_faces`); N9's Claude Desktop run still open (test 005, prompt ready), N11 deferred by decision; next: a Claude Desktop run that pockets a face, then N9
 
 # AI workplan
 
@@ -7,6 +7,16 @@ The assistant: a model that understands a request and does it through Caliper's 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Picking this up in a fresh session.** Everything is on `main`: the assistant (#32), MCP (#34), and the stress-test fixes (#35); 1138 passed, 16 skipped. Offline: `uv run pytest tests/ai tests/app/test_mcp.py tests/app/test_assistant.py`. With Claude Desktop: [docs/mcp.md](../mcp.md). Direct API: `uv sync --extra ai`, `ANTHROPIC_API_KEY` in your shell, `CALIPER_ASSISTANT=claude uv run python -m caliper.app`.
+
+## 3D sketching part 2, the AI side (branch `shared/3d-sketching-2`, 2026-10-03)
+
+[ADR 0016](../adr/0016-sketching-at-any-angle-and-on-faces.md): Claude gets what the window gets (invariant 5).
+
+- [x] `create_sketch` is a tool (only `create_check` isn't, C-1): `plane` is a plane or a face (`{"feature", "face"}`, ADR 0014's names in the schema); after it, drawing that names no sketch goes into the new one, and the result gives its placement
+- [x] `inspect_faces(extrude)`: the faces a sketch can sit on, each with its origin, axes, and normal; read-only over MCP
+- [x] `create_extrude`'s `reversed` described; the instructions (`agent.py`, `mcp_server.py`) and `docs/mcp.md` updated
+- [x] Tests: `tests/ai/test_sketches.py` (faces listed, a sketch on the top cut into the part, a missing face refused), `test_tools.py`, `test_mcp_server.py` (31 tools)
+- [ ] A recorded Claude Desktop run on a face ("pocket the top face"): not made; only the synthetic tests above
 
 ## 3D-first, the AI side (branch `shared/v2-3d-sketching`, 2026-10-01)
 
