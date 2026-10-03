@@ -1,4 +1,4 @@
-Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): the kernel's parallel planes, reversed extrudes (schema 5), and sketches on faces done; next: picking and box-selection queries (D)
+Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): the kernel's parallel planes, reversed extrudes (schema 5), sketches on faces, and face picking and angled selection done; next: face planes against both kernels, a replay fixture, docs (E)
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -18,7 +18,10 @@ Andre asked for Onshape's two things: drawing on a sketch's plane with the view 
   - **Commands:** `CreateSketch` and a `ModifyEntity` of `plane` are refused unless the face is there now; a face sketch reads only an extrude before it, which `build_feature` checks, so also on load (`dependency.cycle`). `CreateExtrude.reversed` left as None is true for a cut from a face (`faces.default_reversed`). Deleting an extrude deletes the sketches on its faces through `graph.reads`.
   - **Failing:** a sketch whose face is gone fails on its own (`feature_error`, no kernel needed); only the extrudes that read it fail with it.
   - **Tests** (`tests/engine/test_faces.py`, 32): names and the axes rule (a property test); every face kind and which way it faces; pockets from the top and bottom, a boss on top and on a side, by volume; following depth and line edits, three deep; every refusal and dependency rule, on load too; the delete cascade and undo; what a moved face rebuilds (a counting kernel); placing with no kernel; saving and opening.
-- [ ] `face_at` and `entities_in_polygon`.
+- [x] **Picking a face and selecting at an angle** (contract: `Queries.face_at`, `Queries.entities_in_polygon`).
+  - `face_at(point, normal, tolerance)` (`faces.at`): the named flat face a point of the surface is on, with no kernel. A cap by its plane, its outward normal (within 0.5°), and the extrude's profile region (`profiles.contains`); a side by its plane, normal, and the segment over the depth. The latest extrude wins, as it made the surface there (a refilled pocket, a boss on a boss). Outlines are as each extrude made them: a later cut isn't seen, which picking can't tell apart from the mesh, since a hit is always on real surface.
+  - `entities_in_polygon(corners, crossing)`: a convex polygon on the sketch plane, for a box selection seen at an angle. An axis-aligned rectangle is handed to `entities_in_box`, so the two agree to the bit; anything else is tested edge by edge (window: each edge against the entity's farthest point out; crossing: Cyrus–Beck for lines, separating axes for rectangles, distance for circles, edge crossings within the sweep for arcs).
+  - **Tests:** `tests/engine/test_face_picking.py` (13: every face of a plate, holes, pockets, bosses, the latest winning, tolerances, every named face picked at its middle, nonsense input); `tests/engine/test_polygon_selection.py` (6, two of them property tests: a box's corners in any order give exactly `entities_in_box`; a sketch and its box turned together by any angle keep every decision that isn't on a boundary). Also run once with 2,000 examples each.
 - [ ] Face planes against both kernels' meshes; a replayed part sketched on its faces; docs.
 
 ## Performance V2.2 (branch `shared/performance-v2.2`, stacked on `shared/v2-3d-sketching`, 2026-10-02; local, not pushed)
