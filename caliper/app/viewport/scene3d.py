@@ -26,11 +26,10 @@ from caliper.contracts.document import (
     Point,
     Point2,
     Rectangle,
-    Sketch,
 )
 from caliper.contracts.kernel import Frame
 from caliper.contracts.queries import BoundingBox3, Mesh, Point3
-from caliper.engine import part
+from caliper.engine import faces, part
 
 PLANES = (Plane.XY, Plane.XZ, Plane.YZ)
 """In the order they're listed: Top, Front, Right."""
@@ -278,20 +277,20 @@ class Scene:
         return nearest[1] if nearest is not None else None
 
 
-def facing_camera(plane: Plane, center: Point2, scale: float) -> Camera:
-    """A camera looking straight at `plane` from its front, its x to the right and its y up,
-    with `center` (in the plane's own coordinates) in the middle of the view: what sketching
-    in 3D sees. The plane then maps to the screen as the 2D canvas maps a sketch."""
-    frame = part.frame(plane)
+def facing_camera(frame: Frame, center: Point2, scale: float) -> Camera:
+    """A camera looking straight at the plane `frame` lies on, from its front (the side its
+    normal points to), its x to the right and its y up, with `center` (in the plane's own
+    coordinates) in the middle of the view: what sketching in 3D sees. The plane then maps to
+    the screen as the 2D canvas maps a sketch. A sketch's frame has a level x (ADR 0016), so
+    no roll is needed."""
     back = _cross(frame.x, frame.y)
     yaw = math.degrees(math.atan2(-frame.x.x, frame.x.y))
     pitch = math.degrees(math.asin(max(-1.0, min(1.0, back.z))))
     return Camera(target=_on(frame, center), yaw=yaw, pitch=pitch, scale=scale)
 
 
-def on_plane(plane: Plane, p: Point3) -> Point2:
-    """`p` seen along the plane's normal: its coordinates in the plane."""
-    frame = part.frame(plane)
+def on_plane(frame: Frame, p: Point3) -> Point2:
+    """`p` seen along the frame's normal: its coordinates in the plane."""
     o = frame.origin
     d = Point3(x=p.x - o.x, y=p.y - o.y, z=p.z - o.z)
     return Point2(x=_dot(d, frame.x), y=_dot(d, frame.y))
@@ -321,15 +320,17 @@ def outline(entity: object) -> list[Point2]:
 
 
 def _curves(document: Document) -> list[Curve]:
-    planes = {f.id: f.plane for f in document.features if isinstance(f, Sketch)}
+    """Every sketch's geometry where it is in the part: on its plane, or on its face (ADR
+    0016). A sketch whose face is gone isn't drawn."""
+    frames = faces.sketch_frames(document)
     found = []
     for id in sorted(document.entities):
         entity = document.entities[id]
         points = outline(entity)
         sketch = getattr(entity, "sketch", None)
-        if not points or sketch not in planes:
+        frame = frames.get(sketch) if sketch is not None else None
+        if not points or not isinstance(frame, Frame):
             continue
-        frame = part.frame(planes[sketch])
         found.append(
             Curve(
                 sketch=sketch,
