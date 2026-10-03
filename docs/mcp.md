@@ -88,6 +88,12 @@ Claude works on the tab you're in ([ADR 0015](adr/0015-sketching-in-3d-from-the-
 - **3D:** the part. Drawing goes into the sketch you have open. In a part with no sketch yet,
   Claude's first drawing makes one on the Top plane. A proposal is shown facing the sketch it
   draws in, over the part; Accept leaves that sketch open. Claude can extrude too.
+- **Sketches on faces** ([ADR 0016](adr/0016-sketching-at-any-angle-and-on-faces.md)):
+  `create_sketch` starts a sketch on a plane (`"xy"`, `"xz"`, `"yz"`) or on a flat face of an
+  extrude, such as `{"feature": "e3", "face": "end"}` for its top, and Claude's drawing then
+  goes into it. `inspect_faces` lists an extrude's faces and where each is. A sketch on a face
+  follows it when the extrude changes, and a cut from a face goes into the part unless
+  `reversed` says otherwise.
 
 Switching tabs while a proposal is pending drops it, as opening another document does.
 
