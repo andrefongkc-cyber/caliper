@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-6, the picking grid
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-6 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-7, file loading
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -95,7 +95,17 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   - **What would pay** is in the redundancy check (Perf-5) and Newton's linear algebra (architectural, A2).
   - **Kept:** `tests/engine/constraints/test_solver_output.py`, which pins the fast solver's exact output: every document after every command, and every outcome, of the three recorded sessions, the 150-line chain, and the grid, mirror, and star repeats. N1 pins only the reference solver. Perf-5 is held to it.
   - **Found on the way:** this Mac throttles under sustained single-core load. The same stress-plate replay ran 591, 597, 600, 637, 718, 960, then 1,774 ms in one process, with flat memory (55 MB) and identical call counts, and 685 ms again after a 20 s pause. It isn't Caliper. Small before/after differences need pauses or interleaved runs to be believed.
-- [ ] Perf-6: incremental picking grid
+- [x] **Perf-6, the picking grid made from the last one** (`caliper/engine/spatial.py`). The first pointer move after any edit built the new document's grid from scratch, which at 10,000 entities took 7.5 ms of a 10 ms move. Now `Grid.derived` makes it from the last grid built: the cells keep their size, the entities a command changed (by identity, as everything else finds them) leave their old cells and enter new ones, and the cells it touches are copied first, so the last grid still answers for the document before (undo). It builds afresh when more than 64 entities changed, or more than an eighth of the sketch, or the changed ones no longer fit the cells. A lock guards the cache: the assistant's worker thread asks too.
+  - **Tests** (`tests/engine/test_spatial.py`): a grid made from the last one answers `near` and `overlapping` exactly as a fresh one, over random moves, deletes, additions, and undos, and the last grid is left as it was; one move in 500 entities builds nothing, 399 in 500 build afresh.
+
+  | | Perf-0 | Perf-6 |
+  |---|---|---|
+  | First move after an edit, 10,000 entities | 9.97 ms, 1 grid build | 2.6–3.9 ms, 0.08 (1 in 12 edits) |
+  | First move after an edit, 2,000 | 1.86 ms | 0.54–0.59 ms |
+  | The grid alone, 10,000 | 7.46 ms built | 0.50 ms made from the last (0.38 of it finding what changed) |
+  | Moves after the first | unchanged | unchanged |
+
+  The plan's ~1 ms at 10k isn't met: what's left of the first move is the canvas laying out labels and glyphs for the new document, not picking.
 - [ ] Perf-7: per-class decoders for file loading
 - [ ] Perf-5: redundancy check rank update (C-6), spike-gated
 - [ ] Perf-8: the 3D render path on the current renderer
