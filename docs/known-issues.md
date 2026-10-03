@@ -59,21 +59,26 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   app for the parts it can build, a decision for ADR 0001's successor rather than a quiet
   default.
 
-### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
+### C-6. An edit that moves a large, tightly joined shape factorizes again what it moved
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the
-  clusters it touches, and a redundancy check carries on from the last one's factorization up
-  to the first row that changed (see Recently fixed). But an edit that moves geometry changes
-  the rows of everything it moved, so where every row moves the check starts again: each
-  constraint on the stress plate's 12-point star (24 lines, one cluster) still takes about
-  29 ms.
+  clusters it touches, and a redundancy check carries on from whichever of the last few
+  checks' factorizations starts with the most of the same rows, up to the first row that
+  changed: across geometry newly joining the cluster, wherever its columns fall, and across a
+  check of another cluster in between (see Recently fixed). But an edit that moves geometry
+  changes the rows of everything it moved, and those are factorized again.
 - **Where:** `caliper/engine/constraints/sketch.py`, `_redundancy`, `_extended`, and
   `_truncated`; called from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
 - **Fix, if it matters:** update the factorization in place for rows that changed (a rank
-  update) instead of redoing them, or solve only the part of a cluster a command can move.
-- **Measured 2026-09-30:** the carry-on costs where it can't carry on. A chain of 150
-  constraints (`bench/perf.py`, `synthetic/many-constraints/chain-150`) takes 1.5 ms a call at
-  the median, against 0.5 ms before f4a9e92, and 2.5 s for all 299 calls against 2.3 s; the
-  same change took a 12-point star's circular pattern from 2.35 s to 0.33 s.
+  update), or check only the part of a cluster a command can move. Neither gives the bits a
+  fresh factorization gives, so either would change which near-threshold relations are
+  accepted; Performance V2.2 keeps the solver bit-identical (Andre, 2026-10-01), so it's a
+  decision of its own.
+- **Measured 2026-10-02 (Performance V2.2, Perf-5):** the earlier diagnosis was wrong. The
+  12-point star's checks didn't start again because rows moved (they hadn't), but because
+  each copy's columns were inserted in the middle of the order, and a 150-constraint chain's
+  because each new line's own cluster was checked between two checks of the chain. Carrying
+  on across both: the star's circular pattern 333 → 188 ms, the chain's 299 calls 2.6 → 1.0 s
+  (median 1.6 → 0.5 ms, p95 35 → 12 ms).
 
 ### C-16. A proposed extrude can't be seen before it's accepted
 - **What happens:** a proposal is drawn as dashed geometry on the sketch it changes. An
@@ -118,6 +123,13 @@ In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
   stress plate pushed Accept off the card. More than two are counted in one line.
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
+
+On `shared/performance-v2.2` (Performance V2.2, stacked on the 3D sketching, not pushed):
+
+- C-6, mostly: a redundancy check carries on across columns inserted anywhere (geometry
+  joining the cluster) and from any of the last four checks (another cluster's in between),
+  still to the bit: the star's pattern 333 → 188 ms, the chain 2.6 → 1.0 s. Edits that move
+  a whole cluster still factorize it again (above).
 
 On `shared/v2-3d-sketching` (ADR 0015):
 
