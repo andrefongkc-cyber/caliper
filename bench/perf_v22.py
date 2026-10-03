@@ -495,7 +495,7 @@ def pointer_after_edit() -> list[object]:
             QApplication.sendEvent(canvas, event)  # type: ignore[arg-type]
 
         first, steady, runs = [], [], 12
-        with counting(spatial, "Grid") as grids:
+        with counting(spatial.Grid, "__init__") as grids:  # full builds
             for k in range(runs):
                 window.session.execute(  # type: ignore[attr-defined]
                     ModifyEntity(id=rectangle, changes={"width": 14.0 + (k % 2)})

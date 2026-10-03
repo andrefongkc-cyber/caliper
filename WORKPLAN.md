@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 done, Perf-4 not landed (measured); next: Perf-6. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-6 done, Perf-4 not landed (measured); next: Perf-7. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -36,7 +36,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] Perf-2: one command-palette refresh per event-loop turn: selection change 6.6 → 2.7 ms (17 refilters → 1), tab round trip → 18.8 ms, startup 25 → 16 ms
     - [x] Perf-3: History adds and dims rows instead of rebuilding (a change after 2,000: 8.9 → 1.1 ms); one Checks refresh per change; Part panel skips same-content rebuilds; solid volume and box kept per solid (3D sketch edit: 3 volume calls → 0)
     - [x] Perf-4: investigated, not landed. Measured, the planned steps can't reach −20% (evaluation is 25% of the stress plate's solve, compiling 3–4%; the point memo and the ±1 fast path gave nothing measurable); the fast solver's exact output is now pinned for Perf-5
-    - [ ] Perf-6: incremental picking grid (first move after an edit at 10k: 10 ms)
+    - [x] Perf-6: the picking grid made from the last one: first move after an edit at 10k 10.0 → 2.6–3.9 ms (the grid 7.5 → 0.5 ms), at 2k 1.9 → 0.6 ms
     - [ ] Perf-7: per-class decoders for file loading (10k entities: 196 ms)
     - [ ] Perf-5: redundancy check rank update (C-6), spike-gated (star-12: 333 ms)
     - [ ] Perf-8: the 3D render path on the current renderer (2,604 triangles: 22 ms a frame)
