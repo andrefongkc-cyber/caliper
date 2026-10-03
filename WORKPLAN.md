@@ -1,4 +1,4 @@
-Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): kernel, reversed extrudes, sketches on faces done; next: picking and box queries. Performance V2.2 done on `shared/performance-v2.2`; V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: 3D sketching part 2 (ADR 0016): contract and engine done on `contracts/sketch-on-faces` (local, not pushed); next: the canvas at an angle and picking faces in the app on `shared/3d-sketching-2`. Performance V2.2 done on `shared/performance-v2.2`; V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -44,7 +44,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] ADR 0016; the analytic kernel's parallel planes; `Extrude.reversed` and file schema 5
     - [x] Sketches on faces (contract and engine): `FaceRef`, placed from the extrude's inputs, following edits
     - [x] Picking a face and selecting at an angle: `face_at`, `entities_in_polygon`
-    - [ ] Face planes against both kernels, a replay fixture, docs
+    - [x] Face planes against both kernels' meshes, a replay fixture of a part modelled on its faces, docs
     - [ ] The canvas at an angle, picking faces in the app, Claude's `create_sketch`, benchmarks (`shared/3d-sketching-2`)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)

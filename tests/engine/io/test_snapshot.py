@@ -288,7 +288,7 @@ BORN_AT_SCHEMA_4 = {
 
 def test_every_schema_3_golden_is_kept_for_the_migration() -> None:
     goldens = {*FIXTURES.glob("*.caliper"), *(ROOT / "bench" / "cases").glob("*/expected.caliper")}
-    assert {golden(old) for old in SCHEMA_3} == goldens - BORN_AT_SCHEMA_4
+    assert {golden(old) for old in SCHEMA_3} == goldens - BORN_AT_SCHEMA_4 - BORN_AT_SCHEMA_5
 
 
 @pytest.mark.parametrize("old", SCHEMA_3, ids=lambda p: f"{p.parent.name}/{p.stem}")
@@ -344,7 +344,7 @@ def test_migration_3_leaves_a_malformed_document_to_the_decoder() -> None:
 
 V4 = FIXTURES / "v4"
 SCHEMA_4 = sorted(V4.glob("*.caliper")) + sorted((V4 / "bench").glob("*.caliper"))
-BORN_AT_SCHEMA_5: set[Path] = set()
+BORN_AT_SCHEMA_5: set[Path] = {FIXTURES / "face-sketches.caliper"}
 """Goldens first written at schema 5, which have no older version."""
 
 
