@@ -171,7 +171,12 @@ def test_the_sketch_over_the_part_is_drawn_as_over_the_scene_painted_in_place(
 
 
 def solid_per_point(
-    scene: Scene, painter: QPainter, camera: Camera, width: float, height: float
+    scene: Scene,
+    painter: QPainter,
+    camera: Camera,
+    width: float,
+    height: float,
+    tinted: frozenset[int] = frozenset(),
 ) -> None:
     """`Scene._solid` as it was before Perf-8: every vertex and crease end projected with
     `Camera.project`, and each face's light from `facing`, the axes worked out each time."""
