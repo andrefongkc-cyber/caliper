@@ -13,6 +13,7 @@ from caliper.contracts.document import DistanceDimension
 BENCH = Path(__file__).resolve().parent.parent / "bench"
 sys.path.insert(0, str(BENCH))
 
+import perf_faces  # noqa: E402
 import perf_v22  # noqa: E402
 
 
@@ -39,5 +40,13 @@ def test_the_large_sketch_is_the_size_asked_for_with_a_dimension_in_twenty() -> 
 
 
 def test_every_case_group_is_named_once() -> None:
-    names = [name for name, _ in perf_v22.cases()]
+    names = [name for name, _ in (*perf_v22.cases(), *perf_faces.cases())]
     assert len(names) == len(set(names))
+
+
+def test_the_face_chain_rebuilds_what_a_moved_face_carries() -> None:
+    """ADR 0016's bench: editing the plate's depth moves all ten bosses, the last sketch one."""
+    result = perf_faces.face_chain()
+    metrics = result.metrics  # type: ignore[attr-defined]
+    assert metrics["edit_first_prisms"] == 11
+    assert metrics["edit_last_prisms"] == 1
