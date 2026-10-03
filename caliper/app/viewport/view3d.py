@@ -54,6 +54,8 @@ class View3D(QWidget):
         """Where a left press was, until it moves far enough to be an orbit."""
         self._tint: tuple[tuple[object, FaceRef], frozenset[int]] | None = None
         """The picked face's triangles, for the scene they were found in."""
+        self._seed: tuple[Scene, FaceRef, int] | None = None
+        """The triangle a click picked a face on, in the scene it was picked in."""
         self.setObjectName("view-3d")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(200, 150)
@@ -203,7 +205,11 @@ class View3D(QWidget):
         """What a click at (x, y) picks: a sketch, a flat face of the solid (ADR 0016), or a
         plane; the solid hides the planes behind it."""
         self.refresh()
-        return self.scene.pick(self.camera, self.width(), self.height(), x, y, faces=self._face_at)
+        found = self.scene.pick(self.camera, self.width(), self.height(), x, y, faces=self._face_at)
+        if isinstance(found, FaceRef):  # where it was hit: the tint floods out from there
+            hit = self.scene.solid_hit(self.camera, self.width(), self.height(), x, y)
+            self._seed = (self.scene, found, hit[3]) if hit is not None else None
+        return found
 
     def _face_at(self, point: Point3, normal: Point3) -> FaceRef | None:
         return self.session.queries.face_at(point, normal, FACE_TOLERANCE)
@@ -215,12 +221,16 @@ class View3D(QWidget):
         key = (self.scene, picked)
         if self._tint is not None and self._tint[0] == key:
             return self._tint[1]
-        frame = self.session.queries.plane_frame(picked)
-        found = (
-            frozenset()
-            if isinstance(frame, Error)
-            else self.scene.face_triangles(frame, picked, self._face_at)
-        )
+        seed = self._seed
+        if seed is not None and seed[0] is self.scene and seed[1] == picked:
+            found = self.scene.face_region(seed[2])
+        else:  # picked another way, or the part changed since: by name, triangle by triangle
+            frame = self.session.queries.plane_frame(picked)
+            found = (
+                frozenset()
+                if isinstance(frame, Error)
+                else self.scene.face_triangles(frame, picked, self._face_at)
+            )
         self._tint = (key, found)
         return found
 

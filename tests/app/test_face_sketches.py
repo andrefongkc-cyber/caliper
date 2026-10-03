@@ -232,3 +232,18 @@ def test_double_clicking_the_top_sketches_on_it_and_a_cut_goes_in(
     found = window.session.queries.solid_properties()
     assert not isinstance(found, Error)
     assert found.volume == pytest.approx(60_000.0 - 800.0)
+
+
+def test_a_clicked_faces_tint_floods_out_to_the_triangles_named_for_it(
+    window: MainWindow,
+) -> None:
+    """Picked by a click, the tint floods out from the triangle hit (fast); picked another way,
+    each triangle is named. Both find the same triangles."""
+    extrude = shown_part(window)
+    view = window.view3d
+    picked = view.pick(*pixel(window, Point3(x=60.0, y=25.0, z=10.0)))
+    assert picked == FaceRef(feature=extrude, face="end")
+    flooded = view._tinted(picked)
+    frame = window.session.queries.plane_frame(picked)
+    assert flooded == view.scene.face_triangles(frame, picked, view._face_at)  # type: ignore[arg-type]
+    assert flooded
