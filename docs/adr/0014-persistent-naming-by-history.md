@@ -72,6 +72,11 @@ Two details mattered:
     it fails, with the reason.
   - **Found more than once** (a split): it fails too, as ambiguous. It is never resolved by a
     guess.
+> **Changed by [ADR 0016](0016-sketching-at-any-angle-and-on-faces.md)** (Proposed): the first reference to a face is a sketch's,
+> `FaceRef(feature, face)` with these names. Where the face is comes from the extrude's
+> inputs, not from the kernel, so a face a later cut removes isn't noticed; kernel naming
+> waits for edges (fillets).
+
 - **Nothing is built yet.** No feature refers to a face or an edge, so no `FaceRef` is in the
   contract and no naming code is in `caliper/`. The first feature that needs one adds it:
   - a `Kernel` method that returns a solid's faces and edges by name;

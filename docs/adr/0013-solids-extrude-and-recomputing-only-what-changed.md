@@ -54,6 +54,8 @@ first solid needs.
 
 - **The feature:** `Extrude(id, sketch, depth, operation, ids)`, with depth more than 0, along
   the sketch plane's normal.
+  > **Changed by [ADR 0016](0016-sketching-at-any-angle-and-on-faces.md)** (Proposed): or
+  > against it, with `reversed`; a sketch can be on a face, and fails when the face is gone.
 - **What it sweeps:** the profile is the geometry in `ids`, or with none given, the sketch's
   geometry that isn't construction geometry.
 - **One solid per part:** `ADD` joins the extrude on, and the first extrude must add.
