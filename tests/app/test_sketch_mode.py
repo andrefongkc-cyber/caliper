@@ -33,7 +33,7 @@ from caliper.contracts.document import (
     Sketch,
 )
 from caliper.contracts.queries import Point3
-from caliper.engine import features, geometry
+from caliper.engine import faces, features, geometry, part
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from tests.app.parts import plate, sketch_on
 
@@ -457,13 +457,18 @@ def test_a_proposal_is_drawn_only_where_it_lands_in_the_sketch_being_edited(
     assert 5.0 not in radii  # not the first sketch's, on another plane
 
 
-def test_the_facing_camera_looks_straight_at_each_plane() -> None:
-    """Right is the plane's x and up its y, so the plane reads as a sketch does."""
-    for plane, right, up in (
-        (Plane.XY, (1, 0, 0), (0, 1, 0)),
-        (Plane.XZ, (1, 0, 0), (0, 0, 1)),
-        (Plane.YZ, (0, 1, 0), (0, 0, 1)),
+def test_the_facing_camera_looks_straight_at_each_plane_and_face() -> None:
+    """Right is the plane's x and up its y, so the plane reads as a sketch does; a face's
+    frame (ADR 0016) is faced the same way, the bottom of a plate from below."""
+    bottom = faces.canonical(Point3(x=0.0, y=0.0, z=-1.0), Point3(x=0.0, y=0.0, z=0.0))
+    side = faces.canonical(Point3(x=0.6, y=-0.8, z=0.0), Point3(x=3.0, y=0.0, z=0.0))
+    for frame, right, up in (
+        (part.frame(Plane.XY), (1, 0, 0), (0, 1, 0)),
+        (part.frame(Plane.XZ), (1, 0, 0), (0, 0, 1)),
+        (part.frame(Plane.YZ), (0, 1, 0), (0, 0, 1)),
+        (bottom, (1, 0, 0), (0, -1, 0)),
+        (side, (0.8, 0.6, 0), (0, 0, 1)),
     ):
-        r, u, _ = facing_camera(plane, Point2(x=0, y=0), 1.0).axes()
+        r, u, _ = facing_camera(frame, Point2(x=0, y=0), 1.0).axes()
         assert (r.x, r.y, r.z) == pytest.approx(right, abs=1e-12)
         assert (u.x, u.y, u.z) == pytest.approx(up, abs=1e-12)

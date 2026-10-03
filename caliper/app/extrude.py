@@ -22,11 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from caliper.app.panels.features import titles
+from caliper.app.panels.features import place_name, titles
 from caliper.app.properties import display_number, parse_number
 from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
-from caliper.app.viewport.scene3d import PLANE_NAMES
 from caliper.contracts.commands import Applied, CreateExtrude
 from caliper.contracts.document import EntityId, ExtrudeOperation, Geometry, Sketch
 
@@ -62,7 +61,9 @@ class ExtrudeForm(QFrame):
         form.setHorizontalSpacing(SPACE.l)
         form.setVerticalSpacing(SPACE.s)
         named = titles(document.features).get(sketch, "") if sketch is not None else ""
-        where = f"{named} ({sketch}), {PLANE_NAMES[plane]}" if plane is not None else "None"
+        where = (
+            f"{named} ({sketch}), {place_name(document, plane)}" if plane is not None else "None"
+        )
         form.addRow("Sketch", QLabel(where))
         form.addRow(
             "Profile",

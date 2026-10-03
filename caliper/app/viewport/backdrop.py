@@ -20,7 +20,8 @@ from caliper.app import theme
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import facing_camera, on_plane
 from caliper.app.viewport.transform import ViewTransform
-from caliper.contracts.document import EntityId, Plane, Point2
+from caliper.contracts.document import EntityId, FaceRef, Plane, Point2
+from caliper.contracts.queries import Frame
 
 Painter = Callable[..., None]
 """`View3D.paint_scene`: (painter, camera, width, height, **options)."""
@@ -30,7 +31,10 @@ Shows = Callable[[EntityId | None], object]
 
 @dataclass(slots=True)
 class Backdrop:
-    plane: Plane
+    plane: Plane | FaceRef
+    """Where the sketch sits: one of the part's planes, or a face (ADR 0016)."""
+    frame: Frame
+    """Where that is now: it moves when the face does."""
     sketch: EntityId | None
     """The sketch the canvas draws, left out of the scene while the view faces it."""
     paint_scene: Painter
@@ -49,7 +53,7 @@ class Backdrop:
         if self.free is not None:
             return self.free
         center = view.to_model(width / 2, height / 2)
-        return facing_camera(self.plane, center, view.scale)
+        return facing_camera(self.frame, center, view.scale)
 
     def paint(self, painter: QPainter, view: ViewTransform, width: float, height: float) -> None:
         self.paint_scene(
@@ -94,14 +98,14 @@ class Backdrop:
     def face(self, view: ViewTransform, width: float, height: float) -> None:
         """Look straight at the plane again, from where the free camera was looking."""
         if self.free is not None:
-            look(view, self.plane, self.free, width, height)
+            look(view, self.frame, self.free, width, height)
             self.free = None
 
 
-def look(view: ViewTransform, plane: Plane, camera: Camera, width: float, height: float) -> None:
-    """Set the canvas's `view` to face `plane` at `camera`'s scale, centred where `camera`
-    looks: the target seen along the plane's normal."""
-    center: Point2 = on_plane(plane, camera.target)
+def look(view: ViewTransform, frame: Frame, camera: Camera, width: float, height: float) -> None:
+    """Set the canvas's `view` to face the plane of `frame` at `camera`'s scale, centred where
+    `camera` looks: the target seen along the plane's normal."""
+    center: Point2 = on_plane(frame, camera.target)
     view.scale = camera.scale
     view.origin_x = width / 2 - center.x * camera.scale
     view.origin_y = height / 2 + center.y * camera.scale
