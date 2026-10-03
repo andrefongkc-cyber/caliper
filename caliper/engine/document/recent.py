@@ -3,6 +3,9 @@
 Documents are immutable (ADR 0002), so a value worked out for one never goes stale, and holding
 the document keeps its id from being reused. The next document's value is usually worked out
 from the latest one's: a command replaces a few entities and shares the rest.
+
+`ByIdentity` keeps values by the very objects they were worked out from, for the part's
+solids and faces (`features`, `faces`); it moved here from `features` with ADR 0016.
 """
 
 import threading
@@ -40,6 +43,38 @@ class Recent[V]:
         with self._lock:
             self._entries[id(document)] = (document, value)
             self._entries.move_to_end(id(document))
+            while len(self._entries) > self._size:
+                self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+
+class ByIdentity[V]:
+    """The last few values worked out, each kept with the very objects it was worked out from,
+    so a key matches only those objects, not equal ones made since, and an object's id can't
+    be reused while its entry is held."""
+
+    def __init__(self, size: int) -> None:
+        self._size = size
+        self._entries: OrderedDict[tuple[int, ...], tuple[tuple[object, ...], V]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple[object, ...]) -> V | None:
+        ids = tuple(map(id, key))
+        with self._lock:
+            entry = self._entries.get(ids)
+            if entry is None or any(a is not b for a, b in zip(entry[0], key, strict=True)):
+                return None
+            self._entries.move_to_end(ids)
+            return entry[1]
+
+    def put(self, key: tuple[object, ...], value: V) -> None:
+        ids = tuple(map(id, key))
+        with self._lock:
+            self._entries[ids] = (key, value)
+            self._entries.move_to_end(ids)
             while len(self._entries) > self._size:
                 self._entries.popitem(last=False)
 

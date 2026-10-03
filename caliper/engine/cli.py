@@ -24,6 +24,7 @@ from caliper.contracts.document import (
     Entity,
     Expectation,
     Extrude,
+    FaceRef,
     PartFeature,
     Point2,
     RadialDimension,
@@ -235,7 +236,10 @@ def _solid(queries: Queries) -> str:
 def _feature(feature: PartFeature) -> str:
     match feature:
         case Sketch(plane=plane):
-            return f"{feature.id} sketch on {plane.value}"
+            where = (
+                f"{plane.face} of {plane.feature}" if isinstance(plane, FaceRef) else plane.value
+            )
+            return f"{feature.id} sketch on {where}"
         case Extrude(sketch=sketch, depth=depth, operation=operation, reversed=back):
             way = ", reversed" if back else ""
             return f"{feature.id} extrude of {sketch}, {depth!r} mm, {operation.value}{way}"

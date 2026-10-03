@@ -22,14 +22,17 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     Extrude,
+    FaceRef,
     Feature,
     Geometry,
     Line,
+    Plane,
     Point,
     Point2,
     RadialDimension,
     Rectangle,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.kernel import Kernel, KernelError, Shape
@@ -41,13 +44,14 @@ from caliper.contracts.queries import (
     DimensionType,
     Distance,
     Expectation,
+    Frame,
     Mesh,
     Metric,
     SolidProperties,
     SolveStatus,
     Suggestion,
 )
-from caliper.engine import features, geometry, part, profiles
+from caliper.engine import faces, features, geometry, part, profiles
 from caliper.engine.commands.validation import (
     constraint_errors,
     feature_errors,
@@ -55,6 +59,7 @@ from caliper.engine.commands.validation import (
     normalize_float,
     normalize_id,
     normalize_ids,
+    normalize_place,
     normalize_point,
     normalize_ref,
     normalize_refs,
@@ -329,12 +334,26 @@ class DocumentQueries:
             return Error(code=e.code, message=str(e), field="ids")
 
     def feature_error(self, id: EntityId) -> Error | None:
-        if part.feature(self._document, id) is None:
+        found = part.feature(self._document, id)
+        if found is None:
             return None
+        if isinstance(found, Sketch):  # placed without a kernel (ADR 0016)
+            placed = faces.sketch_frames(self._document).get(id)
+            return placed if isinstance(placed, Error) else None
         kernel = self._kernel()
         if kernel is None:
             return None  # nothing is wrong with the feature; there's nothing to build it with
         return features.solids(self._document, kernel)[id].error
+
+    def plane_frame(self, plane: Plane | FaceRef) -> Frame | Error:
+        errors: list[Error] = []
+        place = normalize_place(plane, "plane", errors)
+        if errors:
+            return errors[0]
+        return faces.frame(self._document, place)
+
+    def faces(self, id: EntityId) -> tuple[FaceRef, ...] | Error:
+        return faces.names(self._document, id)
 
     def _solid(self, ids: Sequence[EntityId]) -> tuple[Kernel, Shape] | Error:
         errors: list[Error] = []

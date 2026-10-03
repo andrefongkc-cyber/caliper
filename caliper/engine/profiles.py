@@ -560,6 +560,15 @@ def bounds(loop: Loop) -> BoundingBox:
     )
 
 
+def signed_area(walked: list[Edge]) -> float:
+    """The area inside a loop, positive when it runs counter-clockwise (∮ x dy)."""
+    origin = Point2(x=0.0, y=0.0)
+    return sum(
+        (_line_moments(e, origin) if e.center is None else _arc_moments(e, origin))[0]
+        for e in walked
+    )
+
+
 def _moments(walked: list[Edge], origin: Point2) -> list[float]:
     """∫∫ of 1, x, y, y², x², xy over the loop's region, about `origin`, counter-clockwise
     whichever way the loop runs: Green's theorem, edge by edge."""
