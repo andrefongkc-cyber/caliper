@@ -185,7 +185,10 @@ def _built(
             if isinstance(found, Error):
                 return found
             face = kernel.make_face(found.outer, found.holes)
-            prism = kernel.extrude(face, part.frame(sketch.plane), extrude.depth)
+            on = part.frame(sketch.plane)
+            if extrude.reversed:
+                on = part.moved(on, -extrude.depth)
+            prism = kernel.extrude(face, on, extrude.depth)
             _PRISMS.put((kernel, extrude, sketch, *geometry), prism)
         if before is None:
             if extrude.operation is ExtrudeOperation.REMOVE:

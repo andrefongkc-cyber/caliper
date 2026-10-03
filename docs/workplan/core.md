@@ -1,9 +1,20 @@
-Status: Performance V2.2 done on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 landed, Perf-4 investigated and not landed; final validation recorded; next: Andre's and Lucas's review (after PR #56)
+Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): the analytic kernel's parallel planes and reversed extrudes (schema 5) done; next: sketches on faces (`FaceRef`, `engine/faces.py`)
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## 3D sketching part 2: at an angle, and on faces (ADR 0016; branch `contracts/sketch-on-faces`, stacked on `shared/performance-v2.2`, 2026-10-03; local, not pushed)
+
+Andre asked for Onshape's two things: drawing on a sketch's plane with the view turned away from it, and a sketch on a flat face of the part that follows the face. Decided with him: the face is named by history (ADR 0014's names) and placed from its extrude's inputs, with no kernel; drawing works up to 70° from facing; Claude gets the same. Plan: P0+P1 (contract, engine) here, then P2–P5 (the canvas at an angle, picking faces, Claude, benchmarks) on `shared/3d-sketching-2`. Each contract change lands with the engine that uses it, so every commit is green; Lucas reviews the contract diffs commit by commit.
+
+- [x] **ADR 0016** (Proposed), with pointers in ADRs 0011, 0013, 0014, and 0015.
+- [x] **The analytic kernel on parallel planes** (`fake_kernel.py`, `profiles.extent`): a prism on a plane moved along another's normal, or turned over (a bottom face), is seen in the other's coordinates, and a cut splits a piece into layers. So pockets from a top or bottom face, slots, and holes through are exact without OCCT; on one plane it is what it was. The 3D box is exact on any plane. Conformance on both kernels against formulas, including a property test of rectangular pockets at any depth from above or below.
+- [x] **`Frame` moved to the queries; `Extrude.reversed`; file schema 5.** A reversed extrude is the same profile on its plane moved back by the depth, so the kernel is unchanged. `CreateExtrude.reversed` left as None is false until sketches on faces exist. The 4 → 5 migration adds `"reversed": false`; the 17 schema-4 goldens are kept in `tests/engine/fixtures/v4/` and load byte for byte as the engine writes them now. The solver's pinned output (Perf-4's test) is re-pinned on the documents alone, without the file header: with the header's version put back, every digest was the old one.
+- [ ] Sketches on faces: `FaceRef`, the face errors, `plane_frame` and `faces`, `engine/faces.py`, dependencies, extrudes from faces.
+- [ ] `face_at` and `entities_in_polygon`.
+- [ ] Face planes against both kernels' meshes; a replayed part sketched on its faces; docs.
 
 ## Performance V2.2 (branch `shared/performance-v2.2`, stacked on `shared/v2-3d-sketching`, 2026-10-02; local, not pushed)
 

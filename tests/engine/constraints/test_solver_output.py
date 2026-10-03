@@ -10,6 +10,10 @@ anywhere fails here.
 Pinned on macOS before Perf-4 (`shared/performance-v2.2` at 0f451cb). Arcs may differ across
 platforms in the last bits (ADR 0008); if Linux CI gives another digest for that reason, pin
 that one beside it per platform, as `test_numerics.py` says for N1, rather than loosening this.
+
+Re-pinned at file schema 5 (ADR 0016) on the documents alone, without the file's header: with
+the header's version put back to 4, every digest was the one pinned before, so the solver's
+output didn't change, only the file's version.
 """
 
 import hashlib
@@ -31,8 +35,8 @@ from caliper.contracts.commands import (
 )
 from caliper.contracts.document import ConstraintType, Document, EntityId, Feature, Point2, Ref
 from caliper.engine.commands.bus import Bus
-from caliper.engine.io import snapshot
-from caliper.engine.io.codec import COMMAND_KINDS, decode_command
+from caliper.engine.io import canonical
+from caliper.engine.io.codec import COMMAND_KINDS, decode_command, encode
 from tests.engine.constraints.test_numerics import SESSIONS
 
 
@@ -46,7 +50,7 @@ class Fingerprint:
                 self._hash.update(f"rejected {error.code} {error.ids} {error.message}\n".encode())
         else:
             self._hash.update(b"applied\n")
-        self._hash.update(snapshot.dumps(document).encode())
+        self._hash.update(canonical.dumps(encode(document)).encode())  # no file header
 
     def text(self, value: object) -> None:
         self._hash.update(json.dumps(value, sort_keys=True, default=str).encode())
@@ -229,20 +233,20 @@ def star() -> str:
 PINNED: dict[str, tuple[Callable[[], str], str]] = {
     "rectangle": (
         lambda: session("rectangle"),
-        "6532d64e8fbd43572cb2da383ef75fdc6aab237e34b63ffab1daa4eaee0fd15b",
+        "3bc8e9d8b47357915881a19962d120adab29343980df18ea4530187a775b80c6",
     ),
     "ball-bearing": (
         lambda: session("ball-bearing"),
-        "dba83d088eaa14329b40eb8141212cfcf0c9c8f23e3c112e1edf7c95d09e5095",
+        "11d18c2b1019f3ffd19149864d5b9b0c91c3ced52c4b8f56ed80c59581dbc747",
     ),
     "stress-plate-build": (
         lambda: session("stress-plate-build"),
-        "81561e590c747be08417148a8a26b04a833bdf4ba8882c162572c2125e851f72",
+        "3d085161dce2d3e660c06669a768300dd9e1b5f287057754a756f635d0a8c456",
     ),
-    "chain-150": (chain, "210044d75aade4641f799fa732ac596bbe2764640cdfd06531a73aea6f39c215"),
-    "grid-5x4": (grid, "e3b13530c98f3758d4cf2245523648d20f8171563f46d0ee960e42e94ac51b63"),
-    "half-star": (half_star, "15fdac176fbfff40c83439487376ba6ab13b2a9a61a5e8d1619cd45f7050fecf"),
-    "star-12": (star, "449908af3df2ac1a7158d0cc7405293647958e7209718b49d45b9377830bbb3e"),
+    "chain-150": (chain, "96fe12b1592c0286a7611edee9232fd8c1d38ba8bb63056e60d9da43b4eac21f"),
+    "grid-5x4": (grid, "e1509982057efcdc111ccfa0f09a817e75554275c500c9684c2a7e15abefc2c5"),
+    "half-star": (half_star, "142c0ff1ff3f046d7f92caf79dcf5bb56a6bf4d666e138d42705dded9e5a95c1"),
+    "star-12": (star, "0938c72c6da47c46c36aed6df786777258cb25f81f44134f605c45da6e2ecf3b"),
 }
 
 

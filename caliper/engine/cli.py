@@ -236,8 +236,9 @@ def _feature(feature: PartFeature) -> str:
     match feature:
         case Sketch(plane=plane):
             return f"{feature.id} sketch on {plane.value}"
-        case Extrude(sketch=sketch, depth=depth, operation=operation):
-            return f"{feature.id} extrude of {sketch}, {depth!r} mm, {operation.value}"
+        case Extrude(sketch=sketch, depth=depth, operation=operation, reversed=back):
+            way = ", reversed" if back else ""
+            return f"{feature.id} extrude of {sketch}, {depth!r} mm, {operation.value}{way}"
 
 
 def _fields(entity: Entity) -> str:
