@@ -92,6 +92,8 @@ sketch on XY. Byte-identical replay (invariant 4) holds for both tabs.
 - The part is made the way CAD users expect: plane, sketch, finish, extrude.
 - The sketcher isn't duplicated. The 3D tab edits with the same canvas, tools, snapping,
   dimensions, and constraints.
+- > **Changed by [ADR 0016](0016-sketching-at-any-angle-and-on-faces.md)** (Proposed): drawing works with the view turned up to
+  > 70° from the plane, and a sketch can be on a flat face of the part.
 - Drawing needs the view to face the sketch: an orbited view only looks. Drawing at any
   angle would need the canvas to map a slanted plane (an affine view in place of a scale
   and an offset), in its picking, snapping, and labels.
