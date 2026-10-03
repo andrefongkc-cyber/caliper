@@ -47,13 +47,14 @@
         "ids": [],
         "kind": "extrude",
         "operation": "add",
+        "reversed": false,
         "sketch": "e0"
       }
     ],
     "next_id": 5
   },
   "format": "caliper.document",
-  "schema_version": 4,
+  "schema_version": 5,
   "units": {
     "angle": "deg",
     "length": "mm"
