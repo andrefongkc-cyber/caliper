@@ -30,6 +30,7 @@ from caliper.contracts.document import (
     Extrude,
     Plane,
     Point2,
+    Rectangle,
     Sketch,
 )
 from caliper.contracts.queries import Point3
@@ -175,7 +176,37 @@ def test_finish_keeps_the_sketch_and_cancel_takes_back_all_of_it(window: MainWin
     assert window.session.document == kept
 
 
-def test_a_right_drag_orbits_away_and_n_faces_the_sketch_again(
+def test_a_right_drag_orbits_and_drawing_carries_on_at_an_angle(
+    window: MainWindow,
+    driver,  # type: ignore[no-untyped-def]
+    qtbot,  # type: ignore[no-untyped-def]
+) -> None:
+    """ADR 0016: turned up to 70° from the sketch's plane, the tools still draw on it; a click
+    lands where the pointer meets the plane."""
+    sketch_on(window)
+    canvas, backdrop = window.canvas, window.canvas.backdrop
+    assert backdrop is not None
+    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 300))
+    qtbot.mouseMove(canvas, QPoint(340, 280))
+    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(340, 280))
+    assert not backdrop.facing
+    assert backdrop.drawable
+    assert 0.34 < backdrop.tilt < 1.0
+    assert window.tool_actions["Rectangle"].isEnabled()
+    assert window.face_action.isEnabled()
+    assert "At an angle" in window.sketch_hint.text()
+    mapping = canvas.mapping
+    driver.tool("Rectangle")
+    a, b = mapping.to_widget(Point2(x=0, y=0)), mapping.to_widget(Point2(x=40, y=20))
+    qtbot.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(a[0]), round(a[1])))
+    qtbot.mouseMove(canvas, QPoint(round(b[0]), round(b[1])))
+    qtbot.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(b[0]), round(b[1])))
+    (drawn,) = window.session.document.entities.values()
+    assert isinstance(drawn, Rectangle)
+    assert (drawn.width, drawn.height) == pytest.approx((40.0, 20.0), abs=1.0)  # snapped
+
+
+def test_turned_too_far_from_the_sketch_only_looks_and_n_faces_it_again(
     window: MainWindow,
     driver,  # type: ignore[no-untyped-def]
     qtbot,  # type: ignore[no-untyped-def]
@@ -184,13 +215,12 @@ def test_a_right_drag_orbits_away_and_n_faces_the_sketch_again(
     canvas, backdrop = window.canvas, window.canvas.backdrop
     assert backdrop is not None
     before = (canvas.view.scale, canvas.view.origin_x, canvas.view.origin_y)
-    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 300))
-    qtbot.mouseMove(canvas, QPoint(340, 280))
-    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(340, 280))
-    assert not backdrop.facing
-    assert not window.tool_actions["Rectangle"].isEnabled()  # nothing to draw on, turned away
-    assert window.face_action.isEnabled()
-    assert "press N" in window.sketch_hint.text()
+    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 330))
+    qtbot.mouseMove(canvas, QPoint(300, 120))  # tilted by about 84°: nearly edge on
+    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 120))
+    assert not backdrop.drawable
+    assert not window.tool_actions["Rectangle"].isEnabled()
+    assert "Turned too far" in window.sketch_hint.text()
     driver.click(10, 10)
     driver.click(30, 20)
     assert dict(window.session.document.entities) == {}  # clicks turn the view, never draw

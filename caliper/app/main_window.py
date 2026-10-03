@@ -1023,10 +1023,11 @@ class MainWindow(QMainWindow):
         card.setVisible(shown)
 
     def _update_sketch_tools(self) -> None:
-        """Sketch tools act on the canvas: in 2D always, in 3D while it faces an open sketch."""
+        """Sketch tools act on the canvas: in 2D always, in 3D while an open sketch can be
+        drawn on, facing it or turned up to 70° from it (ADR 0016)."""
         backdrop = self._backdrop if self.mode == "3d" else None
         drawing = self.mode == "2d" or (
-            backdrop is not None and backdrop.facing and self.sketch_open is not None
+            backdrop is not None and backdrop.drawable and self.sketch_open is not None
         )
         for action in self._sketch_actions():
             action.setEnabled(drawing)
@@ -1034,11 +1035,13 @@ class MainWindow(QMainWindow):
         for action in (self.finish_sketch_action, self.cancel_sketch_action):
             action.setEnabled(sketching)
         self.face_action.setEnabled(backdrop is not None and not backdrop.facing)
-        self.sketch_hint.setText(
-            "Right-drag to orbit · N to face the sketch"
-            if backdrop is None or backdrop.facing
-            else "Turned away: press N to face the sketch and keep drawing"
-        )
+        if backdrop is None or backdrop.facing:
+            hint = "Right-drag to orbit · N to face the sketch"
+        elif backdrop.drawable:
+            hint = "At an angle: draw on the sketch's plane, or N to face it"
+        else:
+            hint = "Turned too far to draw: press N to face the sketch and keep drawing"
+        self.sketch_hint.setText(hint)
         self.sketch_bar.adjustSize()
         if drawing:
             self._update_constraint_actions()

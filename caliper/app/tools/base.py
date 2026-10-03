@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from caliper.app.session import DocumentSession
 from caliper.app.viewport.painter import ModelPainter
+from caliper.app.viewport.transform import PlaneView
 from caliper.contracts.document import EntityId, Point2, Ref
 
 
@@ -40,6 +41,11 @@ class Pointer:
     annotation: EntityId | None = None
     """A dimension label or constraint glyph under the pointer. These are drawn by the shell,
     so the shell hit-tests them; they sit on top of geometry and win a click."""
+    px: tuple[float, float] = (0.0, 0.0)
+    """Where the pointer is on the canvas, in widget pixels."""
+    view: PlaneView | None = None
+    """The plane seen at an angle (ADR 0016), when it is: what's square on screen isn't square
+    on the plane then, so a box selection is drawn and taken on screen."""
 
 
 class Tool:
