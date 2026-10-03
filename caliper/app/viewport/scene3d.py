@@ -47,9 +47,6 @@ CREASE_DEGREES = 25.0
 """Faces meeting at more than this show the edge between them."""
 AMBIENT = 1 / 3
 """How much light a face turned away from the light still gets."""
-SAME_DEPTH = 1e-6
-"""mm: a face and a plane this close in depth are one surface, and the face is what's picked
-(the planes are drawn see-through)."""
 FACE_TOLERANCE = 1e-4
 """How far, in mm, a point of the mesh may stray from its face's plane and still be on it."""
 FACING = math.cos(math.radians(0.5))
@@ -260,10 +257,10 @@ class Scene:
         hidden: EntityId | None = None,
         faces: FaceNamer | None = None,
     ) -> Picked:
-        """What's under the pixel (x, y): a sketch's curve within `PICK_PX`; else, with `faces`
-        to name them, the solid where it's nearer than any plane there (its flat face, or
-        nothing on a curved one: the solid hides what's behind it); else the nearest plane
-        there; else nothing."""
+        """What's under the pixel (x, y): a sketch's curve within `PICK_PX` (one the solid is
+        in front of is hidden by it); else, with `faces` to name them, the solid there (its
+        flat face, or nothing on a curved one), since the planes are drawn see-through over it;
+        else the nearest plane there; else nothing."""
         solid = self.solid_hit(camera, width, height, x, y) if faces is not None else None
         # A curve the solid is in front of is hidden by it; one on its surface isn't.
         behind = 2 * PICK_PX / camera.scale
@@ -303,23 +300,23 @@ class Scene:
                 depth = -s  # larger is nearer the viewer
                 if nearest is None or depth > nearest[0]:
                     nearest = (depth, plane)
-        if solid is not None and (nearest is None or solid[0] >= nearest[0] - SAME_DEPTH):
+        if solid is not None:  # the planes are drawn see-through: the solid is what's clicked
             assert faces is not None
             return faces(solid[1], solid[2])
         return nearest[1] if nearest is not None else None
 
     def solid_hit(
         self, camera: Camera, width: float, height: float, x: float, y: float
-    ) -> tuple[float, Point3, Point3] | None:
+    ) -> tuple[float, Point3, Point3, int] | None:
         """The solid under the pixel (x, y): the nearest triangle facing the viewer there, as
-        its depth (larger is nearer), the point on it, and its outward normal."""
+        its depth (larger is nearer), the point on it, its outward normal, and its index."""
         mesh = self.mesh
         if mesh is None or not mesh.triangles:
             return None
         project = camera.projector(width, height)
         back = camera.axes()[2]
         v = mesh.vertices
-        best: tuple[float, Point3, Point3] | None = None
+        best: tuple[float, Point3, Point3, int] | None = None
         for index, (i, j, k) in enumerate(mesh.triangles):
             n = self.normals[index]
             if n.x * back.x + n.y * back.y + n.z * back.z <= 0:
@@ -341,8 +338,31 @@ class Scene:
                     y=u * a.y + w * b.y + r * c.y,
                     z=u * a.z + w * b.z + r * c.z,
                 )
-                best = (depth, point, n)
+                best = (depth, point, n, index)
         return best
+
+    def face_region(self, seed: int) -> frozenset[int]:
+        """The triangles of the flat face triangle `seed` is on: it and every triangle joined
+        to it, edge to edge, in its plane and facing its way. Neighbours are found by where
+        edges' ends are (`_creases`' rule), worked out once per mesh."""
+        mesh = self.mesh
+        if mesh is None or not 0 <= seed < len(mesh.triangles):
+            return frozenset()
+        touching = _adjacency(mesh)
+        v, n = mesh.vertices, self.normals[seed]
+        anchor = v[mesh.triangles[seed][0]]
+        found, waiting = {seed}, [seed]
+        while waiting:
+            for other in touching[waiting.pop()]:
+                if other in found or _dot(self.normals[other], n) < FACING:
+                    continue
+                corner = v[mesh.triangles[other][0]]
+                gap = Point3(x=corner.x - anchor.x, y=corner.y - anchor.y, z=corner.z - anchor.z)
+                if abs(_dot(gap, n)) > FACE_TOLERANCE:
+                    continue
+                found.add(other)
+                waiting.append(other)
+        return frozenset(found)
 
     def face_triangles(self, frame: Frame, ref: FaceRef, faces: FaceNamer) -> frozenset[int]:
         """The triangles of the face `ref`: on its plane, facing its way, and named it."""
@@ -512,6 +532,31 @@ def _shape(mesh: Mesh) -> tuple[list[Point3], list[tuple[int, int, int, int]], f
     _SHAPES.append((mesh, shape))
     del _SHAPES[:-SHAPES_KEPT]
     return shape
+
+
+_ADJACENT: list[tuple[Mesh, list[list[int]]]] = []
+"""The last few meshes' triangle neighbours, each kept with its mesh (as `_SHAPES`)."""
+
+
+def _adjacency(mesh: Mesh) -> list[list[int]]:
+    """Each triangle's neighbours: the triangles sharing an edge with it, by where the edge's
+    ends are, since faces don't share vertices."""
+    for kept, found in _ADJACENT:
+        if kept is mesh:
+            return found
+    v = mesh.vertices
+    by_edge: dict[tuple[tuple[float, ...], ...], list[int]] = {}
+    for index, triangle in enumerate(mesh.triangles):
+        for i, j in ((0, 1), (1, 2), (2, 0)):
+            key = tuple(sorted((_key(v[triangle[i]]), _key(v[triangle[j]]))))
+            by_edge.setdefault(key, []).append(index)
+    found: list[list[int]] = [[] for _ in mesh.triangles]
+    for sharing in by_edge.values():
+        for a in sharing:
+            found[a].extend(b for b in sharing if b != a)
+    _ADJACENT.append((mesh, found))
+    del _ADJACENT[:-SHAPES_KEPT]
+    return found
 
 
 def _creases(mesh: Mesh, normals: list[Point3]) -> list[tuple[int, int, int, int]]:

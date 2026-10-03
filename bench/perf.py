@@ -776,9 +776,11 @@ def cases() -> list[tuple[str, Callable[[], list[Result]]]]:
     found.append(("synthetic/file", lambda: [large_file()]))
     found.append(("synthetic/render", lambda: [large_render()]))
     found.append(("timing/overhead", lambda: [timing_overhead()]))
+    import perf_faces  # ADR 0016's cases: sketching at an angle, faces
     import perf_v22  # Performance V2.2's cases, beside this file
 
     found += perf_v22.cases()  # type: ignore[arg-type]
+    found += perf_faces.cases()  # type: ignore[arg-type]
     return found
 
 
