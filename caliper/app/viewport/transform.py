@@ -5,7 +5,9 @@ device pixel ratio underneath, which keeps Retina drawing sharp). Plain floats, 
 the math is testable on its own.
 """
 
+import math
 from dataclasses import dataclass
+from typing import Protocol
 
 from caliper.contracts.document import Point2
 from caliper.contracts.queries import BoundingBox
@@ -38,6 +40,27 @@ class ViewTransform:
         """A screen distance in mm, e.g. a pick radius for hit-testing."""
         return pixels / self.scale
 
+    def pick_length_to_model(self, pixels: float) -> float:
+        """The radius in mm that covers `pixels` on screen in every direction: here, the same."""
+        return pixels / self.scale
+
+    def direction_to_widget(self, dx: float, dy: float) -> tuple[float, float]:
+        """A unit model direction as a unit widget direction: Y flips."""
+        return dx, -dy
+
+    @property
+    def grid_scale(self) -> float:
+        """Pixels per mm the grid's spacing is chosen for."""
+        return self.scale
+
+    @property
+    def mirrored(self) -> bool:
+        return False
+
+    def key(self) -> tuple[float, ...]:
+        """Equal exactly when two views draw the same."""
+        return (self.scale, self.origin_x, self.origin_y)
+
     def pan(self, dx: float, dy: float) -> None:
         """Move the view by a widget-pixel offset (the content follows the pointer)."""
         self.origin_x += dx
@@ -66,3 +89,88 @@ class ViewTransform:
         center = box.center
         self.origin_x = width / 2 - center.x * self.scale
         self.origin_y = height / 2 + center.y * self.scale
+
+
+@dataclass(frozen=True, slots=True)
+class PlaneView:
+    """A sketch's plane seen at an angle by an orthographic camera (ADR 0016): an affine map,
+    widget = (a x + b y + tx, c x + d y + ty) for the model point (x, y).
+
+    Its two stretches (singular values) are `scale` and `scale * facing`, where `facing` is
+    how squarely the plane faces the view (1 straight on, 0 edge on). Seen from behind, it is
+    `mirrored`.
+    """
+
+    a: float
+    b: float
+    c: float
+    d: float
+    tx: float
+    ty: float
+    scale: float
+    """Pixels per mm along the plane's direction square to the tilt."""
+    facing: float
+
+    def to_widget(self, point: Point2) -> tuple[float, float]:
+        return (
+            self.a * point.x + self.b * point.y + self.tx,
+            self.c * point.x + self.d * point.y + self.ty,
+        )
+
+    def to_model(self, x: float, y: float) -> Point2:
+        det = self.a * self.d - self.b * self.c
+        dx, dy = x - self.tx, y - self.ty
+        return Point2(x=(self.d * dx - self.b * dy) / det, y=(self.a * dy - self.c * dx) / det)
+
+    def length_to_model(self, pixels: float) -> float:
+        """A screen distance in mm for drawing (arrows, gaps): never longer than intended."""
+        return pixels / self.scale
+
+    def pick_length_to_model(self, pixels: float) -> float:
+        """The radius in mm that covers `pixels` on screen in every direction: the smallest
+        circle on the plane holding the screen circle's pre-image (ADR 0016)."""
+        return pixels / (self.scale * self.facing)
+
+    def direction_to_widget(self, dx: float, dy: float) -> tuple[float, float]:
+        wx, wy = self.a * dx + self.b * dy, self.c * dx + self.d * dy
+        length = math.hypot(wx, wy)
+        return (wx / length, wy / length) if length else (0.0, 0.0)
+
+    @property
+    def grid_scale(self) -> float:
+        """The grid is spaced for the plane's most foreshortened direction."""
+        return self.scale * self.facing
+
+    @property
+    def mirrored(self) -> bool:
+        """Seen from behind: the plane's x and y turn the other way round on screen."""
+        return self.a * self.d - self.b * self.c > 0
+
+    def key(self) -> tuple[float, ...]:
+        return (self.a, self.b, self.c, self.d, self.tx, self.ty)
+
+
+class View(Protocol):
+    """What draws and picks on the canvas: a `ViewTransform` facing the sketch, or a
+    `PlaneView` at an angle."""
+
+    @property
+    def scale(self) -> float: ...
+
+    @property
+    def grid_scale(self) -> float: ...
+
+    @property
+    def mirrored(self) -> bool: ...
+
+    def to_widget(self, point: Point2) -> tuple[float, float]: ...
+
+    def to_model(self, x: float, y: float) -> Point2: ...
+
+    def length_to_model(self, pixels: float) -> float: ...
+
+    def pick_length_to_model(self, pixels: float) -> float: ...
+
+    def direction_to_widget(self, dx: float, dy: float) -> tuple[float, float]: ...
+
+    def key(self) -> tuple[float, ...]: ...

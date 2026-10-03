@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | C-16, C-17, C-18 |
+| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | C-16, C-18 |
 
 ---
 
@@ -89,14 +89,6 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 - **Fix, if it matters:** mesh `proposal.result` in the 3D view while a proposal is shown,
   in the agent colour. The engine's `mesh` query already works on any document.
 
-### C-17. Drawing in 3D needs the view to face the sketch
-- **What happens:** a sketch is edited in 3D facing its plane (ADR 0015). Orbited away, the
-  view only looks: clicks turn it, and drawing waits until N faces the sketch again. Onshape
-  lets you draw on a plane seen at an angle.
-- **Where:** `caliper/app/viewport/backdrop.py`, and the canvas's view, a scale and an offset.
-- **Fix, if it matters:** give the canvas an affine view, which a slanted plane needs, through
-  its picking, snapping, and dimension labels.
-
 ### C-18. Switching tabs drops a pending proposal
 - **What happens:** each tab is its own document, and Claude works on the one shown. Switching
   tabs while Claude's proposal waits drops it, as opening a file does, and Claude's next call
@@ -135,6 +127,12 @@ In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
   stress plate pushed Accept off the card. More than two are counted in one line.
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
+
+On `shared/3d-sketching-2` (ADR 0016, stacked on `contracts/sketch-on-faces`, not pushed):
+
+- C-17: drawing in 3D needed the view to face the sketch. The canvas now draws on the sketch's
+  plane seen at an angle, up to 70° from it (a `PlaneView`: drawing, picking, snapping,
+  dimensions, the grid, and box selection); past that, drawing waits for N as before.
 
 On `shared/performance-v2.2` (Performance V2.2, stacked on the 3D sketching, not pushed):
 
