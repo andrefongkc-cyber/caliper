@@ -42,7 +42,7 @@ from caliper.app.palette import CommandPalette
 from caliper.app.panels.assistant import AssistantLog
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
-from caliper.app.panels.features import FeatureTree, titles, volume_text
+from caliper.app.panels.features import FeatureTree, place_name, titles, volume_text
 from caliper.app.panels.history import HistoryList
 from caliper.app.panels.timing import TimingPanel
 from caliper.app.properties import PropertiesPanel
@@ -67,6 +67,7 @@ from caliper.contracts.document import (
     Document,
     EntityId,
     Expectation,
+    FaceRef,
     Geometry,
     Plane,
     Point2,
@@ -191,6 +192,7 @@ class MainWindow(QMainWindow):
         for signal in (self.session.active_sketch_changed, self.session.document_changed):
             signal.connect(self._update_part_labels)
         self.session.active_sketch_changed.connect(self._sketch_gone)
+        self.session.document_changed.connect(self._follow_face)
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
 
@@ -797,7 +799,7 @@ class MainWindow(QMainWindow):
         if any(f.id == sketch for f in base.features):
             self._open_sketch(sketch, self.session.history_position)
         else:
-            self._face_plane(sketches[sketch], None)  # a sketch the proposal makes
+            self._face_plane(sketches[sketch], None, after)  # a sketch the proposal makes
             self._previewing = sketch
         return [id for id, e in changed if e.sketch == sketch]
 
@@ -1058,8 +1060,9 @@ class MainWindow(QMainWindow):
             if menu is not None and self.sketch_button.isVisible():  # the planes, to pick one
                 menu.popup(self.sketch_button.mapToGlobal(self.sketch_button.rect().bottomLeft()))
 
-    def new_sketch(self, plane: Plane) -> None:
-        """Start a sketch on `plane` and edit it in 3D, facing the plane. Cancel removes it."""
+    def new_sketch(self, plane: Plane | FaceRef) -> None:
+        """Start a sketch on `plane`, or on a flat face of the part (ADR 0016), and edit it in
+        3D, facing it. Cancel removes it."""
         if self.mode != "3d":
             return
         self._close_sketch()
@@ -1068,7 +1071,10 @@ class MainWindow(QMainWindow):
         if isinstance(result, Applied):
             (sketch,) = result.created_ids
             self._open_sketch(sketch, entry)
-            self.show_message(f"Sketching on {PLANE_NAMES[plane]}: Finish (✓) when it's done")
+            where = place_name(self.session.document, plane)
+            self.show_message(f"Sketching on {where}: Finish (✓) when it's done")
+        else:
+            self.show_message(f"Can't sketch there: {result.errors[0].message}")
 
     def edit_sketch(self, sketch: EntityId) -> None:
         """Edit `sketch`: in 3D, facing its plane, until Finish or Cancel; in 2D, on the canvas."""
@@ -1082,8 +1088,8 @@ class MainWindow(QMainWindow):
         self.canvas.zoom_to_fit()
 
     def _open_picked(self, found: object) -> None:
-        """A double-click in the 3D view: sketch on a plane, or edit a sketch."""
-        if isinstance(found, Plane):
+        """A double-click in the 3D view: sketch on a plane or a face, or edit a sketch."""
+        if isinstance(found, Plane | FaceRef):
             self.new_sketch(found)
         elif isinstance(found, str):
             self.edit_sketch(EntityId(found))
@@ -1095,25 +1101,55 @@ class MainWindow(QMainWindow):
         self.controller.cancel_operation()
         self.session.set_active_sketch(sketch)
         self.sketch_open, self._sketch_entry = sketch, entry
-        self._face_plane(plane, sketch)
+        if not self._face_plane(plane, sketch):
+            self.sketch_open = None  # its face is gone: nothing to face, so it isn't open
+            self._show_views()
+            return
         named = titles(self.session.document.features)[sketch]
-        self.sketch_title.setText(f"{named}  ·  {PLANE_NAMES[plane]}")
+        where = place_name(self.session.document, plane)
+        self.sketch_title.setText(f"{named}  ·  {where}")
         self.features.rebuild()
 
-    def _face_plane(self, plane: Plane, sketch: EntityId | None) -> None:
-        """Turn the canvas, over the part, to face `plane`, from where the 3D view looks."""
-        if self._backdrop is not None and self._backdrop.plane is plane:
-            self._backdrop.sketch = sketch
+    def _face_plane(
+        self, plane: Plane | FaceRef, sketch: EntityId | None, document: Document | None = None
+    ) -> bool:
+        """Turn the canvas, over the part, to face `plane` (a plane or a face, where it is in
+        `document`, the session's by default), from where the 3D view looks. False, with the
+        reason shown, when a face can't be found."""
+        document = self.session.document if document is None else document
+        frame = Bus(document).queries.plane_frame(plane)
+        if isinstance(frame, Error):
+            self.show_message(f"Can't face {place_name(document, plane)}: {frame.message}")
+            return False
+        backdrop = self._backdrop
+        if backdrop is not None and backdrop.plane == plane and backdrop.frame == frame:
+            backdrop.sketch = sketch
         else:
             camera = self.view3d.camera
-            if self._backdrop is not None:
-                camera = self._backdrop.camera(
-                    self.canvas.view, self.views.width(), self.views.height()
-                )
-            self._backdrop = Backdrop(plane, sketch, self.view3d.paint_scene, self.view3d.shows)
-            look(self.canvas.view, plane, camera, self.views.width(), self.views.height())
-        self.sketch_title.setText(f"{PLANE_NAMES[plane]}  ·  proposal")
+            if backdrop is not None:
+                camera = backdrop.camera(self.canvas.view, self.views.width(), self.views.height())
+            self._backdrop = Backdrop(
+                plane, frame, sketch, self.view3d.paint_scene, self.view3d.shows
+            )
+            look(self.canvas.view, frame, camera, self.views.width(), self.views.height())
+        self.sketch_title.setText(f"{place_name(document, plane)}  ·  proposal")
         self._show_views()
+        return True
+
+    def _follow_face(self) -> None:
+        """The open sketch's face moved (an edit to its extrude, undo, Claude): the backdrop
+        follows it, so the sketch stays where its face is (ADR 0016)."""
+        backdrop = self._backdrop
+        if backdrop is None or self.sketch_open is None or self.session.space is not Space.PART:
+            return
+        plane = self._plane_of(self.sketch_open)
+        if plane is None:
+            return
+        frame = self.session.queries.plane_frame(plane)
+        if isinstance(frame, Error) or (plane == backdrop.plane and frame == backdrop.frame):
+            return
+        backdrop.plane, backdrop.frame = plane, frame
+        self.canvas.update()
 
     def finish_sketch(self) -> None:
         """Close the sketch being edited in 3D: its changes stay, each its own undo step."""
@@ -1166,8 +1202,8 @@ class MainWindow(QMainWindow):
         ):
             self._close_sketch()
 
-    def _plane_of(self, id: EntityId) -> Plane | None:
-        """The plane of the sketch `id`, or None if the part has no such sketch."""
+    def _plane_of(self, id: EntityId) -> Plane | FaceRef | None:
+        """The plane or face of the sketch `id`, or None if the part has no such sketch."""
         return next(
             (
                 f.plane
@@ -1211,9 +1247,8 @@ class MainWindow(QMainWindow):
             return
         plane = self._plane_of(sketch)
         named = titles(self.session.document.features)[sketch]
-        self.sketch_label.setText(
-            f"Editing {named}  ·  {PLANE_NAMES[plane] if plane is not None else ''}"
-        )
+        where = place_name(self.session.document, plane) if plane is not None else ""
+        self.sketch_label.setText(f"Editing {named}  ·  {where}")
         self.sketch_label.adjustSize()
 
     def _build_sketch_bar(self) -> None:
