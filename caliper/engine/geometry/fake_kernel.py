@@ -7,17 +7,20 @@ set of prisms whose insides don't overlap: a face swept along its frame's normal
 is the face's area times the depth, exactly.
 
 Combining solids is exact only where no 3D boolean is needed: pieces whose boxes don't overlap,
-or, on one frame, a piece wholly inside another (a union that adds nothing, a cut through
-the whole depth that leaves a hole, or one that leaves nothing). Anything else is
-`kernel.unsupported`, never a guess. It lets engine tests run without OCCT, and it is held to
-the same conformance suite as OCCTKernel (tests/engine/geometry/).
+or pieces on one plane family, where one frame is the other moved along its normal, or turned
+over (ADR 0016: a face's plane is a sketch plane moved by a depth). There a piece wholly inside
+another adds nothing, and a cut splits the piece into layers along the normal: as it was below
+the tool and above it, and between, holed by the tool's outline, or gone where the tool covers
+it. So a pocket cut from a top or bottom face, a slot, and a hole through are exact. Anything
+else is `kernel.unsupported`, never a guess. It lets engine tests run without OCCT, and it is
+held to the same conformance suite as OCCTKernel (tests/engine/geometry/).
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from caliper.contracts.document import Point2
+from caliper.contracts.document import Arc, Circle, Geometry, Line, Point2, Rectangle
 from caliper.contracts.errors import ErrorCode
 from caliper.contracts.kernel import Frame, KernelError, Loop, Shape
 from caliper.contracts.queries import AreaProperties, BoundingBox, BoundingBox3, Mesh, Point3
@@ -88,23 +91,16 @@ class FakeKernel:
         return FakeSolid(prisms=tuple(pieces))
 
     def cut(self, a: Shape, b: Shape) -> Shape:
-        left: list[FakePrism] = []
-        for piece in _solid(a).prisms:
-            kept: FakePrism | None = piece
-            for tool in _solid(b).prisms:
-                if kept is None or _apart(kept, tool):
-                    continue
-                if _contains(tool, kept):
-                    kept = None
-                elif _through(tool, kept):
-                    kept = replace(
-                        kept, face=replace(kept.face, holes=(*kept.face.holes, tool.face.outer))
-                    )
-                else:
+        pieces = list(_solid(a).prisms)
+        for tool in _solid(b).prisms:
+            left: list[FakePrism] = []
+            for piece in pieces:
+                rest = [piece] if _apart(piece, tool) else _less(piece, tool)
+                if rest is None:
                     raise _unsupported("cut one solid with another that overlaps it partly")
-            if kept is not None:
-                left.append(kept)
-        return FakeSolid(prisms=tuple(left))
+                left += rest
+            pieces = left
+        return FakeSolid(prisms=tuple(pieces))
 
     def volume(self, solid: Shape) -> float:
         return sum(_area(piece.face) * piece.depth for piece in _solid(solid).prisms)
@@ -188,21 +184,18 @@ def _at(frame: Frame, p: Point2, w: float) -> Point3:
 
 
 def _box(piece: FakePrism) -> BoundingBox3:
-    """Exact for the origin planes, whose axes are the part's own."""
-    flat = profiles.bounds(piece.face.outer)
-    corners = [
-        _at(piece.frame, Point2(x=u, y=v), w)
-        for u in (flat.x_min, flat.x_max)
-        for v in (flat.y_min, flat.y_max)
-        for w in (0.0, piece.depth)
-    ]
+    """Exact for any frame: along each of the part's axes, the face's extent in the frame's
+    own directions, and the depth along its normal."""
+    frame, n = piece.frame, _normal(piece.frame)
+    lows, highs = [], []
+    for axis in ("x", "y", "z"):
+        a, b, w = getattr(frame.x, axis), getattr(frame.y, axis), getattr(n, axis)
+        low, high = profiles.extent(piece.face.outer, a, b)
+        start = getattr(frame.origin, axis)
+        lows.append(start + low + min(0.0, w * piece.depth))
+        highs.append(start + high + max(0.0, w * piece.depth))
     return BoundingBox3(
-        x_min=min(c.x for c in corners),
-        y_min=min(c.y for c in corners),
-        z_min=min(c.z for c in corners),
-        x_max=max(c.x for c in corners),
-        y_max=max(c.y for c in corners),
-        z_max=max(c.z for c in corners),
+        x_min=lows[0], y_min=lows[1], z_min=lows[2], x_max=highs[0], y_max=highs[1], z_max=highs[2]
     )
 
 
@@ -219,25 +212,122 @@ def _apart(a: FakePrism, b: FakePrism) -> bool:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _Placed:
+    """A prism seen on another's frame: its face in that frame's coordinates, and the stretch
+    of that frame's normal it fills, from `low` to `high`."""
+
+    face: FakeFace
+    low: float
+    high: float
+
+
+_ALONG = 1e-9
+"""How far, in mm, two frames' origins may stray from one line along the normal and still be
+one plane family: the rounding in working out a face's plane, not a real offset."""
+
+
+def _on(frame: Frame, piece: FakePrism) -> _Placed | None:
+    """`piece` on `frame`: when its own frame is `frame` moved along the normal, or that turned
+    over (y and the normal reversed, as a bottom face's plane is). None otherwise."""
+    if piece.frame == frame:
+        return _Placed(piece.face, 0.0, piece.depth)
+    own = piece.frame
+    if own.x != frame.x:
+        return None
+    if own.y == frame.y:
+        over = False
+    elif own.y == Point3(x=-frame.y.x, y=-frame.y.y, z=-frame.y.z):
+        over = True
+    else:
+        return None
+    o, p = frame.origin, own.origin
+    d = Point3(x=p.x - o.x, y=p.y - o.y, z=p.z - o.z)
+    if abs(_dot(d, frame.x)) > _ALONG or abs(_dot(d, frame.y)) > _ALONG:
+        return None
+    k = _dot(d, _normal(frame))
+    if not over:
+        return _Placed(piece.face, k, k + piece.depth)
+    return _Placed(_turned_over(piece.face), k - piece.depth, k)
+
+
 def _contains(outer: FakePrism, inner: FakePrism) -> bool:
-    """Whether `inner` is wholly inside `outer`: the same frame, no deeper, and its outline
-    inside `outer`'s face, clear of its holes."""
+    """Whether `inner` is wholly inside `outer`: on its plane family, within its depth, and its
+    outline inside `outer`'s face, clear of its holes."""
+    placed = _on(outer.frame, inner)
     return (
-        outer.frame == inner.frame
-        and inner.depth <= outer.depth
-        and profiles.within(inner.face.outer, _region(outer.face))
+        placed is not None
+        and placed.low >= 0.0
+        and placed.high <= outer.depth
+        and profiles.within(placed.face.outer, _region(outer.face))
     )
 
 
-def _through(tool: FakePrism, piece: FakePrism) -> bool:
-    """Whether cutting `tool` from `piece` leaves a hole through it: the same frame, at least
-    as deep, a tool with no holes of its own, its outline inside `piece`'s face."""
-    return (
-        tool.frame == piece.frame
-        and tool.depth >= piece.depth
-        and not tool.face.holes
-        and profiles.within(tool.face.outer, _region(piece.face))
-    )
+def _less(piece: FakePrism, tool: FakePrism) -> list[FakePrism] | None:
+    """`piece` less `tool`, as layers along `piece`'s normal: as it was below the tool and above
+    it, and between, gone if the tool covers the face, or holed by the tool's outline if that
+    lies inside it. None when that isn't exact: another plane, or outlines that cross."""
+    placed = _on(piece.frame, tool)
+    if placed is None:
+        return None
+    low, high = max(placed.low, 0.0), min(placed.high, piece.depth)
+    if low >= high:
+        return [piece]  # they only touch
+    middle: FakeFace | None
+    if profiles.within(piece.face.outer, _region(placed.face)):
+        middle = None
+    elif not placed.face.holes and profiles.within(placed.face.outer, _region(piece.face)):
+        middle = replace(piece.face, holes=(*piece.face.holes, placed.face.outer))
+    else:
+        return None
+    if low == 0.0 and high == piece.depth:
+        return [] if middle is None else [replace(piece, face=middle)]
+    layers = ((0.0, low, piece.face), (low, high, middle), (high, piece.depth, piece.face))
+    return [_layer(piece, start, end, face) for start, end, face in layers if face and end > start]
+
+
+def _layer(piece: FakePrism, start: float, end: float, face: FakeFace) -> FakePrism:
+    """`face` on `piece`'s frame moved `start` along the normal, `end - start` deep."""
+    if start == 0.0:
+        return FakePrism(face=face, frame=piece.frame, depth=end)
+    o, n = piece.frame.origin, _normal(piece.frame)
+    origin = Point3(x=o.x + start * n.x, y=o.y + start * n.y, z=o.z + start * n.z)
+    return FakePrism(face=face, frame=replace(piece.frame, origin=origin), depth=end - start)
+
+
+def _turned_over(face: FakeFace) -> FakeFace:
+    """`face` seen from its other side: y reversed. Each arc's ends swap, so its loop runs the
+    other way along it."""
+    return FakeFace(outer=_mirrored(face.outer), holes=tuple(map(_mirrored, face.holes)))
+
+
+def _mirrored(loop: Loop) -> Loop:
+    flags = loop.reversed or (False,) * len(loop.edges)
+    edges: list[Geometry] = []
+    backwards: list[bool] = []
+    for edge, back in zip(loop.edges, flags, strict=True):
+        match edge:
+            case Line(start=a, end=b):
+                edges.append(replace(edge, start=_flip(a), end=_flip(b)))
+                backwards.append(back)
+            case Arc(center=c, start_angle=start, sweep_angle=sweep):
+                edges.append(replace(edge, center=_flip(c), start_angle=(-start - sweep) % 360.0))
+                backwards.append(not back)
+            case Circle(center=c):
+                edges.append(replace(edge, center=_flip(c)))
+                backwards.append(back)
+            case Rectangle(corner=c, height=h):
+                edges.append(replace(edge, corner=Point2(x=c.x, y=-c.y - h)))
+                backwards.append(back)
+    return Loop(edges=tuple(edges), reversed=tuple(backwards) if any(backwards) else ())
+
+
+def _flip(p: Point2) -> Point2:
+    return Point2(x=p.x, y=-p.y)
+
+
+def _dot(a: Point3, b: Point3) -> float:
+    return a.x * b.x + a.y * b.y + a.z * b.z
 
 
 def _region(face: FakeFace) -> profiles.Profile:

@@ -535,6 +535,21 @@ def properties(profile: Profile) -> AreaProperties:
     )
 
 
+def extent(loop: Loop, a: float, b: float) -> tuple[float, float]:
+    """The least and greatest of a·x + b·y over `loop`: along any direction, where `bounds`
+    is along the axes. Exact: at the edges' ends, and on an arc where it turns back."""
+    found: list[float] = []
+    for e in traversed(loop):
+        found += [a * e.a.x + b * e.a.y, a * e.b.x + b * e.b.y]
+        if e.center is not None and (a or b):
+            turn = math.atan2(b, a)  # where the arc runs square to the direction
+            for angle in (turn, turn + math.pi):
+                p = _at(e.center, e.radius, angle)
+                if _on_arc(e, p, 0.0):
+                    found.append(a * p.x + b * p.y)
+    return min(found), max(found)
+
+
 def bounds(loop: Loop) -> BoundingBox:
     boxes = [_edge_box(e, 0.0) for e in traversed(loop)]
     return BoundingBox(
