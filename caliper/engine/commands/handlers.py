@@ -279,6 +279,7 @@ def _create_extrude(document: Document, command: CreateExtrude) -> Handled | lis
         "depth": command.depth,
         "operation": command.operation,
         "ids": command.ids,
+        "reversed": False if command.reversed is None else command.reversed,
     }
     position = len(document.features)
     added = build_feature(Extrude, values, document, position=position)
@@ -295,6 +296,7 @@ def _create_extrude(document: Document, command: CreateExtrude) -> Handled | lis
             operation=added.operation,
             ids=added.ids,
             id=feature_id,
+            reversed=added.reversed,
         ),
         label="Extrude",
         created_ids=(feature_id,),

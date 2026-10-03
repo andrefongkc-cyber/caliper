@@ -13,7 +13,8 @@ C-1 moved `Metric` and `Expectation` to the document contract, since checks are 
 they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and measurements
 read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
 sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part. V2's F3
-(ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`.
+(ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`. ADR 0016
+moved `Frame` here from the kernel contract.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -92,6 +93,20 @@ class Point3:
     x: float
     y: float
     z: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Frame:
+    """Where a face drawn in 2D sits in 3D: a 2D point (u, v) is `origin + u * x + v * y`.
+
+    `x` and `y` are unit directions at right angles; the normal, the way an extrusion goes, is
+    x cross y. A sketch's plane gives its frame. It moved here from the kernel contract (ADR
+    0016), which still exports it, because `Queries.plane_frame` gives one back.
+    """
+
+    origin: Point3
+    x: Point3
+    y: Point3
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

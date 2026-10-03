@@ -226,6 +226,22 @@ def test_a_sketch_is_created_by_a_command_on_a_plane() -> None:
     assert (hints["plane"], hints["id"]) == (Plane, EntityId | None)
 
 
+def test_an_extrude_can_go_against_the_normal_and_the_command_lets_the_engine_choose() -> None:
+    """ADR 0016: stored as a bool, false by default; asked for as None (the engine chooses)."""
+    extrude = {f.name: f for f in dataclasses.fields(document.Extrude)}
+    assert get_type_hints(document.Extrude)["reversed"] is bool
+    assert extrude["reversed"].default is False
+    command = {f.name: f for f in dataclasses.fields(commands.CreateExtrude)}
+    assert get_type_hints(commands.CreateExtrude)["reversed"] == bool | None
+    assert command["reversed"].default is None
+
+
+def test_frame_moved_to_the_queries_and_the_kernel_still_exports_it() -> None:
+    from caliper.contracts import kernel
+
+    assert kernel.Frame is queries.Frame
+
+
 def test_the_sketch_error_codes_are_stable() -> None:
     assert ErrorCode.SKETCH_REQUIRED.value == "sketch.required"
     assert ErrorCode.SKETCH_MIXED.value == "sketch.mixed"

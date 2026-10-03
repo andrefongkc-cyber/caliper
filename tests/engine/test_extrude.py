@@ -79,7 +79,7 @@ def test_an_extrude_is_a_feature_after_its_sketch_and_undoes_like_any_change() -
     result = applied(bus.execute(CreateExtrude(depth=10.0)))
     assert result.label == "Extrude"
     (extrude,) = result.created_ids
-    assert result.command == CreateExtrude(depth=10.0, sketch=E0, id=extrude)  # resolved
+    assert result.command == CreateExtrude(depth=10.0, sketch=E0, id=extrude, reversed=False)
     assert bus.document.features[1] == Extrude(id=extrude, sketch=E0, depth=10.0)
     assert extrude not in bus.document.entities  # a feature, not an entity
     assert solid(bus).volume == pytest.approx(60_000.0, rel=1e-12)
@@ -142,6 +142,35 @@ def test_the_first_extrude_adds() -> None:
     plate(bus)
     error = refused(bus.execute(CreateExtrude(depth=10.0, operation=ExtrudeOperation.REMOVE)))
     assert (error.code, error.field) == (ErrorCode.VALUE_OUT_OF_RANGE, "operation")
+
+
+def test_a_reversed_extrude_goes_against_the_normal_and_can_be_flipped_back() -> None:
+    """ADR 0016: the same profile swept the other way. Left as None it goes along the
+    normal, and the resolved command says so."""
+    bus = part()
+    plate(bus)
+    result = applied(bus.execute(CreateExtrude(depth=10.0, reversed=True)))
+    (extrude,) = result.created_ids
+    assert result.command == CreateExtrude(depth=10.0, sketch=E0, id=extrude, reversed=True)
+    assert bus.document.features[1] == Extrude(id=extrude, sketch=E0, depth=10.0, reversed=True)
+    box = solid(bus).bounding_box
+    assert box is not None
+    assert (box.z_min, box.z_max) == (-10.0, 0.0)
+    assert solid(bus).volume == pytest.approx(60_000.0, rel=1e-12)
+    applied(bus.execute(ModifyEntity(id=extrude, changes={"reversed": False})))
+    box = solid(bus).bounding_box
+    assert box is not None
+    assert (box.z_min, box.z_max) == (0.0, 10.0)
+    bus.undo()
+    assert bus.document.features[1] == Extrude(id=extrude, sketch=E0, depth=10.0, reversed=True)
+
+
+def test_reversed_must_be_true_or_false() -> None:
+    bus = part()
+    plate(bus)
+    result = bus.execute(CreateExtrude(depth=10.0, reversed="yes"))  # type: ignore[arg-type]
+    assert isinstance(result, Rejected)
+    assert [(e.code, e.field) for e in result.errors] == [(ErrorCode.VALUE_WRONG_TYPE, "reversed")]
 
 
 # --- Several, and what they build ---------------------------------------------------------
