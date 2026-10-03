@@ -16,8 +16,8 @@ from hypothesis import strategies as st
 
 from caliper.contracts.document import Arc, Circle, Geometry, Line, Plane, Point2, Rectangle
 from caliper.contracts.errors import ErrorCode
-from caliper.contracts.kernel import Kernel, KernelError, Loop, Shape
-from caliper.contracts.queries import BoundingBox3, Mesh
+from caliper.contracts.kernel import Frame, Kernel, KernelError, Loop, Shape
+from caliper.contracts.queries import BoundingBox3, Mesh, Point3
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from caliper.engine.part import frame
 
@@ -253,6 +253,156 @@ def test_overlapping_solids_are_joined_exactly_or_refused_never_guessed(kernel: 
         return
     assert kernel.volume(kernel.union(a, b)) == approx(1_500.0, scale=15, dimension=3)
     assert kernel.volume(kernel.cut(a, b)) == approx(500.0, scale=15, dimension=3)
+
+
+# --- Parallel planes (ADR 0016) -----------------------------------------------------------
+# A sketch on a face sits on its extrude's plane moved by the depth, or turned over for a bottom
+# face, and a cut from it goes back into the part. Both kernels combine these exactly.
+
+XY = frame(Plane.XY)
+TURNED = Frame(origin=XY.origin, x=XY.x, y=Point3(x=0.0, y=-1.0, z=0.0))
+"""The plate's bottom face, seen from below: x as XY's, y reversed, the normal down."""
+
+
+def lifted(on: Frame, w: float) -> Frame:
+    """`on` moved `w` along its normal."""
+    n = Point3(
+        x=on.x.y * on.y.z - on.x.z * on.y.y,
+        y=on.x.z * on.y.x - on.x.x * on.y.z,
+        z=on.x.x * on.y.y - on.x.y * on.y.x,
+    )
+    o = on.origin
+    return Frame(origin=Point3(x=o.x + w * n.x, y=o.y + w * n.y, z=o.z + w * n.z), x=on.x, y=on.y)
+
+
+def prism(kernel: Kernel, edge: Geometry | Loop, on: Frame, depth: float) -> Shape:
+    loop = edge if isinstance(edge, Loop) else Loop(edges=(edge,))
+    return kernel.extrude(kernel.make_face(loop), on, depth)
+
+
+def slot(cx: float, cy: float, length: float, radius: float) -> Loop:
+    """A stadium of two lines and two arcs, centred on (cx, cy)."""
+    a, b = cx - length / 2, cx + length / 2
+    return Loop(
+        edges=(
+            Line(start=Point2(x=a, y=cy - radius), end=Point2(x=b, y=cy - radius)),
+            Arc(center=Point2(x=b, y=cy), radius=radius, start_angle=270.0, sweep_angle=180.0),
+            Line(start=Point2(x=b, y=cy + radius), end=Point2(x=a, y=cy + radius)),
+            Arc(center=Point2(x=a, y=cy), radius=radius, start_angle=90.0, sweep_angle=180.0),
+        )
+    )
+
+
+def closed_mesh_volume(kernel: Kernel, solid: Shape, curved: float, depth: float) -> None:
+    """The mesh encloses the solid's volume, to the mesh tolerance along `curved` mm of arcs."""
+    mesh = kernel.mesh(solid, MESH_TOLERANCE)
+    allowed = 2 * MESH_TOLERANCE * curved * depth + LINEAR_TOLERANCE * 1e4
+    assert abs(mesh_volume(mesh) - kernel.volume(solid)) <= allowed
+
+
+def test_a_pocket_cut_down_from_the_top_face(kernel: Kernel) -> None:
+    circle = Circle(center=Point2(x=60.0, y=25.0), radius=10.0)
+    pocket = kernel.cut(plate(kernel), prism(kernel, circle, lifted(XY, 6.0), 4.0))
+    expected = 60_000.0 - math.pi * 100.0 * 4.0
+    assert kernel.volume(pocket) == approx(expected, scale=120, dimension=3)
+    assert box_tuple(kernel.bounding_box_3d(pocket)) == pytest.approx(
+        (0.0, 0.0, 0.0, 120.0, 50.0, 10.0), abs=1e-6
+    )
+    closed_mesh_volume(kernel, pocket, 2 * math.pi * 10.0, 4.0)
+
+
+def test_pockets_cut_up_from_the_bottom_face_turned_over(kernel: Kernel) -> None:
+    """In the bottom face's frame y runs the other way: (u, v) is (u, -v) on the plate. A
+    rectangle and a slot of lines and arcs, each cut 3 mm up into it."""
+    up = lifted(TURNED, -3.0)  # back along the downward normal: the cut goes up 3 mm
+    rectangle = Rectangle(corner=Point2(x=10.0, y=-40.0), width=20.0, height=15.0)
+    once = kernel.cut(plate(kernel), prism(kernel, rectangle, up, 3.0))
+    twice = kernel.cut(once, prism(kernel, slot(80.0, -25.0, 20.0, 5.0), up, 3.0))
+    slot_area = 20.0 * 10.0 + math.pi * 25.0
+    expected = 60_000.0 - (300.0 + slot_area) * 3.0
+    assert kernel.volume(twice) == approx(expected, scale=120, dimension=3)
+    closed_mesh_volume(kernel, twice, 2 * math.pi * 5.0, 3.0)
+
+
+def test_a_slot_inside_the_depth_and_a_cut_through_from_the_top(kernel: Kernel) -> None:
+    inside = Rectangle(corner=Point2(x=50.0, y=20.0), width=20.0, height=10.0)
+    hollow = kernel.cut(plate(kernel), prism(kernel, inside, lifted(XY, 3.0), 4.0))
+    assert kernel.volume(hollow) == approx(60_000.0 - 800.0, scale=120, dimension=3)
+    closed_mesh_volume(kernel, hollow, 0.0, 4.0)
+    circle = Circle(center=Point2(x=20.0, y=25.0), radius=5.0)
+    through = kernel.cut(plate(kernel), prism(kernel, circle, lifted(XY, -5.0), 15.0))
+    expected = 60_000.0 - math.pi * 25.0 * 10.0
+    assert kernel.volume(through) == approx(expected, scale=120, dimension=3)
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    x=st.integers(1, 90),
+    y=st.integers(1, 30),
+    width=st.integers(1, 28),
+    height=st.integers(1, 18),
+    start=st.integers(-12, 12),
+    depth=st.integers(1, 24),
+    below=st.booleans(),
+)
+def test_any_pocket_along_the_normal_removes_its_overlap_with_the_plate(
+    kernel: Kernel, x: int, y: int, width: int, height: int, start: int, depth: int, below: bool
+) -> None:
+    """A rectangle inside the 120 x 50 plate, cut over any stretch of its 10 mm depth (or
+    none), drawn from above or turned over from below: exactly area x overlap is removed."""
+    if below:  # in the turned-over frame, y is reversed and w runs down from z = 0
+        tool = prism(
+            kernel,
+            Rectangle(corner=Point2(x=x, y=-(y + height)), width=width, height=height),
+            lifted(TURNED, -float(start + depth)),
+            float(depth),
+        )
+    else:
+        rectangle = Rectangle(corner=Point2(x=x, y=y), width=width, height=height)
+        tool = prism(kernel, rectangle, lifted(XY, float(start)), float(depth))
+    overlap = max(0, min(start + depth, 10) - max(start, 0))
+    expected = 60_000.0 - width * height * overlap
+    assert kernel.volume(kernel.cut(plate(kernel), tool)) == approx(
+        expected, scale=120, dimension=3
+    )
+
+
+def test_a_boss_joined_on_the_top_face(kernel: Kernel) -> None:
+    boss = Rectangle(corner=Point2(x=10.0, y=10.0), width=30.0, height=20.0)
+    joined = kernel.union(plate(kernel), prism(kernel, boss, lifted(XY, 10.0), 5.0))
+    assert kernel.volume(joined) == approx(60_000.0 + 3_000.0, scale=120, dimension=3)
+    assert box_tuple(kernel.bounding_box_3d(joined)) == pytest.approx(
+        (0.0, 0.0, 0.0, 120.0, 50.0, 15.0), abs=1e-6
+    )
+
+
+def test_a_pocket_across_the_edge_is_exact_or_refused(kernel: Kernel) -> None:
+    """Half the tool hangs off the plate: 10 x 20 of it cuts 4 deep. Only OCCT does this."""
+    across = Rectangle(corner=Point2(x=110.0, y=10.0), width=20.0, height=20.0)
+    tool = prism(kernel, across, lifted(XY, 6.0), 4.0)
+    if isinstance(kernel, FakeKernel):
+        with pytest.raises(KernelError) as raised:
+            kernel.cut(plate(kernel), tool)
+        assert raised.value.code is ErrorCode.KERNEL_UNSUPPORTED
+        return
+    expected = 60_000.0 - 200.0 * 4.0
+    assert kernel.volume(kernel.cut(plate(kernel), tool)) == approx(
+        expected, scale=120, dimension=3
+    )
+
+
+def test_the_box_of_a_prism_on_a_slanted_plane_is_exact(kernel: Kernel) -> None:
+    """A 10 mm circle on a plane whose x is (0.6, 0.8, 0) and y is +Z, 5 deep along its normal
+    (0.8, -0.6, 0): the box is the circle's reach along each axis, plus the depth's."""
+    slanted = Frame(
+        origin=Point3(x=0.0, y=0.0, z=0.0),
+        x=Point3(x=0.6, y=0.8, z=0.0),
+        y=Point3(x=0.0, y=0.0, z=1.0),
+    )
+    solid = prism(kernel, Circle(center=Point2(x=0.0, y=0.0), radius=10.0), slanted, 5.0)
+    assert box_tuple(kernel.bounding_box_3d(solid)) == pytest.approx(
+        (-6.0, -11.0, -10.0, 10.0, 8.0, 10.0), abs=1e-6
+    )
 
 
 # --- Meshes -------------------------------------------------------------------------------
