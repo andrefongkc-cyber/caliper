@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3, Perf-6 and Perf-7 done, Perf-4 not landed (measured); next: Perf-5 (spike-gated). V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-7 done, Perf-4 not landed (measured); next: Perf-8. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -38,7 +38,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] Perf-4: investigated, not landed. Measured, the planned steps can't reach −20% (evaluation is 25% of the stress plate's solve, compiling 3–4%; the point memo and the ±1 fast path gave nothing measurable); the fast solver's exact output is now pinned for Perf-5
     - [x] Perf-6: the picking grid made from the last one: first move after an edit at 10k 10.0 → 2.6–3.9 ms (the grid 7.5 → 0.5 ms), at 2k 1.9 → 0.6 ms
     - [x] Perf-7: a decoder per class for file loading: 10k entities 196 → 75 ms, 3k 60 → 24 ms, the stress plate 6.7 → 3.0 ms; results and errors identical
-    - [ ] Perf-5: redundancy check rank update (C-6), spike-gated (star-12: 333 ms)
+    - [x] Perf-5: the redundancy check carries on across inserted columns and from the last four checks, bit-identical (no rank update): star-12 333 → 188 ms (1.77×, short of the plan's 2×), chain-150 2.6 → 1.0 s (p95 35 → 12 ms)
     - [ ] Perf-8: the 3D render path on the current renderer (2,604 triangles: 22 ms a frame)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)

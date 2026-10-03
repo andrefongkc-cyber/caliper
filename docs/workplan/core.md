@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3, Perf-6 and Perf-7 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-5, the redundancy check (spike-gated)
+Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-7 done, Perf-4 investigated and not landed (can't reach 20%; the solver's output now pinned); next: Perf-8, the 3D render path
 # Core workplan — Stream A
 
 Owns `caliper/engine/`, `bench/`, `tests/` (except `tests/app/`), and this file. `caliper/contracts/` is frozen for V1 (PR #22): changes go through a joint `contracts/` PR.
@@ -118,7 +118,37 @@ The next optimization pass, from a measured plan (2026-10-01, on `bf1dcc9`): mak
   | Replay of the stress plate from the command line | 0.517 s | 0.514 s (Python's start-up and the solve; decoding 265 commands was never the cost) |
 
   Old and new interleaved in one process gave the same: −57%, −59%, −63%. Saving is unchanged. What's left of a load at 10,000 is validation (about half, untouched), decoding (a third), and JSON parsing.
-- [ ] Perf-5: redundancy check rank update (C-6), spike-gated
+- [x] **Perf-5, the redundancy check carries on where it started again (C-6), bit-identical** (`caliper/engine/constraints/sketch.py`). The plan's rank update wasn't built. Traced, the star's checks weren't starting again because rows moved: the rows were bit-for-bit the same. They started again because the check carried on only from the single last factorization, and only when its columns were a prefix of the new ones:
+  - **The star:** each pattern copy's columns, ordered by entity number, were inserted in the middle of the order, not at the end.
+  - **The chain:** each new line's own one-row cluster was checked between two checks of the chain, replacing the chain's factorization. 299 checks factorized 135,363 rows, about 450 each.
+
+  Now:
+  - `_extended` carries on from whichever of the last four factorizations starts with the most of the same rows, with its columns moved to where they are now (`_placed`, `_same_rows`, `_truncated`).
+  - Columns new to the cluster are zero in every old row wherever they fall, so no sum and no product changes: the arithmetic is the arithmetic of factorizing afresh, as it already was for columns added last.
+  - Each row's entries, which the reuse is checked against, are listed from the sparse gradients rather than by scanning dense rows as wide as the cluster (−13–14% on the star and the chain by itself).
+  - A rank update in place was not pursued. It wouldn't give the bits a fresh factorization gives, which Performance V2.2 requires, and where rows really move (C-6 now) it would touch every row anyway.
+  - **Tests** (`tests/engine/test_performance_invariants.py`):
+    - carried on across inserted columns and across another cluster's check, the factorization is bit-for-bit a fresh one; only the new rows are factorized; the factorizations it carried on from are left as they were;
+    - random constrained sessions decide and solve exactly as with every check afresh;
+    - the existing chain test still passes;
+    - the fast solver's pinned output (Perf-4's `test_solver_output.py`) is unchanged.
+
+    Two planted bugs (skipping the row comparison; a 1e-15 error in the moved columns) each fail them; the second fails only the new property test.
+
+  | | Perf-0 | Perf-5 |
+  |---|---|---|
+  | Star-12's circular pattern (one call) | 333 ms | 188 ms (0.57×) |
+  | Grid-5x4's linear pattern (one call) | 114 ms | 103–114 ms (two runs; 0.77× interleaved) |
+  | Chain-150, all 299 calls | 2.62 s | 1.00 s (0.38×) |
+  | Chain-150, median / p95 / max call | 1.57 / 35.5 / 44.7 ms | 0.47 / 12.0 / 14.4 ms |
+  | Rows factorized, chain-150 (with Newton's) | 135,363 | 102,136 |
+  | Rows factorized, the whole star (with Newton's) | 1,715 | 219 |
+  | Stress-plate session | rows 11,365 | 11,274; time within noise (618 → 590 ms interleaved) |
+
+  - **Interleaved in one process** (the whole workloads, the layout included): star 355 → 188 ms (1.9×), chain 2.84 → 1.36 s (2.1×), grid 115 → 89 ms, half-star 22 → 21 ms.
+  - **Memory:** four factorizations are kept, not one, sharing their numbers. That is about 1.4 MiB more held after the star and 0.6 MiB after the stress plate, and no change on the chain.
+  - **Short of the plan's bar:** the star's call is 1.77× faster, not the 2× the plan set. That bar was set for a high-risk rank update. This change adds no arithmetic, only reuse checked row by row, and the chain is 2.6× faster, so it's kept. That's for Andre or Lucas to confirm.
+  - **What's left in the star:** no one cost. Recompiling equations (`relations.match`, Perf-4's step (b)), evaluating, and copying the kept factorization each take a few percent.
 - [ ] Perf-8: the 3D render path on the current renderer
 
 ## 3D-first, the engine's part (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
