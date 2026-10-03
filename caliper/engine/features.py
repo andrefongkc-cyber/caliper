@@ -5,8 +5,9 @@ bits (ADR 0005), so it is recomputed from the features whenever it's asked for, 
 where something it reads has changed. Each step is cached by the identity of what it read,
 as the 2D solver caches clusters and checks (Performance V2):
 
-- an extrude's own prism by the kernel, the extrude, its sketch, and each geometry entity
-  in its profile, the very objects;
+- an extrude's own prism by the kernel, the extrude, its sketch, the frame it sweeps from
+  (interned, so a sketch on a face that moved misses and one that didn't hits), and each
+  geometry entity in its profile, the very objects;
 - the solid after it by the solid it builds on and that prism.
 
 Documents share every entity a change left alone, and undo puts the old objects back, so a
@@ -17,8 +18,6 @@ A feature that fails gives its reason, and the features after it `feature.failed
 being recomputed: what they would build on is missing.
 """
 
-import threading
-from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -27,14 +26,13 @@ from caliper.contracts.document import (
     EntityId,
     Extrude,
     ExtrudeOperation,
-    Geometry,
     Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.kernel import Kernel, KernelError, Shape
 from caliper.contracts.queries import BoundingBox3, Mesh
-from caliper.engine import graph, part, profiles
-from caliper.engine.document.recent import Recent
+from caliper.engine import faces, graph, part, profiles
+from caliper.engine.document.recent import ByIdentity, Recent
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,53 +44,8 @@ class Result:
     error: Error | None = None
 
 
-def profile(document: Document, extrude: Extrude) -> profiles.Profile | Error:
-    """The closed profile an extrude sweeps, or why its geometry isn't one."""
-    chosen = _chosen(document, extrude)
-    return chosen if isinstance(chosen, Error) else profiles.find(chosen)
-
-
-def _chosen(document: Document, extrude: Extrude) -> list[tuple[EntityId, Geometry]] | Error:
-    """The geometry an extrude sweeps, in id order: `ids`, or the sketch's own."""
-    sketch = part.feature(document, extrude.sketch)
-    if not isinstance(sketch, Sketch):
-        return Error(
-            code=ErrorCode.ENTITY_NOT_FOUND,
-            message=f"{extrude.id} reads sketch {extrude.sketch}, which the part doesn't have",
-            field="sketch",
-        )
-    chosen: list[tuple[EntityId, Geometry]] = []
-    if extrude.ids:
-        for id in extrude.ids:
-            entity = document.entities.get(id)
-            if entity is None:
-                return _error(ErrorCode.ENTITY_NOT_FOUND, f"no entity {id!r}", id)
-            if not isinstance(entity, Geometry):
-                return _error(
-                    ErrorCode.ENTITY_WRONG_KIND,
-                    f"{id!r} is a {entity.kind}; a profile is geometry",
-                    id,
-                )
-            if entity.sketch != sketch.id:
-                message = f"{id!r} is in sketch {entity.sketch}, not {sketch.id}"
-                return _error(ErrorCode.SKETCH_MIXED, message, id)
-            if entity.construction:
-                message = f"{id!r} is construction geometry, which isn't part of a profile"
-                return _error(ErrorCode.PROFILE_CONSTRUCTION, message, id)
-            chosen.append((id, entity))
-    else:
-        chosen = sorted(
-            (id, e)
-            for id, e in document.entities.items()
-            if isinstance(e, Geometry) and e.sketch == sketch.id and not e.construction
-        )
-        if not chosen:
-            return Error(
-                code=ErrorCode.SELECTION_EMPTY,
-                message=f"sketch {sketch.id} has nothing to extrude: draw a closed profile in it",
-                field="sketch",
-            )
-    return chosen
+profile = faces.profile
+"""The closed profile an extrude sweeps, or why its geometry isn't one (`faces.profile`)."""
 
 
 def solids(document: Document, kernel: Kernel) -> Mapping[EntityId, Result]:
@@ -109,9 +62,14 @@ def solids(document: Document, kernel: Kernel) -> Mapping[EntityId, Result]:
         return found
     solid: Shape | None = None
     failed: EntityId | None = None
+    placed = faces.sketch_frames(document)
     for feature in document.features:
         if not isinstance(feature, Extrude):
-            found[feature.id] = Result(solid=None if failed else solid)
+            # A sketch whose face is gone fails on its own (ADR 0016); only the extrudes that
+            # read it fail with it.
+            frame = placed.get(feature.id)
+            error = frame if isinstance(frame, Error) else None
+            found[feature.id] = Result(solid=None if failed else solid, error=error)
             continue
         if failed is not None:
             found[feature.id] = Result(
@@ -172,24 +130,24 @@ def _built(
     """The solid after `extrude`: its prism joined to or cut from `before`. A prism found
     for the same objects was made from a closed profile, so the profile isn't looked for
     again."""
-    chosen = _chosen(document, extrude)
+    chosen = faces.chosen(document, extrude)
     if isinstance(chosen, Error):
         return chosen
     sketch = part.feature(document, extrude.sketch)
     assert isinstance(sketch, Sketch)
+    on = faces.extrude_frame(document, extrude)  # interned: the same object for the same place
+    if isinstance(on, Error):
+        return on
     geometry = tuple(entity for _, entity in chosen)
-    prism = _PRISMS.get((kernel, extrude, sketch, *geometry))
+    prism = _PRISMS.get((kernel, extrude, sketch, on, *geometry))
     try:
         if prism is None:
             found = profiles.find(chosen)
             if isinstance(found, Error):
                 return found
             face = kernel.make_face(found.outer, found.holes)
-            on = part.frame(sketch.plane)
-            if extrude.reversed:
-                on = part.moved(on, -extrude.depth)
             prism = kernel.extrude(face, on, extrude.depth)
-            _PRISMS.put((kernel, extrude, sketch, *geometry), prism)
+            _PRISMS.put((kernel, extrude, sketch, on, *geometry), prism)
         if before is None:
             if extrude.operation is ExtrudeOperation.REMOVE:
                 return Error(
@@ -245,45 +203,13 @@ def _error(code: ErrorCode, message: str, id: EntityId) -> Error:
     return Error(code=code, message=message, field="ids", ids=(id,))
 
 
-class _ByIdentity[V]:
-    """The last few values worked out, each kept with the very objects it was worked out from,
-    so a key matches only those objects, not equal ones made since, and an object's id can't
-    be reused while its entry is held."""
-
-    def __init__(self, size: int) -> None:
-        self._size = size
-        self._entries: OrderedDict[tuple[int, ...], tuple[tuple[object, ...], V]] = OrderedDict()
-        self._lock = threading.Lock()
-
-    def get(self, key: tuple[object, ...]) -> V | None:
-        ids = tuple(map(id, key))
-        with self._lock:
-            entry = self._entries.get(ids)
-            if entry is None or any(a is not b for a, b in zip(entry[0], key, strict=True)):
-                return None
-            self._entries.move_to_end(ids)
-            return entry[1]
-
-    def put(self, key: tuple[object, ...], value: V) -> None:
-        ids = tuple(map(id, key))
-        with self._lock:
-            self._entries[ids] = (key, value)
-            self._entries.move_to_end(ids)
-            while len(self._entries) > self._size:
-                self._entries.popitem(last=False)
-
-    def clear(self) -> None:
-        with self._lock:
-            self._entries.clear()
-
-
-_PRISMS: _ByIdentity[Shape] = _ByIdentity(64)
+_PRISMS: ByIdentity[Shape] = ByIdentity(64)
 """Each extrude's own prism, by the kernel, the extrude, its sketch, and its geometry."""
-_SOLIDS: _ByIdentity[Shape] = _ByIdentity(64)
+_SOLIDS: ByIdentity[Shape] = ByIdentity(64)
 """The solid after each extrude, by the kernel, the solid before it, its prism, and how."""
-_MESHES: _ByIdentity[dict[float, Mesh]] = _ByIdentity(16)
+_MESHES: ByIdentity[dict[float, Mesh]] = ByIdentity(16)
 """Each solid's meshes, by tolerance."""
-_PROPERTIES: _ByIdentity[tuple[float, BoundingBox3 | None]] = _ByIdentity(64)
+_PROPERTIES: ByIdentity[tuple[float, BoundingBox3 | None]] = ByIdentity(64)
 """Each solid's volume and bounding box."""
 _RESULTS: Recent[tuple[Kernel, Mapping[EntityId, Result]]] = Recent(8)
 """Every feature's result for the last few documents asked about."""
@@ -296,3 +222,4 @@ def forget() -> None:
     _MESHES.clear()
     _PROPERTIES.clear()
     _RESULTS.clear()
+    faces.forget()
