@@ -38,7 +38,15 @@ from caliper.app.agent.ui import DETAILS_HEIGHT
 from caliper.app.panels.timing import time_left
 from caliper.app.session import Author
 from caliper.contracts.commands import CreateCircle, CreateRectangle, CreateSketch
-from caliper.contracts.document import Circle, EntityId, Extrude, Plane, Point2, Rectangle
+from caliper.contracts.document import (
+    Circle,
+    EntityId,
+    Extrude,
+    FaceRef,
+    Plane,
+    Point2,
+    Rectangle,
+)
 from caliper.engine import features, geometry, part
 from caliper.engine.commands import handlers
 from caliper.engine.commands.bus import Bus
@@ -1008,3 +1016,26 @@ def test_tool_results_show_what_changed_without_echoing_the_command(served, qtbo
     assert "command" not in response.content
     assert response.content["created"] == ["e1"]
     assert response.content["changed"]["added"]["e1"]["width"] == 100.0
+
+
+def test_claude_desktop_sketches_on_a_face_and_the_proposal_faces_it(served, qtbot) -> None:
+    """ADR 0016: Claude makes a sketch on the plate's top face and draws in it; the proposal is
+    reviewed facing that face, and accepted, that sketch is open."""
+    window, session = served, served.session
+    _, _, extrude = plate(window)
+    made = call(window, qtbot, "create_sketch", {"plane": {"feature": extrude, "face": "end"}})
+    assert not made.is_error, made.content
+    (sketch,) = made.content["created"]
+    response = call(window, qtbot, "create_circle", {"center": {"x": 60, "y": 25}, "radius": 5})
+    assert not response.is_error, response.content
+    commands = window.agent.proposal.plan.commands
+    assert isinstance(commands[0], CreateSketch)
+    assert isinstance(commands[1], CreateCircle)
+    assert commands[1].sketch == sketch  # drawn in the sketch it made
+    backdrop = window.canvas.backdrop
+    assert backdrop is not None
+    assert backdrop.plane == FaceRef(feature=extrude, face="end")
+    assert backdrop.frame.origin.z == 10.0
+    window.proposal_card.accept_button.click()
+    assert window.sketch_open == sketch
+    assert session.queries.feature_error(sketch) is None
