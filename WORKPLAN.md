@@ -43,7 +43,8 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
   - [~] **3D sketching part 2** ([ADR 0016](docs/adr/0016-sketching-at-any-angle-and-on-faces.md), Proposed; [core.md](docs/workplan/core.md)): draw at an angle up to 70°, and sketch on the part's flat faces, following them; Claude too
     - [x] ADR 0016; the analytic kernel's parallel planes; `Extrude.reversed` and file schema 5
     - [x] Sketches on faces (contract and engine): `FaceRef`, placed from the extrude's inputs, following edits
-    - [ ] Picking and box queries, cross-kernel tests, a replay fixture
+    - [x] Picking a face and selecting at an angle: `face_at`, `entities_in_polygon`
+    - [ ] Face planes against both kernels, a replay fixture, docs
     - [ ] The canvas at an angle, picking faces in the app, Claude's `create_sketch`, benchmarks (`shared/3d-sketching-2`)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)

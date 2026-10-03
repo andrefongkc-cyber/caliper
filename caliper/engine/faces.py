@@ -171,6 +171,65 @@ def names(document: Document, id: EntityId) -> tuple[FaceRef, ...] | Error:
     return tuple(FaceRef(feature=id, face=name) for name in ("start", "end", *flat))
 
 
+# --- Picking ----------------------------------------------------------------------------
+
+FACING = math.cos(math.radians(0.5))
+"""A picked triangle's normal and a face's agree within half a degree."""
+
+
+def at(document: Document, point: Point3, normal: Point3, tolerance: float) -> FaceRef | None:
+    """The named flat face `point` is on, facing `normal`: the latest extrude's first. Its
+    outline is as the extrude made it, before later cuts (ADR 0016's limit)."""
+    numbers = (point.x, point.y, point.z, normal.x, normal.y, normal.z, tolerance)
+    if not all(isinstance(v, float | int) and math.isfinite(v) for v in numbers):
+        return None
+    if tolerance < 0 or _dot(normal, normal) == 0:
+        return None
+    n = _unit(normal)
+    placed = sketch_frames(document)
+    for feature in reversed(document.features):
+        if isinstance(feature, Extrude):
+            on = placed.get(feature.sketch)
+            if isinstance(on, Frame):
+                found = _hit(document, feature, on, point, n, tolerance)
+                if found is not None:
+                    return FaceRef(feature=feature.id, face=found)
+    return None
+
+
+def _hit(
+    document: Document, extrude: Extrude, on: Frame, p: Point3, n: Point3, tolerance: float
+) -> str | None:
+    d = _scaled(part.normal(on), -1.0 if extrude.reversed else 1.0)
+    out = -1.0 if extrude.operation is ExtrudeOperation.REMOVE else 1.0
+    rel = _plus(p, _scaled(on.origin, -1.0))
+    u, v, w = _dot(rel, on.x), _dot(rel, on.y), _dot(rel, d)
+    if not -tolerance <= w <= extrude.depth + tolerance:
+        return None
+    caps = (("start", 0.0, -out), ("end", extrude.depth, out))
+    for name, at_w, way in caps:
+        if abs(w - at_w) <= tolerance and _dot(n, _scaled(d, way)) >= FACING:
+            region = profile(document, extrude)
+            if not isinstance(region, Error) and profiles.contains(
+                region, Point2(x=u, y=v), tolerance
+            ):
+                return name
+    sides = _sides(document, extrude)
+    if isinstance(sides, Error):
+        return None
+    flat = Point2(x=u, y=v)
+    for name, side in sides.items():
+        if isinstance(side, Error):
+            continue
+        facing = _plus(_scaled(on.x, side.out.x * out), _scaled(on.y, side.out.y * out))
+        if _dot(n, facing) < FACING:
+            continue
+        edge = profiles.Edge(a=side.a, b=side.b)
+        if profiles.distance(edge, flat) <= tolerance:
+            return name
+    return None
+
+
 # --- What an extrude sweeps ---------------------------------------------------------------
 
 
@@ -228,10 +287,11 @@ def chosen(document: Document, extrude: Extrude) -> list[tuple[EntityId, Geometr
 
 @dataclass(frozen=True, slots=True)
 class _Side:
-    """A side face in its extrude's sketch: through `a`, facing `out` (a unit direction away
-    from what the extrude itself sweeps)."""
+    """A side face in its extrude's sketch: along the edge from `a` to `b`, facing `out` (a
+    unit direction away from what the extrude itself sweeps)."""
 
     a: Point2
+    b: Point2
     out: Point2
 
 
@@ -355,7 +415,7 @@ def _side(edge: profiles.Edge, right: bool) -> _Side:
     dx, dy = edge.b.x - edge.a.x, edge.b.y - edge.a.y
     length = math.hypot(dx, dy)
     out = Point2(x=dy / length, y=-dx / length) if right else Point2(x=-dy / length, y=dx / length)
-    return _Side(a=edge.a, out=out)
+    return _Side(a=edge.a, b=edge.b, out=out)
 
 
 def _not_found(document: Document, extrude: Extrude, face: str) -> Error:
