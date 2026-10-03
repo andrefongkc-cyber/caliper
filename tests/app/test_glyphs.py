@@ -155,7 +155,7 @@ def test_hiding_constraints_keeps_the_dimensions(window, qtbot) -> None:
         CreateDimension(refs=(curve(a),), placement=P(x=30, y=40))
     ).created_ids
     assert window.constraints_action.shortcut().toString() == "Shift+C"
-    assert window.constraints_action in window.tool_bar.actions()  # a toolbar toggle too
+    assert window.constraints_action in window.tray.bar.actions()  # a toolbar toggle too
     window.constraints_action.trigger()
     assert window.canvas.constraint_glyphs == []
     wx, wy = window.canvas.view.to_widget(P(x=30, y=40))

@@ -152,7 +152,8 @@ identical on every machine.
 | Draw an exact rectangle | R, click a corner, type `120` Tab `50` Return |
 | Find any command | ⌘K |
 | Zoom to fit | F |
-| Ask the assistant | ⌘L, then Accept with ⌘Return |
+| Ask the assistant | ⌘L (or Agent, bottom right), then Accept with ⌘Return |
+| Fold the left or right panel away | ⌘B, ⌘⌥B, or click the strip at the view's edge |
 | See every shortcut | ⌘/ |
 
 ## How it's built

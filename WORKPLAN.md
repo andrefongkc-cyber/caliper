@@ -46,6 +46,7 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] Picking a face and selecting at an angle: `face_at`, `entities_in_polygon`
     - [x] Face planes against both kernels' meshes, a replay fixture of a part modelled on its faces, docs
     - [x] The canvas at an angle, picking faces in the app, Claude's `create_sketch`, benchmarks (`shared/3d-sketching-2`): a tilted edit 4.6 ms, a face pick 5.4 ms, no slowdown elsewhere
+  - [x] **The chrome folds away** ([shell.md](docs/workplan/shell.md); `shared/collapsible-chrome`, stacked on it): the left and right panels fold to strips on the view's edges, Timing pops out, the agent's prompt hides behind an Agent button, and the tools slide out from the line after the 2D/3D switch
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)

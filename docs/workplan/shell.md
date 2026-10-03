@@ -1,4 +1,4 @@
-Status: 3D sketching part 2 (ADR 0016) on `shared/3d-sketching-2` (local, not pushed): drawing on a sketch's plane seen at up to 70°, a click picks a flat face of the part to sketch on, sketches on faces follow them; next: Andre tries it, then Lucas's review of `PlaneView`, the 70° gate, and the solid hiding the planes from picks
+Status: the window's chrome folds away on `shared/collapsible-chrome` (local, not pushed, stacked on `shared/3d-sketching-2`): each side's panels behind a strip on the view's edge, Timing pops out, the agent's prompt behind an Agent button, the tools in a tray that slides out from the line after the 2D/3D switch; next: Andre tries it, then Lucas's review of both branches
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,18 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## The chrome folds away (branch `shared/collapsible-chrome`, stacked on `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
+
+Andre asked for more room for the part: the left panel and the right panel to collapse, Timing able to pop out on its own, the scripted agent hidden behind a button, and the top bar as a tray that slides out to the right from the line after the 2D/3D switch. One new module, `caliper/app/collapse.py`; each fold is one checkable action, so its menu item, its control, and its shortcut agree.
+
+- [x] **Each side folds** (`EdgeToggle`, `MainWindow._fold`): a 12 px strip down each edge of the view, its chevron pointing the way the panels will go; View → Show Left Panel (⌘B) and Show Right Panel (⌘⌥B), and the palette. A side folds the panels docked there (a panel moved to the other side folds with that side; one hidden before stays hidden), and they come back at the sizes they had: Qt alone shares the heights out again, so `resizeDocks` puts them back.
+- [x] **Timing pops out** (Agent → Pop Out Timing, or the dock's own float button; enabled while Claude Desktop can connect): a window of its own over the part's top right corner, which stays when the right panel folds. Docked again on a folded side, it waits to come back with the rest; Claude Desktop connecting while the right side is folded does the same.
+- [x] **The agent's prompt hides** until the Agent button (bottom right of the status bar, a permanent widget so a message never covers it) or ⌘L shows it; hiding it gives the keys back to the view.
+- [x] **The tools slide** (`SlidingTray`): the line after the 2D/3D switch is a handle with a chevron; the tools slide out to its right in 160 ms, their right end following the tray's edge so they come from behind the line, and back. Shut, their shortcuts still work (they're the window's actions). In a window too narrow for every tool the tray takes what's left of the bar and the rest wait behind the » menu, as they did on the bar before (the bar alone hid the whole tray).
+- [x] **Tests** (`tests/app/test_folding_chrome.py`, 15): each side folding and coming back as it was, a moved panel, a hidden panel, the menus and palette; Timing popped out through a fold and docked again, folded with the panel, and waiting when Claude Desktop connects; the prompt's button, ⌘L and focus, a message not covering the button; the tray sliding shut and out with the keys working, halfway out, and in a narrower window. `test_measure.py` and `test_glyphs.py` read the tray's tools.
+- **Cost:** opening the window 1.6 ms more (16.0 → 17.7 ms, `ui/startup` run alone, old and new); every other `ui/` case unchanged. Opening the stress plate reads 38 ms against the full run's 35, but the old code reads the same run alone: it's the case running first, not this.
+- Not done: what's folded isn't remembered between launches; nothing animates but the tray.
 
 ## 3D sketching part 2: at an angle, and on faces (branch `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
 
