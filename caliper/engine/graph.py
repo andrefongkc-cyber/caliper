@@ -5,7 +5,8 @@ The 2D layer is the solver's own, under these names: a dimension's or constraint
 the geometry it references (`sketch.references`), and the reverse index is
 `sketch.referrers`, kept incrementally by identity as before. Features add the 3D layer: a
 sketch is one node whose inputs are the geometry drawn in it, and an extrude reads its sketch
-(and the geometry in `ids`), and builds on the solid of the extrude before it.
+(and the geometry in `ids`), and builds on the solid of the extrude before it. A sketch on a
+face reads the extrude whose face it is.
 
 Features may read only features before them. That keeps the graph free of cycles by
 construction, and `order` refuses a document that breaks the rule rather than recompute it.
@@ -18,6 +19,7 @@ from caliper.contracts.document import (
     EntityId,
     Expectation,
     Extrude,
+    FaceRef,
     Geometry,
     PartFeature,
     Sketch,
@@ -37,12 +39,14 @@ def inputs(document: Document, id: EntityId) -> frozenset[EntityId]:
         return frozenset(ref.entity for ref in sketch.references(entity))
     feature = part.feature(document, id)
     match feature:
-        case Sketch():
-            return frozenset(
+        case Sketch(plane=plane):
+            drawn = (
                 i
                 for i, e in document.entities.items()
                 if isinstance(e, Geometry) and e.sketch == feature.id
             )
+            face = (plane.feature,) if isinstance(plane, FaceRef) else ()
+            return frozenset((*drawn, *face))
         case Extrude():
             earlier = _solid_before(document, feature)
             return frozenset(
@@ -53,9 +57,12 @@ def inputs(document: Document, id: EntityId) -> frozenset[EntityId]:
 
 def reads(feature: PartFeature) -> frozenset[EntityId]:
     """The features a feature names, which must come before it. An extrude's sketch: the solid
-    it builds on is whatever comes before it, which no edit can make come after."""
+    it builds on is whatever comes before it, which no edit can make come after. A sketch on a
+    face, the extrude whose face it is (ADR 0016)."""
     match feature:
         case Extrude(sketch=read):
+            return frozenset({read})
+        case Sketch(plane=FaceRef(feature=read)):
             return frozenset({read})
     return frozenset()
 

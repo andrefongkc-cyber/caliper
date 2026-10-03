@@ -14,7 +14,7 @@ they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and m
 read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
 sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part. V2's F3
 (ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`. ADR 0016
-moved `Frame` here from the kernel contract.
+moved `Frame` here from the kernel contract, and added `plane_frame` and `faces`.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from caliper.contracts.document import ConstraintType, EntityId, Point2, Ref
+from caliper.contracts.document import ConstraintType, EntityId, FaceRef, Plane, Point2, Ref
 from caliper.contracts.document import Expectation as Expectation  # moved there (C-1)
 from caliper.contracts.document import Metric as Metric
 from caliper.contracts.errors import Error
@@ -381,9 +381,24 @@ class Queries(Protocol):
         ...
 
     def feature_error(self, id: EntityId) -> Error | None:
-        """Why a feature fails, or None when it works or `id` isn't a feature. A sketch never
-        fails; an extrude fails when its profile isn't one closed profile any more, its sketch
-        geometry is gone, or the kernel can't build it."""
+        """Why a feature fails, or None when it works or `id` isn't a feature. A sketch fails
+        when its face can't be found (ADR 0016), with no kernel needed to say so; an extrude
+        fails when its profile isn't one closed profile any more, its sketch geometry is gone,
+        its sketch fails, or the kernel can't build it."""
+        ...
+
+    def plane_frame(self, plane: Plane | FaceRef) -> Frame | Error:
+        """Where a plane or a face is in the part: the frame a sketch on it draws in (ADR
+        0016). A face's is worked out from its extrude's inputs, with no kernel; it is
+        `face.not_found` or `face.not_planar` when the extrude has no such flat face now, and
+        the error of the extrude's own sketch when that fails."""
+        ...
+
+    def faces(self, id: EntityId) -> tuple[FaceRef, ...] | Error:
+        """The flat faces of extrude `id` a sketch can sit on: `start`, `end`, then each line's
+        and rectangle's sides in the profile's order. `entity.not_found` for an id the part
+        doesn't have, `entity.wrong_kind` for one that isn't an extrude, and the profile's
+        error when it isn't one closed profile now."""
         ...
 
     def sketch_of(self, id: EntityId) -> EntityId | None:
