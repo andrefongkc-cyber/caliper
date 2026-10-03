@@ -24,7 +24,15 @@
         "kind": "distance_dimension",
         "offset": -10.0,
         "orientation": "horizontal",
-        "value": null
+        "value": 120.0
+      },
+      "e4": {
+        "expected": 60000.0,
+        "ids": [],
+        "kind": "check",
+        "metric": "volume",
+        "refs": [],
+        "tolerance": 1e-06
       }
     },
     "features": [
@@ -32,12 +40,20 @@
         "id": "e0",
         "kind": "sketch",
         "plane": "xy"
+      },
+      {
+        "depth": 10.0,
+        "id": "e3",
+        "ids": [],
+        "kind": "extrude",
+        "operation": "add",
+        "sketch": "e0"
       }
     ],
-    "next_id": 3
+    "next_id": 5
   },
   "format": "caliper.document",
-  "schema_version": 5,
+  "schema_version": 4,
   "units": {
     "angle": "deg",
     "length": "mm"

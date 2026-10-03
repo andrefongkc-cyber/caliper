@@ -4,26 +4,27 @@
       "e1": {
         "construction": false,
         "corner": {
-          "x": 2.5,
-          "y": -0.25
+          "x": 0.0,
+          "y": 0.0
         },
         "height": 50.0,
         "kind": "rectangle",
         "sketch": "e0",
-        "width": 100.0
+        "width": 120.0
       },
-      "e5": {
-        "construction": false,
-        "end": {
-          "x": 30.0,
-          "y": 60.0
+      "e2": {
+        "a": {
+          "entity": "e1",
+          "feature": "bottom_left"
         },
-        "kind": "line",
-        "sketch": "e0",
-        "start": {
-          "x": -10.0,
-          "y": 60.0
-        }
+        "b": {
+          "entity": "e1",
+          "feature": "bottom_right"
+        },
+        "kind": "distance_dimension",
+        "offset": -10.0,
+        "orientation": "horizontal",
+        "value": null
       }
     },
     "features": [
@@ -33,10 +34,10 @@
         "plane": "xy"
       }
     ],
-    "next_id": 6
+    "next_id": 3
   },
   "format": "caliper.document",
-  "schema_version": 5,
+  "schema_version": 4,
   "units": {
     "angle": "deg",
     "length": "mm"

@@ -1,4 +1,4 @@
-Status: Performance V2.2 on `shared/performance-v2.2` (local, not pushed): Perf-0 to Perf-3 and Perf-5 to Perf-8 done, Perf-4 not landed (measured), final validation recorded; next: review, after PR #56. V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
+Status: 3D sketching part 2 (ADR 0016) on `contracts/sketch-on-faces` (local, not pushed): kernel and reversed extrudes done; next: sketches on faces. Performance V2.2 done on `shared/performance-v2.2`; V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -40,6 +40,10 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] Perf-7: a decoder per class for file loading: 10k entities 196 → 75 ms, 3k 60 → 24 ms, the stress plate 6.7 → 3.0 ms; results and errors identical
     - [x] Perf-5: the redundancy check carries on across inserted columns and from the last four checks, bit-identical (no rank update): star-12 333 → 188 ms (1.77×, short of the plan's 2×), chain-150 2.6 → 1.0 s (p95 35 → 12 ms)
     - [x] Perf-8: the 3D render path on the current renderer, pixel-identical: frames 0.43–0.50× (2,604 triangles 22.4 → 11.1 ms), a 3D sketch edit over the part 36.6 → 4.3 ms, no scene for the 2D tab; 30 fps now to about 9,000 triangles (GPU threshold recorded, not acted on)
+  - [~] **3D sketching part 2** ([ADR 0016](docs/adr/0016-sketching-at-any-angle-and-on-faces.md), Proposed; [core.md](docs/workplan/core.md)): draw at an angle up to 70°, and sketch on the part's flat faces, following them; Claude too
+    - [x] ADR 0016; the analytic kernel's parallel planes; `Extrude.reversed` and file schema 5
+    - [ ] Sketches on faces (contract and engine), picking and box queries, cross-kernel tests
+    - [ ] The canvas at an angle, picking faces in the app, Claude's `create_sketch`, benchmarks (`shared/3d-sketching-2`)
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)

@@ -25,7 +25,7 @@ Frozen as of V1: a new command type, or a change to an existing one, needs a joi
 so committing a transaction is announced like every other change to the undo stack. C-1
 added `CreateCheck` (ADR 0010), and C-4 `Change.source`. V2's F1 (ADR 0011) added
 `CreateSketch`, the `sketch` a create command draws in, and the feature list in a `Delta`;
-V2's F3 (ADR 0013) added `CreateExtrude`.
+V2's F3 (ADR 0013) added `CreateExtrude`, and ADR 0016 its `reversed`.
 
 Geometry goes in a sketch. A command that creates geometry names it in `sketch`; left as
 None, it is the part's only sketch, and a part with none or several refuses the command
@@ -81,6 +81,9 @@ class CreateExtrude:
     unless that is one closed profile now (`profile.not_closed`, with the reason), and an
     extrude that removes needs one that adds before it. The solid itself is worked out when
     asked for (`Queries.solid_properties`), never stored.
+
+    `reversed` sweeps against the normal (ADR 0016). Left as None, the engine chooses, and the
+    resolved command records what it chose.
     """
 
     kind: ClassVar[str] = "create_extrude"
@@ -89,6 +92,7 @@ class CreateExtrude:
     operation: ExtrudeOperation = ExtrudeOperation.ADD
     ids: tuple[EntityId, ...] = ()
     id: EntityId | None = None
+    reversed: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

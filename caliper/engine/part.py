@@ -58,6 +58,20 @@ def frame(plane: Plane) -> Frame:
     return FRAMES[plane]
 
 
+def normal(on: Frame) -> Point3:
+    """x cross y: the way an extrude on `on` goes."""
+    x, y = on.x, on.y
+    return Point3(x=x.y * y.z - x.z * y.y, y=x.z * y.x - x.x * y.z, z=x.x * y.y - x.y * y.x)
+
+
+def moved(on: Frame, w: float) -> Frame:
+    """`on` moved `w` along its normal: where a reversed extrude starts, so the kernel sweeps
+    the same profile back over the stretch it covers (ADR 0016)."""
+    o, n = on.origin, normal(on)
+    origin = Point3(x=o.x + w * n.x, y=o.y + w * n.y, z=o.z + w * n.z)
+    return replace(on, origin=origin)
+
+
 def feature(document: Document, id: EntityId) -> PartFeature | None:
     """The feature with `id`, or None. A part has a handful, so a scan is fine."""
     for each in document.features:

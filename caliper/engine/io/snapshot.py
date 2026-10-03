@@ -24,7 +24,7 @@ from caliper.engine.io.canonical import JSON
 from caliper.engine.io.codec import DecodeError, decode_command, decode_document, encode
 
 FORMAT = "caliper.document"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 UNITS: Mapping[str, str] = MappingProxyType({"angle": "deg", "length": "mm"})
 
 type Migration = Callable[[dict[str, object]], dict[str, object]]
@@ -96,7 +96,22 @@ def _v3_to_v4(data: dict[str, object]) -> dict[str, object]:
     return data | {"document": document | {"entities": placed, "features": features} | moved}
 
 
-MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4}
+def _v4_to_v5(data: dict[str, object]) -> dict[str, object]:
+    """ADR 0016: an extrude can go against its sketch plane's normal. Every schema-4 extrude
+    went along it, so each gains `"reversed": false`."""
+    document = data.get("document")
+    if not isinstance(document, dict) or not isinstance(document.get("features"), list):
+        return data  # malformed; decoding reports it with a path
+    features = [
+        feature | {"reversed": False}
+        if isinstance(feature, dict) and feature.get("kind") == "extrude"
+        else feature
+        for feature in document["features"]
+    ]
+    return data | {"document": document | {"features": features}}
+
+
+MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4, 4: _v4_to_v5}
 """MIGRATIONS[n] upgrades the data of a schema-n file to schema n+1.
 
 Each migration is a pure function over raw JSON data and needs a fixture test: an old file

@@ -22,7 +22,8 @@ and `AngleDimension` (file schema 2). C-1 (`contracts/checks-authors-labels`) mo
 `Expectation` here from the queries: a check is stored in the document (file schema 3).
 V2's F1 (ADR 0011) made the document a part: `Document.features` in order, `Sketch` on a
 `Plane`, and each geometry entity's `sketch` (file schema 4). V2's F3 (ADR 0013) added the
-second feature, `Extrude`, and `Metric.VOLUME`.
+second feature, `Extrude`, and `Metric.VOLUME`. ADR 0016 (`contracts/sketch-on-faces`) added
+`Extrude.reversed` (file schema 5).
 """
 
 from collections.abc import Mapping
@@ -112,10 +113,14 @@ class Extrude:
     id: EntityId
     sketch: EntityId
     depth: float
-    """Greater than 0, in mm, along the normal of the sketch's plane."""
+    """Greater than 0, in mm, along the normal of the sketch's plane, or against it when
+    `reversed`."""
     operation: ExtrudeOperation = ExtrudeOperation.ADD
     ids: tuple[EntityId, ...] = ()
     """The profile's geometry; empty means all of the sketch's non-construction geometry."""
+    reversed: bool = False
+    """Swept against the sketch plane's normal (ADR 0016): from a face, a cut goes into the
+    part this way."""
 
 
 PartFeature = Sketch | Extrude
