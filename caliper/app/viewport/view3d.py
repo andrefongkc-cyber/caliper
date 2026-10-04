@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QWidget
 from caliper.app import theme
 from caliper.app.agent.proposal import Proposal
 from caliper.app.session import DocumentSession, Space
+from caliper.app.tokens import SPACE
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import FACE_TOLERANCE, Picked, Scene
 from caliper.contracts.document import EntityId, Extrude, FaceRef, Plane, Sketch
@@ -34,6 +35,11 @@ from caliper.contracts.queries import Mesh, Point3, Queries
 from caliper.engine.commands.bus import Bus
 
 DRAG_PX = 3.0
+TRIAD_ROOM = 72.0
+"""Pixels of the view's bottom left corner the triad takes, each way."""
+CAPTION_FLAGS = (
+    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom | Qt.TextFlag.TextWordWrap
+)
 """A press that moves less than this before its release is a click, not an orbit."""
 
 
@@ -226,8 +232,14 @@ class View3D(QWidget):
         if said:
             painter.setPen(theme.AGENT if self.note else theme.TEXT_DIM)
             painter.setFont(theme.font())
-            box = QRectF(0, height - 40, width, 32)
-            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, said)
+            # One line sits where it always did, right of the triad's corner. In a view too
+            # narrow for that it wraps across the view, upwards from above the triad.
+            metrics = painter.fontMetrics()
+            if metrics.horizontalAdvance(said) <= width - 2 * TRIAD_ROOM:
+                box = QRectF(0, 0, width, height - 24 + metrics.height() / 2)
+            else:
+                box = QRectF(SPACE.l, 0, max(width - 2 * SPACE.l, 1.0), height - TRIAD_ROOM)
+            painter.drawText(box, CAPTION_FLAGS, said)
         painter.end()
         self.frame_ms.append(1e3 * (time.perf_counter() - started))
 
