@@ -11,7 +11,7 @@ did comes back as the same kind of proposal. Without one, the scripted stand-in 
 
 import dataclasses
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from time import perf_counter
 
@@ -157,6 +157,8 @@ class ProposalCard(QFrame):
         self.details_button.clicked.connect(self._toggle_details)
         self.expanded = False
         """Whether a large proposal's list of changes is shown. Kept while the card is open."""
+        self.top: Callable[[], int] = lambda: SPACE.l
+        """How far down the view the card sits; the window moves it clear of what's there."""
         self.count = 0
         self._listing: tuple[object, ...] = ()
         """The commands the list of changes should show."""
@@ -268,7 +270,7 @@ class ProposalCard(QFrame):
     def reposition(self) -> None:
         parent = self.parentWidget()
         if parent is not None:
-            self.move(parent.width() - self.width() - SPACE.l, SPACE.l)
+            self.move(parent.width() - self.width() - SPACE.l, self.top())
 
 
 class AgentController(QObject):
