@@ -1,4 +1,4 @@
-Status: on `shared/proposal-in-3d` (stacked on `shared/collapsible-chrome`, PR #57): a proposed solid is seen in 3D before Accept (C-16), a proposal waits with its tab (C-18), folds are remembered between launches, and five smaller fixes; next: Andre's review, then Lucas's manual pass of #57's checklist in Claude Desktop
+Status: PR #58 open (`shared/proposal-in-3d`, stacked on #57, awaiting Andre): a proposed solid is seen in 3D before Accept (C-16), a proposal waits with its tab (C-18), folds are remembered between launches, sharp pan and zoom, and four smaller fixes; next: Lucas's manual pass in the real window and Claude Desktop (#57's checklist and #58's), then a rebase onto `main` once #57 merges
 
 # Shell workplan — Stream B
 
@@ -7,7 +7,7 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
 
-## What an agent proposes, seen and kept (branch `shared/proposal-in-3d`, stacked on `shared/collapsible-chrome`, 2026-10-03)
+## What an agent proposes, seen and kept (branch `shared/proposal-in-3d`, stacked on `shared/collapsible-chrome`, 2026-10-03; PR #58)
 
 Lucas's pass over the app after V2, 3D sketching, and the folding chrome landed without a Stream B session: the two known issues on the client's cosmetic list, what the folding chrome left undone, the sharp pan and zoom from 2026-09-27 that was never pushed, and what the first screenshots of the 3D tab showed. Each change has tests, and each was broken on purpose to see its tests fail (22 breaks, all caught).
 
