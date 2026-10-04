@@ -83,6 +83,7 @@ QToolBar QToolButton {{ padding: {s.xs - 1}px {s.s}px; border: 1px solid transpa
 QToolBar QToolButton:hover {{ border-color: {P.border}; }}
 QToolBar QToolButton:checked {{ background: {P.field}; border-color: {P.accent}; }}
 QToolBar QToolButton:disabled {{ color: {P.ink_dim}; }}
+QToolBar QToolButton#qt_toolbar_ext_button {{ padding: 0; border: none; }}
 QWidget#mode-switch QToolButton {{ border: 1px solid {P.border}; border-radius: 0;
     padding: {s.xs - 1}px {s.l}px; font-weight: {TYPE.heading_weight}; color: {P.ink_dim}; }}
 QWidget#mode-switch QToolButton#mode-2d {{ border-top-left-radius: {r.control}px;

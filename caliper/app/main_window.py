@@ -575,6 +575,10 @@ class MainWindow(QMainWindow):
         for action in (self.fit_action, self.constraints_action):
             tools.addAction(action)  # icons only: they read at a glance, and the bar stays one row
             tools.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        more = tools.findChild(QToolButton, "qt_toolbar_ext_button")
+        if more is not None:  # Qt's own arrow is dark, on a dark bar: ours is in the ink
+            more.setIcon(icons.icon("more"))
+            more.setToolTip("More tools")
         self.tray = SlidingTray(tools, self.tray_action)
         bar.addWidget(self.tray.row())
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
