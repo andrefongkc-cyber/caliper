@@ -97,8 +97,10 @@ Claude works on the tab you're in ([ADR 0015](adr/0015-sketching-in-3d-from-the-
 
 Switching tabs while a proposal is pending leaves it waiting on its tab: it's on the card
 again when you come back, and Claude adds to it there. Meanwhile Claude's calls work on the tab
-shown, and its first call after the switch is told where its changes are. Opening another
-document in a tab drops that tab's proposal, as before.
+shown, and its first call after the switch is told where its changes are. If that first call
+would change something, it's refused once and nothing changes: Claude sent it for the tab its
+other changes are on, and can send it again if it does belong on the tab shown. Opening
+another document in a tab drops that tab's proposal, as before.
 
 A proposal that changes the part's solid (an extrude, or a change to a sketch one reads) is
 drawn in the 3D view in the agent's colour before you accept it.

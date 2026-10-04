@@ -180,6 +180,32 @@ def test_claudes_pending_changes_wait_on_their_tab_and_it_is_told_where_they_are
     assert again.note is None  # said once
 
 
+def test_claudes_first_change_after_a_switch_is_held_back_not_drawn_on_the_other_tab(
+    served: MainWindow, qtbot
+) -> None:  # type: ignore[no-untyped-def]
+    """Claude sends its next change before it knows the user switched tabs: meant for the 2D
+    sketch, it would land in the part (test run 007 drew its hole there). It's refused, with
+    where things stand, and nothing changes; sent again, it's Claude's choice and it's done."""
+    window = served
+    call(window, qtbot, "create_rectangle", PLATE)
+    window.set_mode("3d")
+    part = window.session.document
+    held = call(window, qtbot, "create_circle", HOLE)
+    assert held.is_error
+    said = held.content["error"]
+    assert said.startswith("Nothing was changed.")
+    assert "3D part tab" in said
+    assert "not dropped" in said
+    assert window.agent.proposal is None  # nothing proposed for the part
+    assert window.session.document is part
+    again = call(window, qtbot, "create_circle", HOLE)
+    assert not again.is_error, again.content
+    assert again.note is None  # it has been told
+    assert window.proposal_card.isVisible()  # the part's own proposal now
+    window.set_mode("2d")
+    assert window.proposal_card.title.text() == "Create Rectangle"  # the plate still waits
+
+
 def test_back_on_the_tab_claude_adds_to_the_same_proposal(served: MainWindow, qtbot) -> None:  # type: ignore[no-untyped-def]
     window = served
     call(window, qtbot, "create_rectangle", PLATE)
@@ -204,6 +230,7 @@ def test_a_draft_on_each_tab_and_closing_one_tells_claude_on_that_tab(
     window = served
     call(window, qtbot, "create_rectangle", PLATE)
     window.set_mode("3d")
+    assert call(window, qtbot, "create_sketch", {"plane": "xy"}).is_error  # held back, once
     made = call(window, qtbot, "create_sketch", {"plane": "xy"})
     assert not made.is_error, made.content
     assert window.proposal_card.isVisible()  # the part's own proposal
