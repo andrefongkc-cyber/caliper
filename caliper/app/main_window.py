@@ -191,6 +191,7 @@ class MainWindow(QMainWindow):
         self._build_edges()
         self._build_status_bar()
         self._build_sketch_bar()
+        self.proposal_card.top = self._card_top
 
         self.session.file_changed.connect(self._update_title)
         self.session.document_changed.connect(self._update_edit_actions)
@@ -1160,6 +1161,18 @@ class MainWindow(QMainWindow):
             self.view3d.refresh()
             self.view3d.setFocus()
 
+    def _card_top(self) -> int:
+        """Where the proposal card's top goes: the view's top right, or under the sketch bar
+        when the view is too narrow for the two side by side, so neither covers the other."""
+        bar, card = self.sketch_bar, self.proposal_card
+        page = card.parentWidget()
+        if bar.isHidden() or page is None:
+            return SPACE.l
+        left = page.width() - card.width() - SPACE.l
+        if bar.geometry().right() + SPACE.m <= left:
+            return SPACE.l
+        return bar.geometry().bottom() + SPACE.m
+
     def _seat_card(self, page: QWidget) -> None:
         card = self.proposal_card
         if card.parentWidget() is page:
@@ -1190,6 +1203,8 @@ class MainWindow(QMainWindow):
             hint = "Turned too far to draw: press N to face the sketch and keep drawing"
         self.sketch_hint.setText(hint)
         self.sketch_bar.adjustSize()
+        if not self.proposal_card.isHidden():
+            self.proposal_card.reposition()  # the bar's width changed under it
         if drawing:
             self._update_constraint_actions()
         self._update_tool_state()
