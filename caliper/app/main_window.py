@@ -155,6 +155,8 @@ class MainWindow(QMainWindow):
             self.session, self.prompt_bar, self.proposal_card, self, assistant=from_environment()
         )
         self.canvas.proposal = lambda: self.agent.proposal
+        self.view3d.proposal = lambda: self.agent.proposal
+        self.agent.proposal_changed.connect(self.view3d.show_proposal)
         self.canvas.reject_proposal = self.agent.reject
         self.agent.proposal_changed.connect(self.canvas.show_proposal)
         self.agent.proposal_changed.connect(self._proposal_settled)

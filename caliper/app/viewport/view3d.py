@@ -6,6 +6,9 @@ planes, and its solid (`scene3d`). It reads the session's queries (`Queries.mesh
 the view is showing and the document has changed since; the engine keeps solids and meshes
 by identity (ADR 0013), so asking again costs little.
 
+While an agent's proposal waits, the solid drawn is the one the proposal would leave, in the
+agent's colour (C-16): an extrude changes no geometry, so this is where it's seen before Accept.
+
 A click picks a plane or a sketch, which is what Sketch and Extrude act on; a double-click on
 one asks to sketch on it or edit it. A left drag orbits, a right or middle drag (or Shift with
 a left drag) pans, the wheel zooms about the pointer, and F fits. The camera is UI state.
@@ -14,18 +17,21 @@ a left drag) pans, the wheel zooms about the pointer, and F fits. The camera is 
 import math
 import time
 from collections import deque
+from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QWheelEvent
 from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
+from caliper.app.agent.proposal import Proposal
 from caliper.app.session import DocumentSession, Space
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import FACE_TOLERANCE, Picked, Scene
 from caliper.contracts.document import EntityId, Extrude, FaceRef, Plane, Sketch
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.contracts.queries import Mesh, Point3
+from caliper.contracts.queries import Mesh, Point3, Queries
+from caliper.engine.commands.bus import Bus
 
 DRAG_PX = 3.0
 """A press that moves less than this before its release is a click, not an orbit."""
@@ -44,6 +50,12 @@ class View3D(QWidget):
         """The solid's mesh, or the last good one while the part fails."""
         self.problem: str | None = None
         """Why there's no solid, or why the one shown is out of date."""
+        self.proposal: Callable[[], Proposal | None] = lambda: None
+        """The agent proposal to preview, if any; set by the main window."""
+        self.note: str | None = None
+        """What a pending proposal would do to the solid, said under the view."""
+        self._proposal_stale = False
+        """The proposal changed since the scene was made; the document didn't."""
         self.frame_ms: deque[float] = deque(maxlen=120)
         """How long the last frames took to draw, in milliseconds."""
         self._stale = True
@@ -80,46 +92,78 @@ class View3D(QWidget):
         self._space = space
         self._changed()
 
+    def show_proposal(self) -> None:
+        """The proposal to preview changed: the solid drawn is the one it would leave. It's
+        worked out when the view is next painted, not here: an agent's call that changes the
+        proposal is answered first, and several changes between frames cost one solid."""
+        self._proposal_stale = True
+        self.update()
+
     def refresh(self) -> None:
-        """Ask the engine for the part's solid again, if the document changed since."""
-        if not self._stale:
+        """Ask the engine for the part's solid again, if the document changed since, and for
+        the solid a pending proposal would leave, if the proposal did."""
+        if not self._stale and not self._proposal_stale:
             return
         if self.session.space is not Space.PART:
             # The 2D tab's sketch is never drawn here, so nothing is built for it (Performance
             # V2.2, Perf-8). It has no solid: the part's is asked for again on coming back.
             self.mesh = None
             return
-        self._stale = False
         document = self.session.document
-        self.problem = None
-        if not any(isinstance(f, Extrude) for f in document.features):
-            self.mesh = None
-            if not any(isinstance(f, Sketch) for f in document.features):
-                self.problem = "Pick a plane and press Sketch, or double-click a plane"
-        else:
-            self._solid()
-        self.scene = Scene.of(document, self.mesh)
+        curves = None if self._stale else self.scene.curves  # a proposal leaves them alone
+        if self._stale:
+            self.problem = None
+            if not any(isinstance(f, Extrude) for f in document.features):
+                self.mesh = None
+                if not any(isinstance(f, Sketch) for f in document.features):
+                    self.problem = "Pick a plane and press Sketch, or double-click a plane"
+            else:
+                self._solid()
+        self._stale = self._proposal_stale = False
+        proposed, self.note = self._proposed()
+        self.scene = Scene.of(
+            document,
+            self.mesh if proposed is None else proposed,
+            proposed=proposed is not None,
+            curves=curves,
+        )
         if self._fit:
             self.camera = self.camera.fitted(self.scene.box(), self.width(), self.height())
             self._fit = False
 
     def _solid(self) -> None:
-        queries = self.session.queries
-        solid = queries.solid_properties()
-        if isinstance(solid, Error):
-            self._failed(solid)
-            return
-        box = solid.bounding_box
-        if box is None:
-            self.mesh = Mesh(vertices=(), triangles=())
-            self.problem = "The part's solid is empty: everything was cut away"
-            return
-        size = math.dist((box.x_min, box.y_min, box.z_min), (box.x_max, box.y_max, box.z_max))
-        mesh = queries.mesh(tolerance=min(1.0, max(0.01, size / 1000)))
+        mesh = _mesh(self.session.queries)
         if isinstance(mesh, Error):
             self._failed(mesh)
             return
         self.mesh = mesh
+        if not mesh.triangles:
+            self.problem = "The part's solid is empty: everything was cut away"
+
+    def _proposed(self) -> tuple[Mesh | None, str | None]:
+        """The solid a pending proposal would leave, when it isn't the part's own, and what
+        to say about it (C-16). The proposal's result is a document like any other, so the
+        engine meshes it as it does the part, and keeps what the two share."""
+        proposal = self.proposal()
+        document = self.session.document
+        if proposal is None or proposal.base is not document or proposal.result is document:
+            return None, None
+        had = self.mesh is not None and bool(self.mesh.triangles)
+        gone = "Accepting would leave the part with no solid" if had else None
+        if not any(isinstance(f, Extrude) for f in proposal.result.features):
+            return None, gone
+        mesh = _mesh(Bus(proposal.result).queries)
+        if isinstance(mesh, Error):
+            if mesh.code is ErrorCode.KERNEL_UNAVAILABLE:
+                return None, None  # `problem` says what to install
+            if mesh.code is ErrorCode.SELECTION_EMPTY:  # nothing left to extrude
+                return None, gone
+            return None, f"Accepting would leave the part without its solid. {mesh.message}"
+        if mesh is self.mesh or mesh == self.mesh:
+            return None, None  # the proposal leaves the solid as it is
+        if not mesh.triangles:
+            return mesh, "Accepting would cut the whole part away"
+        return mesh, "The part as proposed. Accept to keep it, Reject to leave the part as it is"
 
     def _failed(self, error: Error) -> None:
         if error.code is ErrorCode.SELECTION_EMPTY:
@@ -156,11 +200,13 @@ class View3D(QWidget):
         unchanged one compares at once), the other sketches' curves, and the planes' size."""
         self.refresh()
         scene = self.scene
-        return (scene.mesh, tuple(c for c in scene.curves if c.sketch != hidden), scene.half)
+        curves = tuple(c for c in scene.curves if c.sketch != hidden)
+        return (scene.mesh, curves, scene.half, scene.proposed)
 
     # --- Drawing ------------------------------------------------------------------------
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        self.refresh()  # a proposal that changed since the last frame
         started = time.perf_counter()
         painter = QPainter(self)
         width, height = self.width(), self.height()
@@ -176,11 +222,12 @@ class View3D(QWidget):
             tinted=self._tinted(picked),
         )
         self.paint_triad(painter, self.camera, height)
-        if self.problem:
-            painter.setPen(theme.TEXT_DIM)
+        said = self.note or self.problem  # the proposal is what's on screen
+        if said:
+            painter.setPen(theme.AGENT if self.note else theme.TEXT_DIM)
             painter.setFont(theme.font())
             box = QRectF(0, height - 40, width, 32)
-            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self.problem)
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, said)
         painter.end()
         self.frame_ms.append(1e3 * (time.perf_counter() - started))
 
@@ -205,7 +252,9 @@ class View3D(QWidget):
         """What a click at (x, y) picks: a sketch, a flat face of the solid (ADR 0016), or a
         plane; the solid hides the planes behind it."""
         self.refresh()
-        found = self.scene.pick(self.camera, self.width(), self.height(), x, y, faces=self._face_at)
+        # A proposed solid isn't the part yet: it has no faces to name, so it isn't picked.
+        faces = None if self.scene.proposed else self._face_at
+        found = self.scene.pick(self.camera, self.width(), self.height(), x, y, faces=faces)
         if isinstance(found, FaceRef):  # where it was hit: the tint floods out from there
             hit = self.scene.solid_hit(self.camera, self.width(), self.height(), x, y)
             self._seed = (self.scene, found, hit[3]) if hit is not None else None
@@ -216,7 +265,7 @@ class View3D(QWidget):
 
     def _tinted(self, picked: object) -> frozenset[int]:
         """The triangles of the picked face, worked out once per scene."""
-        if not isinstance(picked, FaceRef):
+        if not isinstance(picked, FaceRef) or self.scene.proposed:
             return frozenset()
         key = (self.scene, picked)
         if self._tint is not None and self._tint[0] == key:
@@ -303,3 +352,16 @@ class View3D(QWidget):
             self.fit()
             return
         super().keyPressEvent(event)
+
+
+def _mesh(queries: Queries) -> Mesh | Error:
+    """The solid of the document `queries` reads, as a mesh fine enough for its size; an empty
+    mesh when everything was cut away."""
+    solid = queries.solid_properties()
+    if isinstance(solid, Error):
+        return solid
+    box = solid.bounding_box
+    if box is None:
+        return Mesh(vertices=(), triangles=())
+    size = math.dist((box.x_min, box.y_min, box.z_min), (box.x_max, box.y_max, box.z_max))
+    return queries.mesh(tolerance=min(1.0, max(0.01, size / 1000)))

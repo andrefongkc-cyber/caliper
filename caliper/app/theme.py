@@ -42,6 +42,13 @@ SNAP = QColor(P.snap)
 RUBBER_BAND = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), P.rubber_band_alpha)
 SOLID = QColor(P.solid)
 SOLID_EDGE = QColor(P.solid_edge)
+PROPOSED_SOLID = QColor(
+    (SOLID.red() + AGENT.red()) // 2,
+    (SOLID.green() + AGENT.green()) // 2,
+    (SOLID.blue() + AGENT.blue()) // 2,
+)
+"""A solid an agent's proposal would make (C-16): the solid's colour, half way to the agent's,
+so it shades as a solid does and still reads as the agent's."""
 AXIS_Z = QColor(P.axis_z)
 PLANE = QColor(P.plane)
 PLANE_FILL = QColor(PLANE.red(), PLANE.green(), PLANE.blue(), P.plane_alpha)
