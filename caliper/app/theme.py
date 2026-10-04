@@ -155,6 +155,14 @@ QTabBar::tab {{ background: {P.window}; color: {P.ink_dim}; padding: {s.s}px {s.
 QTabBar::tab:selected {{ color: {P.ink}; border-bottom-color: {P.accent}; }}
 QTabBar::tab:hover {{ color: {P.ink}; }}
 QTreeWidget, QListWidget {{ background: {P.panel}; border: none; outline: none; }}
+QScrollBar {{ background: {P.panel}; border: none; margin: 0; }}
+QScrollBar:vertical {{ width: {s.m + s.xxs}px; }}
+QScrollBar:horizontal {{ height: {s.m + s.xxs}px; }}
+QScrollBar::handle {{ background: {P.border}; border-radius: {r.control}px;
+    margin: {s.xxs}px; min-width: {s.xl}px; min-height: {s.xl}px; }}
+QScrollBar::handle:hover {{ background: {P.ink_dim}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QPlainTextEdit#assistant-log {{ background: {P.panel}; border: none;
     padding: {s.xxs}px {s.xs}px; }}
 QTreeWidget::item, QListWidget::item {{ padding: {s.xxs}px 0; }}

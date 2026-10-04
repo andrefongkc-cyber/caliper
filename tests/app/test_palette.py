@@ -381,3 +381,21 @@ def test_the_sidebar_list_is_drawn_on_the_panel_colour(window) -> None:
             )
             <= 8
         ), (x, y, colour.name(), theme.PANEL.name())
+
+
+def test_a_scrolling_list_has_a_scrollbar_in_the_themes_colours(window) -> None:  # type: ignore[no-untyped-def]
+    """An overflowing list showed the platform's own scrollbar: a black track and arrows on a
+    dark grey panel. It's drawn from the tokens: the panel's colour, a handle in the border's."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QListWidget
+
+    from caliper.app import tokens
+
+    bar = window.command_panel.findChild(QListWidget).verticalScrollBar()
+    assert bar.isVisible()  # more commands than the panel has room for
+    image = bar.grab().toImage()
+    seen = {
+        image.pixelColor(x, y).name() for x in range(image.width()) for y in range(image.height())
+    }
+    assert tokens.DARK.border in seen  # the handle
+    assert not any(QColor(name).lightness() < 20 for name in seen)  # nothing near black
