@@ -250,7 +250,9 @@ def test_no_3d_scene_is_built_for_the_2d_tabs_sketch(window: MainWindow, monkeyp
     built: list[object] = []
     real = Scene.of
     monkeypatch.setattr(
-        Scene, "of", classmethod(lambda cls, d, m: (built.append(d), real(d, m))[1])
+        Scene,
+        "of",
+        classmethod(lambda cls, d, m, **options: (built.append(d), real(d, m, **options))[1]),
     )
     window.set_mode("2d")
     assert built == []
