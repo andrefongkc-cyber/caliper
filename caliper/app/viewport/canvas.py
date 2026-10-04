@@ -11,6 +11,7 @@ Navigation, following Fusion/SolidWorks on a Mac:
 """
 
 import math
+import time
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -71,9 +72,13 @@ PICK_RADIUS_PX = 6.0
 WHEEL_ZOOM_BASE = 1.0015
 """Zoom factor per unit of wheel angle delta (120 units = one notch ≈ 20%)."""
 SETTLE_MS = 150
+"""How long the view must stay still after a pan or zoom before the sketch is redrawn."""
+SHARP_REDRAW_MS = 8.0
+"""A sketch whose last redraw took at most this long (a 120 Hz frame) is redrawn on every pan
+or zoom frame instead of moving the old layer, which blurs it and stretches labels, glyphs,
+and the grid until the view settles."""
 ORBIT_PX = 3.0
 """A right press that moves less than this is a right click (cancel), not an orbit."""
-"""How long the view must stay still after a pan or zoom before the sketch is redrawn."""
 MAX_GRID_LINES = 600
 DEFAULT_VIEW_MM = 250.0
 """How many millimetres a fresh view spans across its shorter side."""
@@ -134,6 +139,8 @@ class Canvas(QWidget):
         """(scale, origin_x, origin_y) the layer was drawn at."""
         self._layer_frame: tuple[int, int, float, bool, bool] | None = None
         self._layer_document: object = None
+        self._redraw_ms = 0.0
+        """How long the last redraw for a new view took (0 until there has been one)."""
         self._moving = False
         """True from a pan or zoom until the view has been still for SETTLE_MS."""
         self._settle = QTimer(self)
@@ -948,12 +955,14 @@ class Canvas(QWidget):
         """Paint the static layer. While the view moves, move the last layer instead of redrawing.
 
         Redrawing a large sketch takes longer than a frame, so a pan or zoom translates and
-        scales the layer it already has, and the sketch is redrawn when the view settles. Any
+        scales the layer it already has, and the sketch is redrawn when the view settles. A
+        sketch that redrew within `SHARP_REDRAW_MS` is simply redrawn, so it stays sharp. Any
         other change (the document, the widget size, the grid) redraws at once.
         """
         layer = self._layer
         if (
             self._moving
+            and self._redraw_ms > SHARP_REDRAW_MS
             and not self._tilted()
             and layer is not None
             and self._layer_view is not None
@@ -993,6 +1002,14 @@ class Canvas(QWidget):
             and self._layer_scene == scene
         ):
             return self._layer
+        # Only a redraw for a new view is timed: that is what a pan or zoom frame would cost.
+        # The first draw of a document also lays out its labels and glyphs, once.
+        view_only = (
+            self._layer_document is document
+            and self._layer_frame == frame
+            and self._layer_scene == scene
+        )
+        started = time.perf_counter()
         layer = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
         layer.setDevicePixelRatio(ratio)
         qp = QPainter(layer)
@@ -1037,6 +1054,8 @@ class Canvas(QWidget):
         qp.end()
         self._layer, self._layer_view, self._layer_frame = layer, view_key, frame
         self._layer_document, self._layer_scene = document, scene
+        if view_only:
+            self._redraw_ms = (time.perf_counter() - started) * 1000
         return layer
 
     def _scene_key(self) -> object:
