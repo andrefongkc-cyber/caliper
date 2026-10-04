@@ -95,7 +95,13 @@ Claude works on the tab you're in ([ADR 0015](adr/0015-sketching-in-3d-from-the-
   follows it when the extrude changes, and a cut from a face goes into the part unless
   `reversed` says otherwise.
 
-Switching tabs while a proposal is pending drops it, as opening another document does.
+Switching tabs while a proposal is pending leaves it waiting on its tab: it's on the card
+again when you come back, and Claude adds to it there. Meanwhile Claude's calls work on the tab
+shown, and its first call after the switch is told where its changes are. Opening another
+document in a tab drops that tab's proposal, as before.
+
+A proposal that changes the part's solid (an extrude, or a change to a sketch one reads) is
+drawn in the 3D view in the agent's colour before you accept it.
 
 - A call that changes something (create, edit, constrain, ...) runs on a draft of your
   sketch. The draft appears as a proposal on the canvas, with ghost geometry and each check
