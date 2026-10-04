@@ -103,6 +103,15 @@ CONSTRAINT_KEYS: dict[ConstraintType, str] = {
 NOTHING_TO_CONSTRAIN = "Select lines, circles, arcs, or points, or pick them with Constrain (K)"
 
 
+def _remembered(fold: str, default: bool) -> bool:
+    """Whether a part of the window's chrome was showing when Caliper last ran."""
+    return bool(QSettings().value(f"chrome/{fold}", default, type=bool))
+
+
+def _remember(fold: str, shown: bool) -> None:
+    QSettings().setValue(f"chrome/{fold}", shown)
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -253,6 +262,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self._mode_set = False
         self.set_mode(mode)
+        self._remember_chrome()
 
     # --- Construction ---------------------------------------------------------------------
 
@@ -365,7 +375,10 @@ class MainWindow(QMainWindow):
         self.right_panel_action = self._toggle(
             "Show Right Panel", lambda shown: self._fold(RIGHT, shown), "Ctrl+Alt+B", checked=True
         )
-        self.tray_action = self._toggle("Show Tool Tray", lambda _: None, checked=True)
+        # The tray is built as it was left, shut or open: it doesn't slide at launch.
+        self.tray_action = self._toggle(
+            "Show Tool Tray", lambda _: None, checked=_remembered("tool_tray", True)
+        )
         """The tray follows it (`SlidingTray`)."""
         self.prompt_action = self._toggle("Show Agent Prompt", self._show_prompt, checked=False)
         self.prompt_action.setIconText("Agent")
@@ -900,6 +913,20 @@ class MainWindow(QMainWindow):
             self._open_sketch(made, self.session.history_position)
         else:
             self._close_sketch()
+
+    def _remember_chrome(self) -> None:
+        """What was folded away when Caliper last ran is folded away again, and each fold is
+        remembered as it changes. Timing popped out isn't: it shows only while Claude Desktop
+        can connect."""
+        folds = {
+            "left_panel": self.left_panel_action,
+            "right_panel": self.right_panel_action,
+            "tool_tray": self.tray_action,
+            "agent_prompt": self.prompt_action,
+        }
+        for name, action in folds.items():
+            action.setChecked(_remembered(name, action.isChecked()))
+            action.toggled.connect(lambda shown, name=name: _remember(name, shown))
 
     def _fold(self, side: Qt.DockWidgetArea, shown: bool) -> None:
         """Hide the panels docked on one side, or show again the ones that hid; the view
