@@ -7,7 +7,8 @@ it goes on the proposal card like the in-app assistant's changes, and the user a
 undo step, credited to the agent) or rejects it there; the client can't. Closing, accepting,
 editing, or opening another document ends the draft, and the client's next call says so.
 Each tab has a draft of its own: switching tabs leaves a draft waiting with its proposal, and
-the client's next call, which works on the tab shown, says where its changes are (C-18).
+the client's next call, which works on the tab shown, says where its changes are (C-18). If
+that call would change something it is refused, once: it was sent for the other tab.
 Each call, and the user's Accept, is timed for the Timing panel (`caliper.app.agent.timing`),
 and report_progress, Claude's estimate of the calls left, is answered here for its time left.
 """
@@ -43,6 +44,9 @@ SWITCHED = (
     "now work on the {shown}. Look at it before continuing."
 )
 TABS = {Space.SKETCH: "2D sketch tab", Space.PART: "3D part tab"}
+HELD = "Nothing was changed. {switched} If this change belongs on the {shown}, send it again."
+"""The answer to a change sent before its client knew the user had switched tabs: it would
+have landed on the tab now shown, not the one its pending changes are on (test run 007)."""
 BUSY = (
     "Caliper's own assistant is working on a request right now, so Caliper can't take changes "
     "from you until it's done. Try again in a moment."
@@ -146,6 +150,10 @@ class McpHost(QObject):
             return encode_response(Response({"error": BUSY}, is_error=True)), False
         self._client = request.client
         switched = self._switched()
+        if switched is not None and request.tool in CHANGES:
+            # Sent for the tab its other changes are on: refused once, so the client decides.
+            held = HELD.format(switched=switched, shown=TABS[self.session.space])
+            return encode_response(Response({"error": held}, is_error=True)), False
         try:
             answer = self.draft.call(
                 self.session.document,
