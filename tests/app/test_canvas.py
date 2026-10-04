@@ -2,7 +2,14 @@
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QColor, QFontMetricsF, QMouseEvent, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QFontMetricsF,
+    QMouseEvent,
+    QNativeGestureEvent,
+    QPointingDevice,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QApplication
 
 from caliper.app import theme
@@ -282,6 +289,24 @@ def _wheel_zoom(canvas, qtbot) -> None:
     wheel(canvas, QPoint(300, 300), angle=120)
 
 
+def _pinch(canvas, qtbot) -> None:
+    at = QPointF(300, 300)
+    QApplication.sendEvent(
+        canvas,
+        QNativeGestureEvent(
+            Qt.NativeGestureType.ZoomNativeGesture,
+            QPointingDevice.primaryPointingDevice(),
+            2,
+            at,
+            at,
+            canvas.mapToGlobal(at),
+            0.1,
+            QPointF(),
+            0,
+        ),
+    )
+
+
 def _middle_drag(canvas, qtbot) -> None:
     qtbot.mousePress(canvas, Qt.MouseButton.MiddleButton, pos=QPoint(200, 200))
     position = QPointF(230, 190)
@@ -299,10 +324,11 @@ def _middle_drag(canvas, qtbot) -> None:
     qtbot.mouseRelease(canvas, Qt.MouseButton.MiddleButton, pos=QPoint(230, 190))
 
 
-@pytest.mark.parametrize("gesture", [_trackpad_pan, _wheel_zoom, _middle_drag])
+@pytest.mark.parametrize("gesture", [_trackpad_pan, _wheel_zoom, _pinch, _middle_drag])
 def test_a_moving_view_reuses_the_layer_until_it_settles(window, qtbot, gesture) -> None:
     draw_everything(window.session)
     canvas = window.canvas
+    canvas._redraw_ms = float("inf")  # as if a redraw took longer than a frame
     canvas.grab()
     layer = canvas._layer
     for _ in range(3):
@@ -312,9 +338,42 @@ def test_a_moving_view_reuses_the_layer_until_it_settles(window, qtbot, gesture)
     _rebuilt_after_settling(canvas, qtbot, layer)
 
 
+@pytest.mark.parametrize("gesture", [_trackpad_pan, _wheel_zoom, _pinch, _middle_drag])
+def test_a_sketch_that_redraws_within_a_frame_stays_sharp_while_moving(
+    window, qtbot, gesture
+) -> None:
+    # Scaling the old layer blurs it and stretches labels, glyphs, and the grid, which snap
+    # back when the view settles. A sketch that redraws in time has no reason to pay for that.
+    draw_everything(window.session)
+    canvas = window.canvas
+    canvas.grab()
+    for _ in range(3):
+        layer = canvas._layer
+        gesture(canvas, qtbot)
+        canvas.grab()
+        assert canvas._layer is not layer
+        view = canvas.view
+        assert canvas._layer_view == (view.scale, view.origin_x, view.origin_y)
+
+
+def test_only_a_redraw_for_a_new_view_is_timed(window) -> None:
+    # The first draw of a document lays out its labels and glyphs once (35 ms for a 16-tooth
+    # gear, against 4 ms for each draw after). Timing it would move the old layer, blurred,
+    # through the whole next gesture.
+    canvas = window.canvas
+    canvas.grab()
+    draw_everything(window.session)
+    canvas.grab()
+    assert canvas._redraw_ms == 0.0
+    wheel(canvas, QPoint(300, 300), pixels=QPoint(6, -4))
+    canvas.grab()
+    assert canvas._redraw_ms > 0.0
+
+
 def test_panning_draws_the_old_layer_exactly_where_a_redraw_would(window, qtbot) -> None:
     draw_everything(window.session)
     canvas = window.canvas
+    canvas._redraw_ms = float("inf")  # as if a redraw took longer than a frame
     canvas.grab()
     layer = canvas._layer
     wheel(canvas, QPoint(300, 300), pixels=QPoint(12, -8))  # content moves right and up
@@ -337,6 +396,7 @@ def test_panning_draws_the_old_layer_exactly_where_a_redraw_would(window, qtbot)
 def test_zooming_draws_the_old_layer_scaled_about_the_pointer(window, qtbot) -> None:
     draw_everything(window.session)
     canvas = window.canvas
+    canvas._redraw_ms = float("inf")  # as if a redraw took longer than a frame
     window.fit_action.trigger()
     canvas.grab()
     layer = canvas._layer

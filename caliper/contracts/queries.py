@@ -13,7 +13,9 @@ C-1 moved `Metric` and `Expectation` to the document contract, since checks are 
 they are still importable from here. V2's F1 (ADR 0011) added `sketch_of`, and measurements
 read one sketch: a 2D distance, box, or area across two planes means nothing, so mixing
 sketches is `sketch.mixed`. The pickers and `solve_status` cover the whole part. V2's F3
-(ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`.
+(ADR 0013) added the part's solid: `solid_properties`, `mesh`, and `feature_error`. ADR 0016
+moved `Frame` here from the kernel contract, and added `plane_frame`, `faces`, `face_at`,
+and `entities_in_polygon`.
 Two conventions hold throughout:
 
 - **Ids sort as strings,** so "e10" comes before "e2". Every "lowest id" and "sorted by
@@ -29,7 +31,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from caliper.contracts.document import ConstraintType, EntityId, Point2, Ref
+from caliper.contracts.document import ConstraintType, EntityId, FaceRef, Plane, Point2, Ref
 from caliper.contracts.document import Expectation as Expectation  # moved there (C-1)
 from caliper.contracts.document import Metric as Metric
 from caliper.contracts.errors import Error
@@ -92,6 +94,20 @@ class Point3:
     x: float
     y: float
     z: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Frame:
+    """Where a face drawn in 2D sits in 3D: a 2D point (u, v) is `origin + u * x + v * y`.
+
+    `x` and `y` are unit directions at right angles; the normal, the way an extrusion goes, is
+    x cross y. A sketch's plane gives its frame. It moved here from the kernel contract (ADR
+    0016), which still exports it, because `Queries.plane_frame` gives one back.
+    """
+
+    origin: Point3
+    x: Point3
+    y: Point3
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -366,9 +382,42 @@ class Queries(Protocol):
         ...
 
     def feature_error(self, id: EntityId) -> Error | None:
-        """Why a feature fails, or None when it works or `id` isn't a feature. A sketch never
-        fails; an extrude fails when its profile isn't one closed profile any more, its sketch
-        geometry is gone, or the kernel can't build it."""
+        """Why a feature fails, or None when it works or `id` isn't a feature. A sketch fails
+        when its face can't be found (ADR 0016), with no kernel needed to say so; an extrude
+        fails when its profile isn't one closed profile any more, its sketch geometry is gone,
+        its sketch fails, or the kernel can't build it."""
+        ...
+
+    def plane_frame(self, plane: Plane | FaceRef) -> Frame | Error:
+        """Where a plane or a face is in the part: the frame a sketch on it draws in (ADR
+        0016). A face's is worked out from its extrude's inputs, with no kernel; it is
+        `face.not_found` or `face.not_planar` when the extrude has no such flat face now, and
+        the error of the extrude's own sketch when that fails."""
+        ...
+
+    def face_at(self, point: Point3, normal: Point3, tolerance: float) -> FaceRef | None:
+        """The named flat face a point of the part's surface is on, for picking (ADR 0016):
+        `point` within `tolerance` mm of the face's plane and inside its outline as its extrude
+        made it (later cuts aren't seen), `normal` within half a degree of the way it faces out.
+        The latest feature wins: it made the surface there. None when nothing matches, or for
+        input it can't use (not finite, a zero normal, a negative tolerance)."""
+        ...
+
+    def entities_in_polygon(
+        self, corners: Sequence[Point2], *, crossing: bool
+    ) -> tuple[EntityId, ...]:
+        """`entities_in_box` for a convex polygon, as a box selection seen at an angle covers
+        the sketch's plane (ADR 0016): geometry wholly inside it, or also touching it if
+        `crossing`. An axis-aligned rectangle's corners give exactly `entities_in_box`'s
+        answer. Fewer than three corners, any not finite, no area, or not convex matches
+        nothing."""
+        ...
+
+    def faces(self, id: EntityId) -> tuple[FaceRef, ...] | Error:
+        """The flat faces of extrude `id` a sketch can sit on: `start`, `end`, then each line's
+        and rectangle's sides in the profile's order. `entity.not_found` for an id the part
+        doesn't have, `entity.wrong_kind` for one that isn't an extrude, and the profile's
+        error when it isn't one closed profile now."""
         ...
 
     def sketch_of(self, id: EntityId) -> EntityId | None:

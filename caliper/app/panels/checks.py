@@ -267,8 +267,9 @@ class ChecksPanel(QWidget):
         self._editing: EntityId | None = None
         """The check the form edits, or None when it adds one."""
 
+        # Every change to the checks comes with `document_changed` in the same announcement,
+        # so `checks_changed` would refresh a second time (Performance V2.2, Perf-3).
         session.document_changed.connect(self.refresh)
-        session.checks_changed.connect(self.refresh)
         self.refresh()
 
     # --- Results --------------------------------------------------------------------------

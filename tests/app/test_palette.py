@@ -16,7 +16,7 @@ from caliper.contracts.commands import (
     FilletCorner,
     MoveEntities,
 )
-from caliper.contracts.document import EntityId, Point2
+from caliper.contracts.document import ConstraintType, EntityId, Point2
 
 
 def open_palette(window, qtbot) -> None:
@@ -324,7 +324,31 @@ def test_the_sidebar_greys_out_actions_as_they_become_unavailable(window, qtbot)
 
     assert not undo_enabled()
     window.session.execute(CreateCircle(center=Point2(x=0, y=0), radius=5))
-    assert undo_enabled()
+    qtbot.waitUntil(undo_enabled)  # the list catches up when the event loop next turns
+
+
+def test_the_sidebar_refreshes_once_for_many_actions_changing_together(
+    window, qtbot, monkeypatch
+) -> None:
+    """A selection change updates a dozen constraint actions at once; the list is refreshed
+    once for all of them, not once each (Performance V2.2, Perf-2)."""
+    panel = window.command_panel
+    refreshed: list[str] = []
+    real = panel._refilter
+    monkeypatch.setattr(panel, "_refilter", lambda query: (refreshed.append(query), real(query)))
+    (line,) = window.session.execute(
+        CreateLine(start=Point2(x=0, y=0), end=Point2(x=10, y=5))
+    ).created_ids
+    QApplication.processEvents()
+    refreshed.clear()
+    window.session.set_selection(frozenset({line}))
+    QApplication.processEvents()
+    assert refreshed == [""]
+    assert window.constraint_actions[ConstraintType.HORIZONTAL].isEnabled()
+    row = next(
+        i for i in range(panel.results.count()) if panel.results.item(i).text() == "Horizontal"
+    )
+    assert panel.results.item(row).flags() & Qt.ItemFlag.ItemIsEnabled
 
 
 def test_escape_in_the_sidebar_clears_it_and_returns_to_the_canvas(window, qtbot) -> None:
@@ -357,3 +381,21 @@ def test_the_sidebar_list_is_drawn_on_the_panel_colour(window) -> None:
             )
             <= 8
         ), (x, y, colour.name(), theme.PANEL.name())
+
+
+def test_a_scrolling_list_has_a_scrollbar_in_the_themes_colours(window) -> None:  # type: ignore[no-untyped-def]
+    """An overflowing list showed the platform's own scrollbar: a black track and arrows on a
+    dark grey panel. It's drawn from the tokens: the panel's colour, a handle in the border's."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QListWidget
+
+    from caliper.app import tokens
+
+    bar = window.command_panel.findChild(QListWidget).verticalScrollBar()
+    assert bar.isVisible()  # more commands than the panel has room for
+    image = bar.grab().toImage()
+    seen = {
+        image.pixelColor(x, y).name() for x in range(image.width()) for y in range(image.height())
+    }
+    assert tokens.DARK.border in seen  # the handle
+    assert not any(QColor(name).lightness() < 20 for name in seen)  # nothing near black

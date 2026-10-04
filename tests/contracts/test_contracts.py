@@ -18,6 +18,7 @@ from caliper.contracts.document import (
     Document,
     Entity,
     EntityId,
+    FaceRef,
     Geometry,
     PartFeature,
     Plane,
@@ -208,11 +209,14 @@ def test_every_feature_has_an_id_and_a_kind_no_entity_has() -> None:
 
 
 def test_every_feature_field_is_editable_by_modify_entity() -> None:
+    """Each field's type, or each member of a union (a sketch's plane or face), is a value
+    `ModifyEntity` can carry."""
     allowed = set(get_args(ParamValue))
     for feature in FEATURE_TYPES:
         for name, hint in get_type_hints(feature).items():
             if name != "kind":
-                assert hint in allowed, f"{feature.__name__}.{name}"
+                members = get_args(hint) if isinstance(hint, UnionType) else (hint,)
+                assert set(members) <= allowed, f"{feature.__name__}.{name}"
 
 
 def test_plane_names_are_stable() -> None:
@@ -223,7 +227,37 @@ def test_plane_names_are_stable() -> None:
 def test_a_sketch_is_created_by_a_command_on_a_plane() -> None:
     assert CreateSketch in COMMAND_TYPES
     hints = get_type_hints(CreateSketch)
-    assert (hints["plane"], hints["id"]) == (Plane, EntityId | None)
+    assert (hints["plane"], hints["id"]) == (Plane | FaceRef, EntityId | None)
+
+
+def test_a_face_is_named_by_its_extrude_and_a_name_from_adr_0014() -> None:
+    """ADR 0016: a value with no kind, like `Ref`; the names files store are stable."""
+    assert [f.name for f in dataclasses.fields(FaceRef)] == ["feature", "face"]
+    assert not hasattr(FaceRef, "kind")
+    assert get_type_hints(Sketch)["plane"] == Plane | FaceRef
+    pattern = re.compile(document.FACE_PATTERN)
+    for name in ("start", "end", "side e3", "side e1.right", "side plate_outline.bottom"):
+        assert pattern.fullmatch(name), name
+    for name in ("top", "side", "side e1.middle", "side E1", "end ", "side e1.right.top"):
+        assert not pattern.fullmatch(name), name
+    assert ErrorCode.FACE_NOT_FOUND.value == "face.not_found"
+    assert ErrorCode.FACE_NOT_PLANAR.value == "face.not_planar"
+
+
+def test_an_extrude_can_go_against_the_normal_and_the_command_lets_the_engine_choose() -> None:
+    """ADR 0016: stored as a bool, false by default; asked for as None (the engine chooses)."""
+    extrude = {f.name: f for f in dataclasses.fields(document.Extrude)}
+    assert get_type_hints(document.Extrude)["reversed"] is bool
+    assert extrude["reversed"].default is False
+    command = {f.name: f for f in dataclasses.fields(commands.CreateExtrude)}
+    assert get_type_hints(commands.CreateExtrude)["reversed"] == bool | None
+    assert command["reversed"].default is None
+
+
+def test_frame_moved_to_the_queries_and_the_kernel_still_exports_it() -> None:
+    from caliper.contracts import kernel
+
+    assert kernel.Frame is queries.Frame
 
 
 def test_the_sketch_error_codes_are_stable() -> None:

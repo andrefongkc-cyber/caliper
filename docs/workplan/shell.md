@@ -1,4 +1,4 @@
-Status: 3D-first on `shared/v2-3d-sketching` (local, not pushed; ADR 0015 Proposed): the app starts in 3D on a part with its planes, sketches are edited in 3D facing their plane with Finish and Cancel, and the 2D tab is a test sketch with its own file; next: Andre tries it, then Lucas's review of ADRs 0011 to 0015
+Status: PR #58 open (`shared/proposal-in-3d`, stacked on #57, awaiting Andre): a proposed solid is seen in 3D before Accept (C-16), a proposal waits with its tab (C-18), folds are remembered between launches, sharp pan and zoom, and four smaller fixes; next: Lucas's manual pass in the real window and Claude Desktop (#57's checklist and #58's), then a rebase onto `main` once #57 merges
 
 # Shell workplan — Stream B
 
@@ -6,6 +6,48 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
+
+## What an agent proposes, seen and kept (branch `shared/proposal-in-3d`, stacked on `shared/collapsible-chrome`, 2026-10-03; PR #58)
+
+Lucas's pass over the app after V2, 3D sketching, and the folding chrome landed without a Stream B session: the two known issues on the client's cosmetic list, what the folding chrome left undone, the sharp pan and zoom from 2026-09-27 that was never pushed, and what the first screenshots of the 3D tab showed. Each change has tests, and each was broken on purpose to see its tests fail (22 breaks, all caught).
+
+- [x] **A proposed solid is drawn in 3D before Accept (C-16).** An extrude changes no geometry, so the canvas had nothing dashed to draw and the 3D view showed the part as it was. While a proposal waits, `View3D` meshes `proposal.result` as it does the document (`Bus(result).queries`, the engine's caches shared) and draws that solid in the agent's colour mixed into the solid's, its edges dashed, with a line under the view saying it isn't the part yet. The canvas over the part shows it behind a sketch a proposal changes. A proposal that leaves the solid alone draws the part's own (the engine returns the same mesh); one that would break the solid keeps the part and says why; one the part has moved on from isn't drawn. A proposed solid has no faces to pick. `Scene.proposed`, `theme.PROPOSED_SOLID`; `tests/app/test_proposed_solid.py` (10).
+  - **Cost** (24 holes, 2,604 triangles, OCCT, a depth change from Claude): Claude's call 0.25 ms before and after, since the solid is worked out when the view is next painted. That frame 15.7 → 54.2 ms, once; Accept and its frame 55.1 → 18.3 ms, because the solid is waiting. In all 71.1 → 72.7 ms: the work moves from Accept to the proposal. A proposal that leaves the solid alone: 0.14 → 0.17 ms.
+  - Not done: the scripted stand-in's proposals replay their commands on Accept, which makes new entities, so their solid is built again (about 40 ms more on that part). The view isn't refitted to a proposed solid larger than what's in view.
+- [x] **A proposal waits with its tab (C-18).** Switching tabs dropped it. `AgentController` keeps the proposal of the tab left and `resume`s it when the window has that tab's views up again; New and Open still drop the proposal of the tab they replace. `McpHost` has a `Draft` per tab, so Claude Desktop's pending changes wait with their proposal and it adds to the same one on the way back; its first call after a switch is told where its changes are and that its calls now work on the tab shown; a run being timed goes on. `tests/app/test_proposal_tabs.py` (9).
+- [x] **Folds are remembered between launches** (`chrome/…` in the settings, written as each changes): the side panels, the tool tray (built shut, so nothing slides at launch), and the agent's prompt. Not Timing popped out, which shows only while Claude Desktop can connect. `test_folding_chrome.py` (+4).
+- [x] **Sharp pan and zoom** (built 2026-09-27 on the gear sketch, 371 entities, 4 ms a redraw; never pushed): a view that moves redraws when the last redraw for a new view took at most `SHARP_REDRAW_MS` (8 ms), and moves the old layer as before otherwise; only redraws for a new view are timed. In 3D the part behind the sketch is part of that time. `test_canvas.py` (+6).
+- [x] **Smaller, each found in a screenshot:**
+  - the proposal card went under the sketch bar in a view too narrow for both; it sits below the bar there (`MainWindow._card_top`);
+  - the tool bar's overflow button was Qt's dark arrow on the dark bar, with no room to draw in; it's two chevrons in the ink (`icons` "more");
+  - the line under the 3D view ("Pick a plane and press Sketch…") was cut off at both ends in a narrow view; it wraps, above the triad;
+  - scrollbars were the platform's black track and arrows; they're drawn from the tokens, everywhere.
+- **For Andre** (not Stream B's to change):
+  - `docs/known-issues.md` and `docs/mcp.md` are updated on this branch for C-16 and C-18, in a commit of their own to keep or drop.
+  - [ADR 0015](../adr/0015-sketching-in-3d-from-the-parts-planes.md)'s consequence "Switching tabs while Claude has a proposal withdraws it" is no longer true; the ADR is Proposed, and yours to reword.
+  - CLAUDE.md's "Current scope" and ADR table are still at V1.5 and 0009.
+- Not done: #57's manual checklist (drawing at 45° and past 70°, a pocket in the top face, a boss on a side face, Claude Desktop on a face, each fold) is Lucas's to run in the real window.
+
+## The chrome folds away (branch `shared/collapsible-chrome`, stacked on `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
+
+Andre asked for more room for the part: the left panel and the right panel to collapse, Timing able to pop out on its own, the scripted agent hidden behind a button, and the top bar as a tray that slides out to the right from the line after the 2D/3D switch. One new module, `caliper/app/collapse.py`; each fold is one checkable action, so its menu item, its control, and its shortcut agree.
+
+- [x] **Each side folds** (`EdgeToggle`, `MainWindow._fold`): a 12 px strip down each edge of the view, its chevron pointing the way the panels will go; View → Show Left Panel (⌘B) and Show Right Panel (⌘⌥B), and the palette. A side folds the panels docked there (a panel moved to the other side folds with that side; one hidden before stays hidden), and they come back at the sizes they had: Qt alone shares the heights out again, so `resizeDocks` puts them back.
+- [x] **Timing pops out** (Agent → Pop Out Timing, or the dock's own float button; enabled while Claude Desktop can connect): a window of its own over the part's top right corner, which stays when the right panel folds. Docked again on a folded side, it waits to come back with the rest; Claude Desktop connecting while the right side is folded does the same.
+- [x] **The agent's prompt hides** until the Agent button (bottom right of the status bar, a permanent widget so a message never covers it) or ⌘L shows it; hiding it gives the keys back to the view.
+- [x] **The tools slide** (`SlidingTray`): the line after the 2D/3D switch is a handle with a chevron; the tools slide out to its right in 160 ms, their right end following the tray's edge so they come from behind the line, and back. Shut, their shortcuts still work (they're the window's actions). In a window too narrow for every tool the tray takes what's left of the bar and the rest wait behind the » menu, as they did on the bar before (the bar alone hid the whole tray).
+- [x] **Tests** (`tests/app/test_folding_chrome.py`, 15): each side folding and coming back as it was, a moved panel, a hidden panel, the menus and palette; Timing popped out through a fold and docked again, folded with the panel, and waiting when Claude Desktop connects; the prompt's button, ⌘L and focus, a message not covering the button; the tray sliding shut and out with the keys working, halfway out, and in a narrower window. `test_measure.py` and `test_glyphs.py` read the tray's tools.
+- **Cost:** opening the window 1.6 ms more (16.0 → 17.7 ms, `ui/startup` run alone, old and new); every other `ui/` case unchanged. Opening the stress plate reads 38 ms against the full run's 35, but the old code reads the same run alone: it's the case running first, not this.
+- Not done: what's folded isn't remembered between launches; nothing animates but the tray.
+
+## 3D sketching part 2: at an angle, and on faces (branch `shared/3d-sketching-2`, 2026-10-03; local, not pushed)
+
+[ADR 0016](../adr/0016-sketching-at-any-angle-and-on-faces.md) (Proposed). The details, with the engine side and the numbers, are in [core.md](core.md#3d-sketching-part-2-in-the-app-branch-shared3d-sketching-2-stacked-on-contractssketch-on-faces-local-not-pushed).
+
+- [x] The window places every sketch by its frame: a sketch on a face opens facing it, follows it, is named for it, and shows failing when its face is gone (`tests/app/test_face_sketches.py`)
+- [x] Drawing at an angle up to 70° (`transform.PlaneView`, `canvas.mapping`, `Backdrop.drawable`): drawing, picking, snapping, glyphs, the slanted grid, and box selection through `entities_in_polygon`; facing and in 2D the canvas is what it was (`tests/app/test_angled_sketching.py`, `test_viewport_math.py`)
+- [x] Picking a flat face in the 3D view (`Scene.solid_hit`, `face_at`), tinted; double-click sketches on it; the Extrude form's Direction
+- [x] Claude Desktop's sketch on a face, reviewed facing it (`tests/app/test_mcp.py`)
 
 ## 3D-first: sketching on the part's planes (branch `shared/v2-3d-sketching`, 2026-10-01; local, not pushed)
 
@@ -37,7 +79,7 @@ F1's contract ([ADR 0011](../adr/0011-a-part-of-ordered-features-and-sketches-on
 - [x] **The proposal card:** an extrude from either assistant is proposed, its volume check measured on the proposed solid, accepted, and undone as one step.
   - **Fixed:** an extrude with its check was called "Assistant Changes", because a change to no entity looked like a check. It's "Extrude".
   - **Fixed:** the proposal's preview drew another sketch's changes on the edited sketch's canvas. It shows only the edited sketch's.
-  - **Known, not fixed (C-16):** a proposed extrude isn't shown in 3D until Accept.
+  - **Fixed since (C-16, `shared/proposal-in-3d`):** a proposed extrude wasn't shown in 3D until Accept; the proposed solid is drawn in the agent's colour.
 - [x] **Checks:** "Volume of the part", and "Volume after" a selected feature, from `Metric.VOLUME`.
   - **Fixed:** with two sketches, "Sketch width" and "Sketch height" measured every sketch at once and were refused. They name the edited sketch's geometry, and aren't offered for an empty sketch.
 - [x] **Extrude:** one `CreateExtrude`; the profile is the selection or the whole sketch. A refusal's message is shown as it comes.

@@ -22,14 +22,17 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     Extrude,
+    FaceRef,
     Feature,
     Geometry,
     Line,
+    Plane,
     Point,
     Point2,
     RadialDimension,
     Rectangle,
     Ref,
+    Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.kernel import Kernel, KernelError, Shape
@@ -41,13 +44,15 @@ from caliper.contracts.queries import (
     DimensionType,
     Distance,
     Expectation,
+    Frame,
     Mesh,
     Metric,
+    Point3,
     SolidProperties,
     SolveStatus,
     Suggestion,
 )
-from caliper.engine import features, geometry, part, profiles
+from caliper.engine import faces, features, geometry, part, profiles
 from caliper.engine.commands.validation import (
     constraint_errors,
     feature_errors,
@@ -55,6 +60,7 @@ from caliper.engine.commands.validation import (
     normalize_float,
     normalize_id,
     normalize_ids,
+    normalize_place,
     normalize_point,
     normalize_ref,
     normalize_refs,
@@ -186,6 +192,32 @@ class DocumentQueries:
                 picked.append(id)
         return tuple(picked)  # the grid answers sorted by id
 
+    def entities_in_polygon(
+        self, corners: Sequence[Point2], *, crossing: bool
+    ) -> tuple[EntityId, ...]:
+        """A box selection seen at an angle (ADR 0016). An axis-aligned rectangle is handed to
+        `entities_in_box`, so the two agree to the bit; any other convex polygon is tested
+        edge by edge."""
+        polygon = _convex(corners)
+        if polygon is None:
+            return ()
+        box = _axis_box(polygon)
+        if box is not None:
+            return self.entities_in_box(box, crossing=crossing)
+        xs, ys = [p.x for p in polygon], [p.y for p in polygon]
+        picked: list[EntityId] = []
+        for id in grid(self._document).overlapping((min(xs), min(ys), max(xs), max(ys))):
+            entity = self._document.entities[id]
+            assert isinstance(entity, _GEOMETRY)
+            if _polygon_touches(entity, polygon) if crossing else _polygon_holds(entity, polygon):
+                picked.append(id)
+        return tuple(picked)
+
+    def face_at(self, point: Point3, normal: Point3, tolerance: float) -> FaceRef | None:
+        if not all(isinstance(cast(object, v), Point3) for v in (point, normal)):
+            return None  # the pickers return no match for input they can't use
+        return faces.at(self._document, point, normal, tolerance)
+
     def dimension_value(self, id: EntityId) -> float | Error:
         found = self._dimension(id)
         if isinstance(found, Error):
@@ -301,13 +333,7 @@ class DocumentQueries:
             return found
         kernel, solid = found
         try:
-            volume = kernel.volume(solid)
-            try:
-                box = kernel.bounding_box_3d(solid)
-            except KernelError as e:
-                if e.code is not ErrorCode.SELECTION_EMPTY:
-                    raise
-                box = None
+            volume, box = features.properties(kernel, solid)
         except KernelError as e:
             return Error(code=e.code, message=str(e), field="ids")
         return SolidProperties(volume=volume, bounding_box=box)
@@ -335,12 +361,26 @@ class DocumentQueries:
             return Error(code=e.code, message=str(e), field="ids")
 
     def feature_error(self, id: EntityId) -> Error | None:
-        if part.feature(self._document, id) is None:
+        found = part.feature(self._document, id)
+        if found is None:
             return None
+        if isinstance(found, Sketch):  # placed without a kernel (ADR 0016)
+            placed = faces.sketch_frames(self._document).get(id)
+            return placed if isinstance(placed, Error) else None
         kernel = self._kernel()
         if kernel is None:
             return None  # nothing is wrong with the feature; there's nothing to build it with
         return features.solids(self._document, kernel)[id].error
+
+    def plane_frame(self, plane: Plane | FaceRef) -> Frame | Error:
+        errors: list[Error] = []
+        place = normalize_place(plane, "plane", errors)
+        if errors:
+            return errors[0]
+        return faces.frame(self._document, place)
+
+    def faces(self, id: EntityId) -> tuple[FaceRef, ...] | Error:
+        return faces.names(self._document, id)
 
     def _solid(self, ids: Sequence[EntityId]) -> tuple[Kernel, Shape] | Error:
         errors: list[Error] = []
@@ -664,6 +704,191 @@ def _touches(entity: Geometry, box: BoundingBox) -> bool:
                 and c.y <= box.y_max
                 and box.y_min <= c.y + h
             )
+
+
+# --- Convex polygons (a box selection seen at an angle, ADR 0016) ---------------------------
+
+
+def _convex(corners: object) -> list[Point2] | None:
+    """`corners` as a convex polygon, counter-clockwise, or None: fewer than three, any not a
+    finite point, no area, or not convex. Repeated corners are dropped."""
+    if not isinstance(corners, Sequence) or isinstance(corners, str):
+        return None
+    points: list[Point2] = []
+    for p in corners:
+        if not isinstance(p, Point2) or not (math.isfinite(p.x) and math.isfinite(p.y)):
+            return None
+        if not points or p != points[-1]:
+            points.append(p)
+    if len(points) > 1 and points[0] == points[-1]:
+        points.pop()
+    if len(points) < 3:
+        return None
+    area = sum(_cross(a, b) for a, b in zip(points, [*points[1:], points[0]], strict=True))
+    if area == 0:
+        return None
+    if area < 0:
+        points.reverse()
+    count = len(points)
+    for i in range(count):
+        a, b, c = points[i], points[(i + 1) % count], points[(i + 2) % count]
+        if _turn(a, b, c) < 0:
+            return None
+    return points
+
+
+def _axis_box(polygon: list[Point2]) -> BoundingBox | None:
+    """The box an axis-aligned rectangle is, or None."""
+    if len(polygon) != 4:
+        return None
+    edges = zip(polygon, [*polygon[1:], polygon[0]], strict=True)
+    if not all(a.x == b.x or a.y == b.y for a, b in edges):
+        return None
+    return _box((p.x for p in polygon), (p.y for p in polygon))
+
+
+def _edges(polygon: list[Point2]) -> Iterable[tuple[Point2, Point2]]:
+    return zip(polygon, [*polygon[1:], polygon[0]], strict=True)
+
+
+def _cross(a: Point2, b: Point2) -> float:
+    return a.x * b.y - a.y * b.x
+
+
+def _turn(a: Point2, b: Point2, p: Point2) -> float:
+    """Positive when `p` is left of the line from `a` to `b`: inside a counter-clockwise
+    polygon's edge."""
+    return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+
+
+def _in_polygon(p: Point2, polygon: list[Point2]) -> bool:
+    return all(_turn(a, b, p) >= 0 for a, b in _edges(polygon))
+
+
+def _outward(a: Point2, b: Point2) -> tuple[float, float]:
+    """The unit direction out of a counter-clockwise polygon across its edge from a to b."""
+    dx, dy = b.x - a.x, b.y - a.y
+    length = math.hypot(dx, dy)
+    return dy / length, -dx / length
+
+
+def _polygon_holds(entity: Geometry, polygon: list[Point2]) -> bool:
+    """Whether the entity's outline lies wholly in the closed polygon: for each edge, its
+    farthest point out across that edge is still inside it."""
+    match entity:
+        case Point(position=p):
+            return _in_polygon(p, polygon)
+        case Line(start=a, end=b):
+            return _in_polygon(a, polygon) and _in_polygon(b, polygon)
+        case Rectangle(corner=c, width=w, height=h):
+            corners = (
+                c,
+                Point2(x=c.x + w, y=c.y),
+                Point2(x=c.x + w, y=c.y + h),
+                Point2(x=c.x, y=c.y + h),
+            )
+            return all(_in_polygon(q, polygon) for q in corners)
+        case Circle(center=c, radius=r):
+            for a, b in _edges(polygon):
+                ux, uy = _outward(a, b)
+                if _turn(a, b, Point2(x=c.x + r * ux, y=c.y + r * uy)) < 0:
+                    return False
+            return True
+        case Arc(center=c, radius=r, start_angle=start, sweep_angle=sweep):
+            ends = _features(entity)
+            if not (
+                _in_polygon(ends[Feature.START], polygon)
+                and _in_polygon(ends[Feature.END], polygon)
+            ):
+                return False
+            for a, b in _edges(polygon):
+                ux, uy = _outward(a, b)
+                angle = math.degrees(math.atan2(uy, ux)) % 360.0
+                if (angle - start) % 360.0 <= sweep:
+                    cu, cv = _unit(angle)
+                    if _turn(a, b, Point2(x=c.x + r * cu, y=c.y + r * cv)) < 0:
+                        return False
+            return True
+
+
+def _polygon_touches(entity: Geometry, polygon: list[Point2]) -> bool:
+    """Whether the closed polygon meets the entity: its outline, or the inside of a closed
+    shape, as `_touches` for a box."""
+    match entity:
+        case Point(position=p):
+            return _in_polygon(p, polygon)
+        case Line(start=a, end=b):
+            return _segment_meets_polygon(a, b, polygon)
+        case Rectangle(corner=c, width=w, height=h):
+            corners = [
+                c,
+                Point2(x=c.x + w, y=c.y),
+                Point2(x=c.x + w, y=c.y + h),
+                Point2(x=c.x, y=c.y + h),
+            ]
+            return not _separated(corners, polygon)
+        case Circle(center=c, radius=r):
+            if _in_polygon(c, polygon):
+                return True
+            return min(_segment_distance(c, a, b) for a, b in _edges(polygon)) <= r
+        case Arc(center=c, radius=r, start_angle=start, sweep_angle=sweep):
+            ends = _features(entity)
+            if _in_polygon(ends[Feature.START], polygon) or _in_polygon(ends[Feature.END], polygon):
+                return True
+            # Both ends are outside, so the arc reaches the polygon only across its boundary.
+            return any(
+                (math.degrees(math.atan2(p.y - c.y, p.x - c.x)) - start) % 360.0 <= sweep
+                for a, b in _edges(polygon)
+                for p in _circle_meets_segment(c, r, a, b)
+            )
+
+
+def _segment_meets_polygon(a: Point2, b: Point2, polygon: list[Point2]) -> bool:
+    """Cyrus-Beck clipping: does the segment keep any part inside the closed polygon?"""
+    low, high = 0.0, 1.0
+    dx, dy = b.x - a.x, b.y - a.y
+    for e0, e1 in _edges(polygon):
+        ex, ey = e1.x - e0.x, e1.y - e0.y
+        num = ex * (a.y - e0.y) - ey * (a.x - e0.x)  # inside when num + t * den >= 0
+        den = ex * dy - ey * dx
+        if den == 0:
+            if num < 0:
+                return False
+        elif den > 0:
+            low = max(low, -num / den)
+        else:
+            high = min(high, -num / den)
+        if low > high:
+            return False
+    return True
+
+
+def _separated(a: list[Point2], b: list[Point2]) -> bool:
+    """Whether two convex polygons are apart: some edge's axis separates them (touching isn't)."""
+    for polygon in (a, b):
+        for e0, e1 in _edges(polygon):
+            nx, ny = e1.y - e0.y, e0.x - e1.x
+            pa = [nx * p.x + ny * p.y for p in a]
+            pb = [nx * p.x + ny * p.y for p in b]
+            if max(pa) < min(pb) or max(pb) < min(pa):
+                return True
+    return False
+
+
+def _circle_meets_segment(c: Point2, r: float, a: Point2, b: Point2) -> Iterable[Point2]:
+    dx, dy = b.x - a.x, b.y - a.y
+    fx, fy = a.x - c.x, a.y - c.y
+    qa = dx * dx + dy * dy
+    if qa == 0:
+        return
+    half_b = fx * dx + fy * dy
+    disc = half_b * half_b - qa * (fx * fx + fy * fy - r * r)
+    if disc < 0:
+        return
+    root = math.sqrt(disc)
+    for s in ((-half_b - root) / qa, (-half_b + root) / qa):
+        if 0.0 <= s <= 1.0:
+            yield Point2(x=a.x + s * dx, y=a.y + s * dy)
 
 
 def _segment_touches(a: Point2, b: Point2, box: BoundingBox) -> bool:

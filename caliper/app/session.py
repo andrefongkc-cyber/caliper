@@ -34,7 +34,7 @@ from caliper.contracts.commands import (
     Rejected,
     Transaction,
 )
-from caliper.contracts.document import Document, EntityId, Expectation, Plane, Ref, Sketch
+from caliper.contracts.document import Document, EntityId, Expectation, FaceRef, Plane, Ref, Sketch
 from caliper.contracts.queries import CheckResult, Queries
 from caliper.engine import part
 from caliper.engine.commands.bus import Bus
@@ -132,7 +132,7 @@ class DocumentSession(QObject):
         held = part_bus if part_bus is not None else Bus(fresh(Space.PART))
         self._other = _Held(bus=held, saved=held.document, active=_last_sketch(held.document))
         """The document in the tab that isn't shown."""
-        self._plane: Plane | None = None
+        self._plane: Plane | FaceRef | None = None
         self._bus: CommandBus = bus if bus is not None else Bus()
         self._unsubscribe = self._bus.subscribe(self._on_change)
         self._saved: Document = self._bus.document
@@ -506,12 +506,13 @@ class DocumentSession(QObject):
             self.selection_changed.emit()
 
     @property
-    def picked_plane(self) -> Plane | None:
-        """The plane picked in the 3D view or the Part panel, to start a sketch on (ADR
-        0015). UI state like the selection, which picking one clears."""
+    def picked_plane(self) -> Plane | FaceRef | None:
+        """The plane picked in the 3D view or the Part panel, or a flat face of the solid
+        picked in the 3D view, to start a sketch on (ADR 0015, ADR 0016). UI state like the
+        selection, which picking one clears."""
         return self._plane
 
-    def set_picked_plane(self, plane: Plane | None) -> None:
+    def set_picked_plane(self, plane: Plane | FaceRef | None) -> None:
         if plane != self._plane or (plane is not None and self._selection):
             self._plane = plane
             if plane is not None:

@@ -269,7 +269,7 @@ def test_schema_2_files_load_unchanged_as_schema_3() -> None:
 
 
 def golden(old: Path) -> Path:
-    """Where the schema-4 version of a kept schema-3 file lives."""
+    """Where the current version of a kept older file lives."""
     if old.parent.name == "bench":
         return ROOT / "bench" / "cases" / old.stem / "expected.caliper"
     return FIXTURES / old.name
@@ -288,7 +288,7 @@ BORN_AT_SCHEMA_4 = {
 
 def test_every_schema_3_golden_is_kept_for_the_migration() -> None:
     goldens = {*FIXTURES.glob("*.caliper"), *(ROOT / "bench" / "cases").glob("*/expected.caliper")}
-    assert {golden(old) for old in SCHEMA_3} == goldens - BORN_AT_SCHEMA_4
+    assert {golden(old) for old in SCHEMA_3} == goldens - BORN_AT_SCHEMA_4 - BORN_AT_SCHEMA_5
 
 
 @pytest.mark.parametrize("old", SCHEMA_3, ids=lambda p: f"{p.parent.name}/{p.stem}")
@@ -338,6 +338,43 @@ def test_migration_3_leaves_a_malformed_document_to_the_decoder() -> None:
         snapshot.loads(
             json.dumps({**json.loads((V3 / "milestone.caliper").read_text()), "document": []})
         )
+
+
+# --- Migration 4 -> 5: an extrude can go the other way (ADR 0016) ---------------------------
+
+V4 = FIXTURES / "v4"
+SCHEMA_4 = sorted(V4.glob("*.caliper")) + sorted((V4 / "bench").glob("*.caliper"))
+BORN_AT_SCHEMA_5: set[Path] = {FIXTURES / "face-sketches.caliper"}
+"""Goldens first written at schema 5, which have no older version."""
+
+
+def test_every_schema_4_golden_is_kept_for_the_migration() -> None:
+    goldens = {*FIXTURES.glob("*.caliper"), *(ROOT / "bench" / "cases").glob("*/expected.caliper")}
+    assert {golden(old) for old in SCHEMA_4} == goldens - BORN_AT_SCHEMA_5
+
+
+@pytest.mark.parametrize("old", SCHEMA_4, ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_schema_4_files_load_as_the_engine_writes_them_now_byte_for_byte(old: Path) -> None:
+    read = snapshot.read(old.read_text())
+    assert read.schema_version == 4
+    assert snapshot.dumps(read.document) == golden(old).read_text()
+
+
+def test_migration_4_adds_only_reversed_to_extrudes() -> None:
+    data = json.loads((V4 / "extruded-plate.caliper").read_text())
+    upgraded = snapshot.MIGRATIONS[4](json.loads((V4 / "extruded-plate.caliper").read_text()))
+    before, after = data["document"]["features"], upgraded["document"]["features"]  # type: ignore[index]
+    assert [f["kind"] for f in after] == ["sketch", "extrude"]
+    for old, new in zip(before, after, strict=True):
+        assert new == (old | {"reversed": False} if old["kind"] == "extrude" else old)
+    assert {k: v for k, v in upgraded["document"].items() if k != "features"} == {  # type: ignore[union-attr]
+        k: v for k, v in data["document"].items() if k != "features"
+    }
+
+
+def test_migration_4_leaves_a_malformed_document_to_the_decoder() -> None:
+    assert snapshot.MIGRATIONS[4]({"document": {"features": 3}}) == {"document": {"features": 3}}
+    assert snapshot.MIGRATIONS[4]({"document": []}) == {"document": []}
 
 
 def test_a_part_with_two_sketches_round_trips_exactly(tmp_path: Path) -> None:

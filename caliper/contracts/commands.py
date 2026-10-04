@@ -25,7 +25,7 @@ Frozen as of V1: a new command type, or a change to an existing one, needs a joi
 so committing a transaction is announced like every other change to the undo stack. C-1
 added `CreateCheck` (ADR 0010), and C-4 `Change.source`. V2's F1 (ADR 0011) added
 `CreateSketch`, the `sketch` a create command draws in, and the feature list in a `Delta`;
-V2's F3 (ADR 0013) added `CreateExtrude`.
+V2's F3 (ADR 0013) added `CreateExtrude`; ADR 0016 its `reversed`, and a sketch on a face.
 
 Geometry goes in a sketch. A command that creates geometry names it in `sketch`; left as
 None, it is the part's only sketch, and a part with none or several refuses the command
@@ -45,6 +45,7 @@ from caliper.contracts.document import (
     Entity,
     EntityId,
     ExtrudeOperation,
+    FaceRef,
     Metric,
     PartFeature,
     Plane,
@@ -60,14 +61,17 @@ from caliper.contracts.queries import DimensionType, Queries
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateSketch:
-    """Add a sketch on `plane` at the end of the part's features (ADR 0011).
+    """Add a sketch on `plane` at the end of the part's features (ADR 0011): one of the part's
+    planes, or a flat face of an extrude (`FaceRef`, ADR 0016), refused unless the face is
+    there now (`face.not_found`, `face.not_planar`).
 
     Its id is allocated like an entity's. Deleting it (`DeleteEntities`) deletes everything
-    drawn in it; `ModifyEntity` moves it to another plane, its 2D coordinates unchanged.
+    drawn in it; `ModifyEntity` moves it to another plane or face, its 2D coordinates
+    unchanged. Deleting the extrude a sketch's face belongs to deletes the sketch too.
     """
 
     kind: ClassVar[str] = "create_sketch"
-    plane: Plane
+    plane: Plane | FaceRef
     id: EntityId | None = None
 
 
@@ -81,6 +85,10 @@ class CreateExtrude:
     unless that is one closed profile now (`profile.not_closed`, with the reason), and an
     extrude that removes needs one that adds before it. The solid itself is worked out when
     asked for (`Queries.solid_properties`), never stored.
+
+    `reversed` sweeps against the normal (ADR 0016). Left as None, the engine chooses: a cut
+    from a sketch on a face goes into the part, and anything else along the normal. The
+    resolved command records what it chose.
     """
 
     kind: ClassVar[str] = "create_extrude"
@@ -89,6 +97,7 @@ class CreateExtrude:
     operation: ExtrudeOperation = ExtrudeOperation.ADD
     ids: tuple[EntityId, ...] = ()
     id: EntityId | None = None
+    reversed: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -291,6 +300,7 @@ ParamValue = (
     | ConstraintType
     | Metric
     | Plane
+    | FaceRef
     | ExtrudeOperation
     | None
 )

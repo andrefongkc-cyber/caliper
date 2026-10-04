@@ -42,6 +42,13 @@ SNAP = QColor(P.snap)
 RUBBER_BAND = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), P.rubber_band_alpha)
 SOLID = QColor(P.solid)
 SOLID_EDGE = QColor(P.solid_edge)
+PROPOSED_SOLID = QColor(
+    (SOLID.red() + AGENT.red()) // 2,
+    (SOLID.green() + AGENT.green()) // 2,
+    (SOLID.blue() + AGENT.blue()) // 2,
+)
+"""A solid an agent's proposal would make (C-16): the solid's colour, half way to the agent's,
+so it shades as a solid does and still reads as the agent's."""
 AXIS_Z = QColor(P.axis_z)
 PLANE = QColor(P.plane)
 PLANE_FILL = QColor(PLANE.red(), PLANE.green(), PLANE.blue(), P.plane_alpha)
@@ -76,6 +83,7 @@ QToolBar QToolButton {{ padding: {s.xs - 1}px {s.s}px; border: 1px solid transpa
 QToolBar QToolButton:hover {{ border-color: {P.border}; }}
 QToolBar QToolButton:checked {{ background: {P.field}; border-color: {P.accent}; }}
 QToolBar QToolButton:disabled {{ color: {P.ink_dim}; }}
+QToolBar QToolButton#qt_toolbar_ext_button {{ padding: 0; border: none; }}
 QWidget#mode-switch QToolButton {{ border: 1px solid {P.border}; border-radius: 0;
     padding: {s.xs - 1}px {s.l}px; font-weight: {TYPE.heading_weight}; color: {P.ink_dim}; }}
 QWidget#mode-switch QToolButton#mode-2d {{ border-top-left-radius: {r.control}px;
@@ -102,6 +110,23 @@ QPushButton#finish-sketch {{ background: {P.accent}; color: {P.ink_on_accent};
     border-color: {P.accent}; }}
 QSplitter#browser-split::handle:vertical {{ height: 1px; }}
 QToolBar::separator {{ background: {P.border}; width: 1px; margin: {s.xs}px {s.s}px; }}
+QToolBar#tray-tools {{ background: transparent; border: none; padding: 0; }}
+QToolBar QToolButton#tray-handle {{ border: none; border-left: 1px solid {P.border};
+    border-radius: 0; margin: {s.xs}px 0 {s.xs}px {s.s}px; padding: 0 {s.xs}px;
+    color: {P.ink_dim}; background: transparent; }}
+QToolBar QToolButton#tray-handle:hover {{ color: {P.ink}; }}
+QToolButton#left-edge, QToolButton#right-edge {{ background: {P.window}; border: none;
+    padding: 0; color: {P.ink_dim}; }}
+QToolButton#left-edge {{ border-right: 1px solid {P.border}; }}
+QToolButton#right-edge {{ border-left: 1px solid {P.border}; }}
+QToolButton#left-edge:hover, QToolButton#right-edge:hover {{ background: {P.field};
+    color: {P.ink}; }}
+QStatusBar QToolButton#prompt-toggle {{ color: {P.agent}; background: transparent;
+    border: 1px solid transparent; border-radius: {r.control}px; padding: 0 {s.s}px;
+    margin: 0 {s.xs}px; }}
+QStatusBar QToolButton#prompt-toggle:hover {{ border-color: {P.border}; }}
+QStatusBar QToolButton#prompt-toggle:checked {{ background: {P.field};
+    border-color: {P.agent}; }}
 QDockWidget::title {{ background: {P.window}; padding: {s.xs}px {s.m}px; text-align: left;
     border-bottom: 1px solid {P.border}; }}
 QStatusBar {{ background: {P.window}; border-top: 1px solid {P.border}; color: {P.ink_dim}; }}
@@ -130,6 +155,14 @@ QTabBar::tab {{ background: {P.window}; color: {P.ink_dim}; padding: {s.s}px {s.
 QTabBar::tab:selected {{ color: {P.ink}; border-bottom-color: {P.accent}; }}
 QTabBar::tab:hover {{ color: {P.ink}; }}
 QTreeWidget, QListWidget {{ background: {P.panel}; border: none; outline: none; }}
+QScrollBar {{ background: {P.panel}; border: none; margin: 0; }}
+QScrollBar:vertical {{ width: {s.m + s.xxs}px; }}
+QScrollBar:horizontal {{ height: {s.m + s.xxs}px; }}
+QScrollBar::handle {{ background: {P.border}; border-radius: {r.control}px;
+    margin: {s.xxs}px; min-width: {s.xl}px; min-height: {s.xl}px; }}
+QScrollBar::handle:hover {{ background: {P.ink_dim}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QPlainTextEdit#assistant-log {{ background: {P.panel}; border: none;
     padding: {s.xxs}px {s.xs}px; }}
 QTreeWidget::item, QListWidget::item {{ padding: {s.xxs}px 0; }}

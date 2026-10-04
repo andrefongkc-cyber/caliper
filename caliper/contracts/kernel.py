@@ -18,6 +18,9 @@ and any holes, of lines and arcs joined end to end; the engine finds them
 V2's F2 (2026-10-01): solids. A face is extruded from a sketch's plane (`Frame`), solids
 combine by `union` and `cut`, and a solid gives its `volume`, `bounding_box_3d`, and a `mesh`
 to draw. Shapes stay opaque and are never serialized.
+
+ADR 0016 (2026-10-03): `Frame` moved to the queries, which give one back
+(`Queries.plane_frame`); it is still importable from here.
 """
 
 from collections.abc import Sequence
@@ -26,7 +29,8 @@ from typing import Protocol
 
 from caliper.contracts.document import Geometry
 from caliper.contracts.errors import ErrorCode
-from caliper.contracts.queries import AreaProperties, BoundingBox, BoundingBox3, Mesh, Point3
+from caliper.contracts.queries import AreaProperties, BoundingBox, BoundingBox3, Mesh
+from caliper.contracts.queries import Frame as Frame  # moved there (ADR 0016)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -42,19 +46,6 @@ class Loop:
     edges: tuple[Geometry, ...]
     reversed: tuple[bool, ...] = ()
     """Empty means no edge is reversed; otherwise one flag per edge."""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Frame:
-    """Where a face drawn in 2D sits in 3D: a 2D point (u, v) is `origin + u * x + v * y`.
-
-    `x` and `y` are unit directions at right angles; the normal, the way an extrusion goes, is
-    x cross y. A sketch's plane gives its frame (`caliper.engine.part.frame`).
-    """
-
-    origin: Point3
-    x: Point3
-    y: Point3
 
 
 class Shape(Protocol):

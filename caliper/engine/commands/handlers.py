@@ -48,6 +48,7 @@ from caliper.contracts.document import (
     Expectation,
     Extrude,
     ExtrudeOperation,
+    FaceRef,
     Feature,
     Geometry,
     Line,
@@ -61,7 +62,7 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error, ErrorCode
 from caliper.contracts.queries import DimensionType
-from caliper.engine import features, graph, part
+from caliper.engine import faces, features, graph, part
 from caliper.engine.commands.validation import (
     GEOMETRY,
     build_entity,
@@ -256,6 +257,8 @@ def _create_sketch(document: Document, command: CreateSketch) -> Handled | list[
     if isinstance(added, list):
         return added
     assert isinstance(added, Sketch)
+    if problem := _face_problem(document, added, len(document.features)):
+        return [problem]
     return Handled(
         document=replace(document, features=(*document.features, added), next_id=next_id),
         command=CreateSketch(plane=added.plane, id=sketch_id),
@@ -279,6 +282,9 @@ def _create_extrude(document: Document, command: CreateExtrude) -> Handled | lis
         "depth": command.depth,
         "operation": command.operation,
         "ids": command.ids,
+        "reversed": faces.default_reversed(document, sketch, command.operation)
+        if command.reversed is None
+        else command.reversed,
     }
     position = len(document.features)
     added = build_feature(Extrude, values, document, position=position)
@@ -295,10 +301,20 @@ def _create_extrude(document: Document, command: CreateExtrude) -> Handled | lis
             operation=added.operation,
             ids=added.ids,
             id=feature_id,
+            reversed=added.reversed,
         ),
         label="Extrude",
         created_ids=(feature_id,),
     )
+
+
+def _face_problem(document: Document, sketch: Sketch, position: int) -> Error | None:
+    """Why a sketch can't go on its face now (ADR 0016): the extrude has no such flat face, or
+    can't be placed itself. A plane is always there."""
+    if not isinstance(sketch.plane, FaceRef):
+        return None
+    placed = faces.frame(document, sketch.plane, position)
+    return placed if isinstance(placed, Error) else None
 
 
 def _extrude_problem(document: Document, extrude: Extrude, position: int) -> Error | None:
@@ -537,6 +553,12 @@ def _modify_feature(
         isinstance(built, Extrude)
         and {"sketch", "ids", "operation"} & set(changed)
         and (problem := _extrude_problem(document, built, position))
+    ):
+        return [problem]
+    if (
+        isinstance(built, Sketch)
+        and "plane" in changed
+        and (problem := _face_problem(document, built, position))
     ):
         return [problem]
     return Handled(

@@ -29,7 +29,7 @@ from caliper.app.dimension_layout import (
 )
 from caliper.app.session import DocumentSession
 from caliper.app.viewport.painter import ModelPainter, cosmetic_pen
-from caliper.app.viewport.transform import ViewTransform
+from caliper.app.viewport.transform import View, ViewTransform
 from caliper.contracts.document import (
     AngleDimension,
     Arc,
@@ -87,7 +87,7 @@ class DimensionDrawing:
     the fillet at its end."""
 
 
-def drawing(session: Source, id: EntityId, view: ViewTransform) -> DimensionDrawing | None:
+def drawing(session: Source, id: EntityId, view: View) -> DimensionDrawing | None:
     """How to draw dimension `id`, or None if it isn't one or its references can't be found."""
     match session.document.entities.get(id):
         case DistanceDimension() as dim:
@@ -157,7 +157,7 @@ def value_text(session: Source, id: EntityId, prefix: str = "", unit: str = "") 
 
 
 def _distance(
-    session: Source, id: EntityId, dim: DistanceDimension, view: ViewTransform
+    session: Source, id: EntityId, dim: DistanceDimension, view: View
 ) -> DimensionDrawing | None:
     queries = session.queries
     ref_a, ref_b = references.anchor(queries, dim.a), references.anchor(queries, dim.b)
@@ -199,7 +199,7 @@ def _distance(
 
 
 def _radial(
-    session: Source, id: EntityId, dim: RadialDimension, view: ViewTransform
+    session: Source, id: EntityId, dim: RadialDimension, view: View
 ) -> DimensionDrawing | None:
     target = session.document.entities.get(dim.target)
     if not isinstance(target, Circle | Arc):
@@ -227,7 +227,7 @@ def _radial(
 
 
 def _angle(
-    session: Source, id: EntityId, dim: AngleDimension, view: ViewTransform
+    session: Source, id: EntityId, dim: AngleDimension, view: View
 ) -> DimensionDrawing | None:
     queries = session.queries
     a, b = references.straight(queries, dim.a), references.straight(queries, dim.b)
@@ -380,7 +380,7 @@ def measures(entity: object, ids: frozenset[EntityId]) -> bool:
     return False
 
 
-def label_anchors(session: DocumentSession, view: ViewTransform) -> list[tuple[Point2, str]]:
+def label_anchors(session: DocumentSession, view: View) -> list[tuple[Point2, str]]:
     """Where each visible dimension's label sits, and its text, for Zoom to Fit padding."""
     anchors_: list[tuple[Point2, str]] = []
     for id in sorted(session.sketch_view.entities):

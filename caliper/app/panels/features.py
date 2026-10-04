@@ -31,9 +31,11 @@ from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
 from caliper.app.viewport.scene3d import PLANE_NAMES, PLANES
 from caliper.contracts.document import (
+    Document,
     EntityId,
     Extrude,
     ExtrudeOperation,
+    FaceRef,
     PartFeature,
     Plane,
     Sketch,
@@ -66,6 +68,13 @@ def titles(features: tuple[PartFeature, ...]) -> dict[EntityId, str]:
         counts[feature.kind] = counts.get(feature.kind, 0) + 1
         found[feature.id] = f"{feature.kind.title()} {counts[feature.kind]}"
     return found
+
+
+def place_name(document: Document, plane: Plane | FaceRef) -> str:
+    """Where a sketch sits, as the window names it: "Top", or "end of Extrude 1" (ADR 0016)."""
+    if isinstance(plane, Plane):
+        return PLANE_NAMES[plane]
+    return f"{plane.face} of {titles(document.features).get(plane.feature, plane.feature)}"
 
 
 class FeatureTree(QWidget):
@@ -114,6 +123,8 @@ class FeatureTree(QWidget):
         self.items: dict[EntityId, QTreeWidgetItem] = {}
         self.planes: dict[Plane, QTreeWidgetItem] = {}
         self._stale = True
+        self._shown: tuple[object, EntityId | None] = (None, None)
+        """The document and the sketch being edited the rows show."""
         self.editing: Callable[[], EntityId | None] = lambda: session.active_sketch
         """The sketch open for editing, marked in its row: the window says which."""
         self.tree.itemSelectionChanged.connect(self._push_selection)
@@ -128,7 +139,11 @@ class FeatureTree(QWidget):
         if not self.isVisible():
             self._stale = True  # hidden in the 2D tab: rebuilt when it shows
             return
-        self._stale = False
+        shown = (self.session.document, self.editing())
+        if not self._stale and self._shown[0] is shown[0] and self._shown[1] == shown[1]:
+            self._pull_selection()  # the rows show this already (a tab switch asks 3 times)
+            return
+        self._stale, self._shown = False, shown
         blocker = QSignalBlocker(self.tree)
         self.tree.clear()
         self.items = {}
@@ -170,12 +185,20 @@ class FeatureTree(QWidget):
         match feature:
             case Sketch(plane=plane):
                 editing = feature.id == self.editing()
-                item.setText(1, f"{PLANE_NAMES[plane]}{'  ·  editing' if editing else ''}")
+                where = place_name(self.session.document, plane)
+                item.setText(1, f"{where}{'  ·  editing' if editing else ''}")
                 font = item.font(0)
                 font.setBold(editing)
                 item.setFont(0, font)
                 item.setForeground(1, theme.ACCENT if editing else theme.TEXT_DIM)
-                item.setToolTip(0, f"{feature.id} on {PLANE_NAMES[plane]}: double-click to edit")
+                item.setData(0, Qt.ItemDataRole.ForegroundRole, None)
+                error = self.session.queries.feature_error(feature.id)
+                if error is not None:  # its face is gone (ADR 0016)
+                    item.setForeground(0, theme.ERROR)
+                    item.setForeground(1, theme.ERROR)
+                    item.setToolTip(0, f"{feature.id} fails: {error.message}")
+                else:
+                    item.setToolTip(0, f"{feature.id} on {where}: double-click to edit")
             case Extrude(depth=depth, operation=operation):
                 verb = "adds" if operation is ExtrudeOperation.ADD else "cuts"
                 item.setText(1, f"{verb} {format_number(depth)} mm")

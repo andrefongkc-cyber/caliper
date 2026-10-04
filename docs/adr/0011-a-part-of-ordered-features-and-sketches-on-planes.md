@@ -56,6 +56,10 @@ Each plane's origin is the part's origin. Offset planes and a sketch on a face c
 as new fields or kinds, each a schema change with a migration. A sketch on a face waits for
 persistent naming (F4).
 
+> **Changed by [ADR 0016](0016-sketching-at-any-angle-and-on-faces.md)** (Proposed): a sketch sits on a plane or on a flat face of
+> an extrude, named as ADR 0014 names faces (`FaceRef`), with its plane worked out from that
+> extrude's inputs (file schema 5).
+
 **The entity map keeps its meaning: what sketches hold, plus the part's checks.** A sketch
 isn't an entity. It lives in `features`, so nothing that loops over `entities` meets a new
 kind:

@@ -257,3 +257,78 @@ def test_a_point_exactly_at_the_reach_is_found(reach: float) -> None:
     # The query box is grown by a hair, so rounding at the very edge never loses a candidate.
     grid = spatial.Grid(document(Point(position=Point2(x=0.1 + 0.2, y=0.0))))
     assert grid.near(0.3 - reach, 0.0, reach) == ["e1"]
+
+
+# --- Grids made from the last one (Performance V2.2, Perf-6) --------------------------------
+
+boxes = st.tuples(coordinate, coordinate, size, size).map(
+    lambda b: (b[0], b[1], b[0] + b[2], b[1] + b[3])
+)
+
+
+@st.composite
+def edits(draw: st.DrawFn, document: Document) -> Command | None:
+    """One change to `document`: a shape moved or resized, deleted, added, or nothing."""
+    from caliper.contracts.commands import DeleteEntities, MoveEntities
+
+    ids = sorted(id for id, e in document.entities.items() if isinstance(e, _GEOMETRY))
+    choice = draw(st.sampled_from(["move", "delete", "add", "add"] if ids else ["add"]))
+    if choice == "add":
+        return draw(geometry())
+    target = draw(st.sampled_from(ids))
+    if choice == "delete":
+        return DeleteEntities(ids=(target,))
+    return MoveEntities(ids=(target,), dx=draw(coordinate), dy=draw(coordinate))
+
+
+@settings(max_examples=150, deadline=None)
+@given(data=st.data(), start=sketches())
+def test_a_grid_made_from_the_last_one_answers_as_a_fresh_one(
+    data: st.DataObject, start: Document
+) -> None:
+    bus = Bus(start)
+    before = spatial.Grid(start)
+    for _ in range(data.draw(st.integers(1, 6))):
+        old = bus.document
+        command = data.draw(edits(old))
+        if command is None or (data.draw(st.booleans()) and bus.undo_label):
+            bus.undo()
+        else:
+            bus.execute(command)
+        new = bus.document
+        made = spatial.Grid.derived(before, old, new)
+        fresh = spatial.Grid(new)
+        for box in data.draw(st.lists(boxes, min_size=1, max_size=5)):
+            if made is not None:
+                assert made.overlapping(box) == fresh.overlapping(box)
+            assert before.overlapping(box) == spatial.Grid(old).overlapping(box)  # untouched
+        for point in data.draw(st.lists(points, min_size=1, max_size=3)):
+            reach = data.draw(tolerances)
+            if made is not None:
+                assert made.near(point.x, point.y, reach) == fresh.near(point.x, point.y, reach)
+        before = made if made is not None else fresh
+
+
+def test_an_edit_to_a_large_sketch_moves_one_entity_rather_than_building_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliper.contracts.commands import MoveEntities
+
+    bus = Bus(kernel=None)
+    for k in range(500):
+        bus.execute(
+            CreateCircle(center=Point2(x=float(k % 25) * 10, y=float(k // 25) * 10), radius=3)
+        )
+    spatial.grid(bus.document)
+    built: list[Document] = []
+    real = spatial.Grid.__init__
+    monkeypatch.setattr(
+        spatial.Grid, "__init__", lambda self, d: (built.append(d), real(self, d))[1]
+    )
+    bus.execute(MoveEntities(ids=(EntityId("e7"),), dx=1000.0, dy=0.0))
+    assert spatial.grid(bus.document).near(1060.0, 0.0, 4.0) == ["e7"]
+    assert built == []  # made from the last grid
+    many = MoveEntities(ids=tuple(EntityId(f"e{k}") for k in range(1, 400)), dx=1.0, dy=1.0)
+    bus.execute(many)
+    spatial.grid(bus.document)
+    assert built == [bus.document]  # most of the sketch moved: built afresh

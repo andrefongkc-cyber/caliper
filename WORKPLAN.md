@@ -1,4 +1,4 @@
-Status: V2's F1 to F8 done on `shared/v2-milestone`, and 3D-first on `shared/v2-3d-sketching` (ADR 0015: start in 3D from the planes, sketch in 3D, the 2D tab a test sketch with its own file); all local, not pushed; ADRs 0011 to 0015 Proposed, for Lucas; next: Andre tries it, Lucas's review; N9's Claude Desktop run still open
+Status: 3D sketching part 2 (ADR 0016) done on `contracts/sketch-on-faces` and `shared/3d-sketching-2` (local, not pushed): draw at an angle up to 70°, sketch on the part's flat faces, Claude too; next: Andre tries it, then Lucas's review. Performance V2.2 done on `shared/performance-v2.2`; V2 and 3D-first in PR #56, for Lucas; N9's Claude Desktop run still open
 # Workplan
 
 Human-edited index. Agents update their stream's file, not this one (this update was asked for).
@@ -30,6 +30,23 @@ Markers: `[ ]` not started · `[~]` in progress · `[x]` done
     - [x] F7, the contract reviewed from the app's side ([shell.md](docs/workplan/shell.md#v2-f7-the-contract-reviewed-from-the-apps-side-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): no contract change needed; four app bugs found and fixed (the assistant's and Claude Desktop's drawing with two sketches, the sketch-size checks, the proposal preview, an extrude's label). ADR 0011's questions answered as built; Lucas to confirm
     - [x] F8, V2's tests ([core.md](docs/workplan/core.md#v2-f8-v2s-tests-end-to-end-branch-sharedv2-milestone-2026-10-01-local-not-pushed)): the milestone end to end through the window on both kernels, from the rectangle to a byte-identical headless replay, with the 3D view's mesh measured at each step; coverage of V2's files measured (91–100%) and the gaps filled. 1754 passed with OCCT; 1688 passed and 54 skipped without it
     - [x] 3D-first, after F8 ([ADR 0015](docs/adr/0015-sketching-in-3d-from-the-parts-planes.md), Proposed; [shell.md](docs/workplan/shell.md)): the app starts in 3D on a part with its Top, Front, and Right planes; a sketch is made on a plane and edited in 3D facing it, with Finish and Cancel; the 2D tab is a sketch to test on, its own document and file; Claude works on the tab shown
+  - [x] **Performance V2.2** (measured plan 2026-10-01 on `bf1dcc9`; [core.md](docs/workplan/core.md), with the final table): make what exists faster, solver bit-identical
+    - [x] Perf-0: missing benchmarks and counters (`bench/perf_v22.py`); baseline `bench/results/2026-10-02-pv2.2-baseline.json`; two stale figures corrected
+    - [x] Perf-1: sketch browser in linear time, one rebuild per document swap: open at 10k 37.8 s → 0.50 s, at 2k 1.49 s → 0.10 s; rebuild at 10k 17.9 s → 137 ms
+    - [x] Perf-2: one command-palette refresh per event-loop turn: selection change 6.6 → 2.7 ms (17 refilters → 1), tab round trip → 18.8 ms, startup 25 → 16 ms
+    - [x] Perf-3: History adds and dims rows instead of rebuilding (a change after 2,000: 8.9 → 1.1 ms); one Checks refresh per change; Part panel skips same-content rebuilds; solid volume and box kept per solid (3D sketch edit: 3 volume calls → 0)
+    - [x] Perf-4: investigated, not landed. Measured, the planned steps can't reach −20% (evaluation is 25% of the stress plate's solve, compiling 3–4%; the point memo and the ±1 fast path gave nothing measurable); the fast solver's exact output is now pinned for Perf-5
+    - [x] Perf-6: the picking grid made from the last one: first move after an edit at 10k 10.0 → 2.6–3.9 ms (the grid 7.5 → 0.5 ms), at 2k 1.9 → 0.6 ms
+    - [x] Perf-7: a decoder per class for file loading: 10k entities 196 → 75 ms, 3k 60 → 24 ms, the stress plate 6.7 → 3.0 ms; results and errors identical
+    - [x] Perf-5: the redundancy check carries on across inserted columns and from the last four checks, bit-identical (no rank update): star-12 333 → 188 ms (1.77×, short of the plan's 2×), chain-150 2.6 → 1.0 s (p95 35 → 12 ms)
+    - [x] Perf-8: the 3D render path on the current renderer, pixel-identical: frames 0.43–0.50× (2,604 triangles 22.4 → 11.1 ms), a 3D sketch edit over the part 36.6 → 4.3 ms, no scene for the 2D tab; 30 fps now to about 9,000 triangles (GPU threshold recorded, not acted on)
+  - [x] **3D sketching part 2** ([ADR 0016](docs/adr/0016-sketching-at-any-angle-and-on-faces.md), Proposed; [core.md](docs/workplan/core.md)): draw at an angle up to 70°, and sketch on the part's flat faces, following them; Claude too
+    - [x] ADR 0016; the analytic kernel's parallel planes; `Extrude.reversed` and file schema 5
+    - [x] Sketches on faces (contract and engine): `FaceRef`, placed from the extrude's inputs, following edits
+    - [x] Picking a face and selecting at an angle: `face_at`, `entities_in_polygon`
+    - [x] Face planes against both kernels' meshes, a replay fixture of a part modelled on its faces, docs
+    - [x] The canvas at an angle, picking faces in the app, Claude's `create_sketch`, benchmarks (`shared/3d-sketching-2`): a tilted edit 4.6 ms, a face pick 5.4 ms, no slowdown elsewhere
+  - [x] **The chrome folds away** ([shell.md](docs/workplan/shell.md); `shared/collapsible-chrome`, stacked on it): the left and right panels fold to strips on the view's edges, Timing pops out, the agent's prompt hides behind an Agent button, and the tools slide out from the line after the 2D/3D switch
   - [ ] The dependency and recomputation graph, the foundation for incremental 2D and the 3D feature tree: planned, not started ([docs/workplan/core.md](docs/workplan/core.md#dependency-and-recomputation-graph-planned-2026-09-28-not-started))
 - **Core** (Stream A: engine, contracts, bench, tests): [docs/workplan/core.md](docs/workplan/core.md)
 - **Shell** (Stream B: app): [docs/workplan/shell.md](docs/workplan/shell.md)

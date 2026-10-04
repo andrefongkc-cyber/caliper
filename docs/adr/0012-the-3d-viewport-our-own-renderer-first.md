@@ -93,6 +93,8 @@ loose bound of 500 ms for a 1,000+ triangle part, so CI isn't flaky.
   - The painter's algorithm orders whole triangles. Faces that cross each other, or deep
     concave parts, can show the wrong one in front where a depth buffer wouldn't.
   - About 7 µs a triangle: a 10,000-triangle part is roughly 70 ms a frame.
+    Performance V2.2 (Perf-8, 2026-10-02) halved it with the same pixels: about 3.4 µs a
+    triangle, so 30 frames a second hold to about 9,000 triangles (`bench/perf.py`, `3d/frame`).
   - There's no picking or selection highlight in 3D yet.
 - **When to move on.** When parts commonly pass about 10,000 triangles, or need exact hiding,
   move to `QOpenGLWidget` with a depth buffer. It is in `pyside6-essentials` and LGPL. It

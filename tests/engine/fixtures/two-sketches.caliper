@@ -78,7 +78,7 @@
     "next_id": 8
   },
   "format": "caliper.document",
-  "schema_version": 4,
+  "schema_version": 5,
   "units": {
     "angle": "deg",
     "length": "mm"

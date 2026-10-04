@@ -72,7 +72,7 @@ def test_inspect_summarizes_a_file(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     lines = result.stdout.decode().splitlines()
     assert lines[1:10] == [
-        "  schema version  4",
+        "  schema version  5",
         "  units           mm, deg",
         "  entities        4: 1 circle, 1 distance_dimension, 1 radial_dimension, 1 rectangle",
         "  next id         5",

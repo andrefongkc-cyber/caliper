@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-15 (needs OCCT) | C-6 | C-16, C-17, C-18 |
+| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | |
 
 ---
 
@@ -59,49 +59,60 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   app for the parts it can build, a decision for ADR 0001's successor rather than a quiet
   default.
 
-### C-6. An edit that moves a large, tightly joined shape takes tens of milliseconds
+### C-6. An edit that moves a large, tightly joined shape factorizes again what it moved
 - **What happens:** MCP calls run on the UI thread, one at a time. A command solves only the
-  clusters it touches, and a redundancy check carries on from the last one's factorization up
-  to the first row that changed (see Recently fixed). But an edit that moves geometry changes
-  the rows of everything it moved, so where every row moves the check starts again: each
-  constraint on the stress plate's 12-point star (24 lines, one cluster) still takes about
-  29 ms.
+  clusters it touches, and a redundancy check carries on from whichever of the last few
+  checks' factorizations starts with the most of the same rows, up to the first row that
+  changed: across geometry newly joining the cluster, wherever its columns fall, and across a
+  check of another cluster in between (see Recently fixed). But an edit that moves geometry
+  changes the rows of everything it moved, and those are factorized again.
 - **Where:** `caliper/engine/constraints/sketch.py`, `_redundancy`, `_extended`, and
   `_truncated`; called from `caliper/app/agent/mcp_host.py`, `McpHost.handle`.
 - **Fix, if it matters:** update the factorization in place for rows that changed (a rank
-  update) instead of redoing them, or solve only the part of a cluster a command can move.
-- **Measured 2026-09-30:** the carry-on costs where it can't carry on. A chain of 150
-  constraints (`bench/perf.py`, `synthetic/many-constraints/chain-150`) takes 1.5 ms a call at
-  the median, against 0.5 ms before f4a9e92, and 2.5 s for all 299 calls against 2.3 s; the
-  same change took a 12-point star's circular pattern from 2.35 s to 0.33 s.
+  update), or check only the part of a cluster a command can move. Neither gives the bits a
+  fresh factorization gives, so either would change which near-threshold relations are
+  accepted; Performance V2.2 keeps the solver bit-identical (Andre, 2026-10-01), so it's a
+  decision of its own.
+- **Measured 2026-10-02 (Performance V2.2, Perf-5):** the earlier diagnosis was wrong. The
+  12-point star's checks didn't start again because rows moved (they hadn't), but because
+  each copy's columns were inserted in the middle of the order, and a 150-constraint chain's
+  because each new line's own cluster was checked between two checks of the chain. Carrying
+  on across both: the star's circular pattern 333 → 188 ms, the chain's 299 calls 2.6 → 1.0 s
+  (median 1.6 → 0.5 ms, p95 35 → 12 ms).
 
-### C-16. A proposed extrude can't be seen before it's accepted
-- **What happens:** a proposal is drawn as dashed geometry on the sketch it changes. An
-  extrude changes no geometry, so there is nothing to draw: the card, over the 3D view, lists
-  it, and its volume check is measured on the proposed solid, but the 3D view shows the solid
-  as it is until Accept.
-- **Where:** `caliper/app/viewport/view3d.py`, which meshes `session.document`.
-- **Fix, if it matters:** mesh `proposal.result` in the 3D view while a proposal is shown,
-  in the agent colour. The engine's `mesh` query already works on any document.
-
-### C-17. Drawing in 3D needs the view to face the sketch
-- **What happens:** a sketch is edited in 3D facing its plane (ADR 0015). Orbited away, the
-  view only looks: clicks turn it, and drawing waits until N faces the sketch again. Onshape
-  lets you draw on a plane seen at an angle.
-- **Where:** `caliper/app/viewport/backdrop.py`, and the canvas's view, a scale and an offset.
-- **Fix, if it matters:** give the canvas an affine view, which a slanted plane needs, through
-  its picking, snapping, and dimension labels.
-
-### C-18. Switching tabs drops a pending proposal
-- **What happens:** each tab is its own document, and Claude works on the one shown. Switching
-  tabs while Claude's proposal waits drops it, as opening a file does, and Claude's next call
-  is told the document changed.
-- **Where:** `caliper/app/agent/ui.py` and `mcp_host.py`, on `document_replaced`.
-- **Fix, if it matters:** keep a proposal with its tab, and show it again on the way back.
+### C-19. A sketch on a face a later cut removed stays where the face was
+- **What happens:** a sketch on a face is placed from its extrude's inputs (ADR 0016), not
+  from the solid. If a later cut takes the whole face away, the sketch doesn't notice: it
+  stays on the plane the face was on, and what's built from it is built there. A face split
+  by a cut still gives its one plane, which is all a sketch needs, so that case is right.
+- **Where:** `caliper/engine/faces.py`.
+- **Fix, if it matters:** ADR 0014's naming in both kernels, carried through every boolean,
+  so a lost face fails the sketch. Deferred until a feature needs edges (fillets).
+- **Also, for tests:** the analytic kernel cuts and joins exactly only on parallel planes
+  (pockets from a top or bottom face). A cut from a side face needs OCCT, as non-parallel cuts
+  always have, so those tests run in CI's `occt (Linux)` job.
 
 ---
 
 ## Recently fixed
+
+On `shared/proposal-in-3d` (stacked on `shared/collapsible-chrome`, #57):
+
+- C-16: a proposed extrude couldn't be seen before it was accepted, because an extrude changes
+  no geometry and the 3D view drew the part as it was. While a proposal waits, the 3D view
+  draws the solid it would leave, in the agent's colour with dashed edges, and says it isn't
+  the part yet; the canvas over the part shows it behind a sketch a proposal changes. A
+  proposal that would break the solid keeps the part on screen and says why. The solid is
+  built when the view is next painted, so Claude's call isn't slowed, and Accept finds it
+  waiting.
+- C-18: switching tabs dropped a pending proposal. It waits with its tab now and is on the
+  card again on the way back, each tab with its own. Claude Desktop has a draft per tab: its
+  first call after a switch is told its changes are waiting on the other tab, neither applied
+  nor dropped, and that its calls now work on the tab shown. New and Open still drop the
+  proposal of the tab they replace.
+- The proposal card went under the sketch bar in a narrow view; the tool bar's overflow button
+  couldn't be seen on the dark bar; the line under the 3D view was cut off in a narrow view;
+  scrollbars were the platform's black track. All four are fixed.
 
 In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
 
@@ -118,6 +129,19 @@ In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
   stress plate pushed Accept off the card. More than two are counted in one line.
 - History called an edit to a check "Change Expected"; it's "Edit Check", and checks can be
   edited from the Checks panel by keyboard (N7).
+
+On `shared/3d-sketching-2` (ADR 0016, stacked on `contracts/sketch-on-faces`, not pushed):
+
+- C-17: drawing in 3D needed the view to face the sketch. The canvas now draws on the sketch's
+  plane seen at an angle, up to 70° from it (a `PlaneView`: drawing, picking, snapping,
+  dimensions, the grid, and box selection); past that, drawing waits for N as before.
+
+On `shared/performance-v2.2` (Performance V2.2, stacked on the 3D sketching, not pushed):
+
+- C-6, mostly: a redundancy check carries on across columns inserted anywhere (geometry
+  joining the cluster) and from any of the last four checks (another cluster's in between),
+  still to the bit: the star's pattern 333 → 188 ms, the chain 2.6 → 1.0 s. Edits that move
+  a whole cluster still factorize it again (above).
 
 On `shared/v2-3d-sketching` (ADR 0015):
 

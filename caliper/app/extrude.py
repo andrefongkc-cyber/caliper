@@ -22,13 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from caliper.app.panels.features import titles
+from caliper.app.panels.features import place_name, titles
 from caliper.app.properties import display_number, parse_number
 from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
-from caliper.app.viewport.scene3d import PLANE_NAMES
 from caliper.contracts.commands import Applied, CreateExtrude
 from caliper.contracts.document import EntityId, ExtrudeOperation, Geometry, Sketch
+from caliper.engine import faces
 
 DEFAULT_DEPTH = 10.0
 
@@ -62,7 +62,9 @@ class ExtrudeForm(QFrame):
         form.setHorizontalSpacing(SPACE.l)
         form.setVerticalSpacing(SPACE.s)
         named = titles(document.features).get(sketch, "") if sketch is not None else ""
-        where = f"{named} ({sketch}), {PLANE_NAMES[plane]}" if plane is not None else "None"
+        where = (
+            f"{named} ({sketch}), {place_name(document, plane)}" if plane is not None else "None"
+        )
         form.addRow("Sketch", QLabel(where))
         form.addRow(
             "Profile",
@@ -77,6 +79,18 @@ class ExtrudeForm(QFrame):
         self.operation.addItem("Add to the solid", ExtrudeOperation.ADD)
         self.operation.addItem("Cut from the solid", ExtrudeOperation.REMOVE)
         form.addRow("Operation", self.operation)
+        self.direction = QComboBox()
+        self.direction.setObjectName("extrude-direction")
+        self.direction.addItem("Along the normal", False)
+        self.direction.addItem("Against it", True)
+        self.direction.setToolTip(
+            "Which way it goes from the sketch: on a face, the normal points out of the part, "
+            "so a cut goes against it, into the part"
+        )
+        form.addRow("Direction", self.direction)
+        self._sketch = sketch
+        self.operation.currentIndexChanged.connect(self._default_direction)
+        self._default_direction()
         layout.addLayout(form)
         self.error = QLabel()
         self.error.setObjectName("extrude-error")
@@ -114,6 +128,7 @@ class ExtrudeForm(QFrame):
             depth=depth,
             operation=self.operation.currentData(),
             ids=self.profile,
+            reversed=bool(self.direction.currentData()),
         )
         result = self.session.execute(command)
         if isinstance(result, Applied):
@@ -121,6 +136,18 @@ class ExtrudeForm(QFrame):
             self.extruded.emit(result.created_ids[0])
         else:
             self._fail("; ".join(e.message for e in result.errors))
+
+    def _default_direction(self) -> None:
+        """The way the engine would choose (ADR 0016): a cut from a face goes into the part,
+        anything else along the normal. Choosing another is kept until the operation changes."""
+        reversed_ = (
+            faces.default_reversed(
+                self.session.document, self._sketch, self.operation.currentData()
+            )
+            if self._sketch is not None
+            else False
+        )
+        self.direction.setCurrentIndex(1 if reversed_ else 0)
 
     def close_form(self) -> None:
         self.hide()

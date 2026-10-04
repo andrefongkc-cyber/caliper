@@ -92,14 +92,17 @@ sketch on XY. Byte-identical replay (invariant 4) holds for both tabs.
 - The part is made the way CAD users expect: plane, sketch, finish, extrude.
 - The sketcher isn't duplicated. The 3D tab edits with the same canvas, tools, snapping,
   dimensions, and constraints.
+- > **Changed by [ADR 0016](0016-sketching-at-any-angle-and-on-faces.md)** (Proposed): drawing works with the view turned up to
+  > 70° from the plane, and a sketch can be on a flat face of the part.
 - Drawing needs the view to face the sketch: an orbited view only looks. Drawing at any
   angle would need the canvas to map a slanted plane (an affine view in place of a scale
   and an offset), in its picking, snapping, and labels.
 - Switching tabs while Claude has a proposal withdraws it, and Claude is told the document
   changed.
 - The planes grow with the part, to about its size, so they don't swamp a small one.
-- Drawing the planes and sketches costs the 3D view about half a millisecond a frame on the
-  plate, and three on a plate with 24 holes (bench `v2/render-3d`).
+- Drawing the planes and sketches costs the 3D view about half a millisecond a frame, on the
+  plate (0.41 → 0.82 ms) and on a plate with 24 holes (19.4 → 19.8 ms), against F8's saved
+  run (bench `v2/render-3d`, 2026-10-02).
 
 ## Alternatives considered
 

@@ -36,9 +36,11 @@ from caliper.contracts.document import (
 )
 from caliper.contracts.errors import Error
 from caliper.contracts.kernel import Frame, Loop, Shape
+from caliper.contracts.queries import BoundingBox3
 from caliper.engine import features, graph
 from caliper.engine.commands.bus import Bus
 from caliper.engine.constraints import sketch
+from caliper.engine.document.recent import ByIdentity
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from tests.engine.constraints.test_constraint_properties import PROPERTIES, sessions
 
@@ -226,7 +228,7 @@ def test_the_graph_names_the_solvers_references_and_referrers(
 def test_the_caches_keep_only_their_last_few_entries() -> None:
     """Recompute keeps prisms, solids, and meshes by the objects they came from, but only the
     last few: a long session's edits mustn't hold every solid ever built (F8)."""
-    cache: features._ByIdentity[int] = features._ByIdentity(2)
+    cache: ByIdentity[int] = ByIdentity(2)
     a, b, c = object(), object(), object()
     cache.put((a,), 1)
     cache.put((b,), 2)
@@ -235,3 +237,31 @@ def test_the_caches_keep_only_their_last_few_entries() -> None:
     assert cache.get((b,)) is None  # the least recently used went
     assert (cache.get((a,)), cache.get((c,))) == (1, 3)
     assert cache.get((object(),)) is None
+
+
+def test_a_solids_volume_and_box_are_worked_out_once_per_solid() -> None:
+    """The Part panel, the status bar, and the 3D view each ask after a change; a change that
+    leaves the solid alone (a label) asks the kernel nothing (Performance V2.2, Perf-3)."""
+
+    class Measuring(Counting):
+        def volume(self, solid: Shape) -> float:
+            self.calls["volume"] += 1
+            return super().volume(solid)
+
+        def bounding_box_3d(self, solid: Shape) -> BoundingBox3:
+            self.calls["box"] += 1
+            return super().bounding_box_3d(solid)
+
+    kernel = Measuring()
+    bus, _, width, _ = milestone(kernel)
+    first = bus.queries.solid_properties()
+    assert bus.queries.solid_properties() == first
+    assert kernel.taken()["volume"] == 1
+    bus.execute(ModifyEntity(id=width, changes={"offset": -20.0}))  # the label moves
+    assert bus.queries.solid_properties() == first
+    assert kernel.taken()["volume"] == 0
+    bus.execute(ModifyEntity(id=width, changes={"value": 140.0}))  # the solid changes
+    changed = bus.queries.solid_properties()
+    assert not isinstance(changed, Error)
+    assert changed.volume == pytest.approx(70_000.0)
+    assert kernel.taken()["volume"] == 1

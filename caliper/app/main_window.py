@@ -3,15 +3,17 @@
 Two tabs, each its own document (ADR 0015): 3D, the part, where the app starts, sketched on
 its planes and extruded; and 2D, a sketch to test on. New, Open, and Save act on the tab
 shown. A sketch is edited in 3D by the same canvas as in 2D, facing the sketch's plane, over
-the part (`viewport/backdrop.py`), and closed with Finish or Cancel."""
+the part (`viewport/backdrop.py`), and closed with Finish or Cancel. Each side's panels, the
+tools, and the agent's prompt fold away for room (`collapse.py`)."""
 
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtCore import QPoint, QSettings, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QResizeEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QFileDialog,
     QFrame,
@@ -36,13 +38,14 @@ from caliper.app.agent.mcp_host import McpHost
 from caliper.app.agent.proposal import Proposal
 from caliper.app.agent.timing import TIMING_FILE, markdown, timing_file
 from caliper.app.agent.ui import AgentController, PromptBar, ProposalCard
+from caliper.app.collapse import EdgeToggle, SlidingTray
 from caliper.app.extrude import ExtrudeForm
 from caliper.app.opener import OpenServer
 from caliper.app.palette import CommandPalette
 from caliper.app.panels.assistant import AssistantLog
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
-from caliper.app.panels.features import FeatureTree, titles, volume_text
+from caliper.app.panels.features import FeatureTree, place_name, titles, volume_text
 from caliper.app.panels.history import HistoryList
 from caliper.app.panels.timing import TimingPanel
 from caliper.app.properties import PropertiesPanel
@@ -67,6 +70,7 @@ from caliper.contracts.document import (
     Document,
     EntityId,
     Expectation,
+    FaceRef,
     Geometry,
     Plane,
     Point2,
@@ -85,6 +89,8 @@ DOCK_WIDTH = 260
 BROWSER_WIDTH = 250
 TOOL_ICON_SIZE = 18
 COMPACT_TOOLBAR_BELOW = 980
+LEFT = Qt.DockWidgetArea.LeftDockWidgetArea
+RIGHT = Qt.DockWidgetArea.RightDockWidgetArea
 """Window width in logical pixels below which the tool bar drops its labels."""
 CONSTRAINT_KEYS: dict[ConstraintType, str] = {
     ConstraintType.HORIZONTAL: "H",
@@ -95,6 +101,15 @@ CONSTRAINT_KEYS: dict[ConstraintType, str] = {
 }
 """Onshape's keys, where it has one. The rest are in Sketch > Constrain and the palette."""
 NOTHING_TO_CONSTRAIN = "Select lines, circles, arcs, or points, or pick them with Constrain (K)"
+
+
+def _remembered(fold: str, default: bool) -> bool:
+    """Whether a part of the window's chrome was showing when Caliper last ran."""
+    return bool(QSettings().value(f"chrome/{fold}", default, type=bool))
+
+
+def _remember(fold: str, shown: bool) -> None:
+    QSettings().setValue(f"chrome/{fold}", shown)
 
 
 class MainWindow(QMainWindow):
@@ -149,6 +164,8 @@ class MainWindow(QMainWindow):
             self.session, self.prompt_bar, self.proposal_card, self, assistant=from_environment()
         )
         self.canvas.proposal = lambda: self.agent.proposal
+        self.view3d.proposal = lambda: self.agent.proposal
+        self.agent.proposal_changed.connect(self.view3d.show_proposal)
         self.canvas.reject_proposal = self.agent.reject
         self.agent.proposal_changed.connect(self.canvas.show_proposal)
         self.agent.proposal_changed.connect(self._proposal_settled)
@@ -160,20 +177,30 @@ class MainWindow(QMainWindow):
         """The document the proposal last framed was prepared against."""
         self.opener: OpenServer | None = None
         """Files other Caliper processes hand this window, once `serve_opens` is called."""
+        self._folded: dict[Qt.DockWidgetArea, list[tuple[QDockWidget, QSize]]] = {}
+        """The panels each folded side hid, and their sizes, to show again as they were."""
         central = QWidget()
-        central_layout = QVBoxLayout(central)
-        central_layout.setContentsMargins(0, 0, 0, 0)
-        central_layout.setSpacing(0)
-        central_layout.addWidget(self.views, 1)
-        central_layout.addWidget(self.prompt_bar)
+        self._central_row = QHBoxLayout(central)
+        """The edge strips each side of the views and the prompt (`_build_edges`)."""
+        self._central_row.setContentsMargins(0, 0, 0, 0)
+        self._central_row.setSpacing(0)
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.views, 1)
+        column.addWidget(self.prompt_bar)
+        self.prompt_bar.hide()  # until asked for: the Agent button, or ⌘L
+        self._central_row.addLayout(column, 1)
         self.setCentralWidget(central)
         self.setUnifiedTitleAndToolBarOnMac(True)
         self._build_actions()
         self._build_menus()
         self._build_tool_bar()
         self._build_dock()
+        self._build_edges()
         self._build_status_bar()
         self._build_sketch_bar()
+        self.proposal_card.top = self._card_top
 
         self.session.file_changed.connect(self._update_title)
         self.session.document_changed.connect(self._update_edit_actions)
@@ -191,6 +218,7 @@ class MainWindow(QMainWindow):
         for signal in (self.session.active_sketch_changed, self.session.document_changed):
             signal.connect(self._update_part_labels)
         self.session.active_sketch_changed.connect(self._sketch_gone)
+        self.session.document_changed.connect(self._follow_face)
         self.controller.changed.connect(self._update_tool_state)
         self.canvas.cursor_moved.connect(self._update_cursor)
 
@@ -214,6 +242,10 @@ class MainWindow(QMainWindow):
             self.grid_action,
             self.constraints_action,
             self.snap_action,
+            self.left_panel_action,
+            self.right_panel_action,
+            self.tray_action,
+            self.prompt_action,
             self.new_action,
             self.open_action,
             self.save_action,
@@ -230,6 +262,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self._mode_set = False
         self.set_mode(mode)
+        self._remember_chrome()
 
     # --- Construction ---------------------------------------------------------------------
 
@@ -334,6 +367,27 @@ class MainWindow(QMainWindow):
         self.start_run_action = self._action("Start Timing Run", self._start_run, "Ctrl+Shift+R")
         self.start_run_action.setEnabled(False)  # until Claude Desktop can connect
         self.shortcuts_action = self._action("Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
+
+        # What folds away (2026-10-03): each side's panels, the tools, the agent's prompt.
+        self.left_panel_action = self._toggle(
+            "Show Left Panel", lambda shown: self._fold(LEFT, shown), "Ctrl+B", checked=True
+        )
+        self.right_panel_action = self._toggle(
+            "Show Right Panel", lambda shown: self._fold(RIGHT, shown), "Ctrl+Alt+B", checked=True
+        )
+        # The tray is built as it was left, shut or open: it doesn't slide at launch.
+        self.tray_action = self._toggle(
+            "Show Tool Tray", lambda _: None, checked=_remembered("tool_tray", True)
+        )
+        """The tray follows it (`SlidingTray`)."""
+        self.prompt_action = self._toggle("Show Agent Prompt", self._show_prompt, checked=False)
+        self.prompt_action.setIconText("Agent")
+        self.prompt_action.setToolTip("Show or hide the agent's prompt (⌘L opens it to type)")
+        self.pop_timing_action = self._toggle("Pop Out Timing", self._pop_timing, checked=False)
+        self.pop_timing_action.setToolTip(
+            "Timing in a window of its own, over the part, while the right panel is folded"
+        )
+        self.pop_timing_action.setEnabled(False)  # until Claude Desktop can connect
         for action, tip in (
             (self.fit_action, "Zoom to Fit"),
             (self.grid_action, "Show Grid"),
@@ -373,6 +427,24 @@ class MainWindow(QMainWindow):
             group.addAction(action)
             self.tool_actions[name] = action
 
+    def _toggle(
+        self,
+        text: str,
+        slot: Callable[[bool], object],
+        shortcut: str | None = None,
+        *,
+        checked: bool,
+    ) -> QAction:
+        """A checkable action whose slot follows its state, however it changes."""
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        if shortcut is not None:
+            action.setShortcut(QKeySequence(shortcut))
+        action.toggled.connect(slot)
+        self.addAction(action)
+        return action
+
     def _build_menus(self) -> None:
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
@@ -403,6 +475,9 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.palette_action)
         view_menu.addSeparator()
+        for action in (self.left_panel_action, self.right_panel_action, self.tray_action):
+            view_menu.addAction(action)
+        view_menu.addSeparator()
         view_menu.addAction(self.fit_action)
         view_menu.addSeparator()
         view_menu.addAction(self.grid_action)
@@ -429,10 +504,14 @@ class MainWindow(QMainWindow):
             constrain_menu.addAction(action)
 
         agent_menu = bar.addMenu("Agent")
-        for action in (self.ask_action, self.accept_action, self.reject_action):
+        for action in (self.ask_action, self.prompt_action):
+            agent_menu.addAction(action)
+        agent_menu.addSeparator()
+        for action in (self.accept_action, self.reject_action):
             agent_menu.addAction(action)
         agent_menu.addSeparator()
         agent_menu.addAction(self.start_run_action)
+        agent_menu.addAction(self.pop_timing_action)
 
         help_menu = bar.addMenu("Help")
         help_menu.addAction(self.shortcuts_action)
@@ -467,7 +546,13 @@ class MainWindow(QMainWindow):
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             halves.addWidget(button)
         bar.addWidget(switch)
-        bar.addSeparator()
+        # The rest in a tray that slides out to the right of the line after the switch.
+        tools = QToolBar("Tools")
+        tools.setObjectName("tray-tools")
+        tools.setMovable(False)
+        tools.setFloatable(False)
+        tools.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        tools.setIconSize(QSize(TOOL_ICON_SIZE, TOOL_ICON_SIZE))
         sketch = QToolButton()
         sketch.setObjectName("sketch")
         sketch.setDefaultAction(self.sketch_action)
@@ -477,21 +562,28 @@ class MainWindow(QMainWindow):
             planes.addAction(action)
         sketch.setMenu(planes)
         self.sketch_button = sketch
-        bar.addWidget(sketch)
-        bar.addAction(self.extrude_action)
-        bar.widgetForAction(self.extrude_action).setObjectName("extrude")
-        bar.addSeparator()
+        tools.addWidget(sketch)
+        tools.addAction(self.extrude_action)
+        tools.widgetForAction(self.extrude_action).setObjectName("extrude")
+        tools.addSeparator()
         # Groups by category, so a later category adds a group, not a redesign.
         for category in ("select", "create", "constrain", "inspect"):
             for name, tool in self.controller.tools.items():
                 if tool.category == category:
-                    bar.addAction(self.tool_actions[name])
-            bar.addSeparator()
+                    tools.addAction(self.tool_actions[name])
+            tools.addSeparator()
         for action in (self.fit_action, self.constraints_action):
-            bar.addAction(action)  # icons only: they read at a glance, and the bar stays one row
-            bar.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            tools.addAction(action)  # icons only: they read at a glance, and the bar stays one row
+            tools.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        more = tools.findChild(QToolButton, "qt_toolbar_ext_button")
+        if more is not None:  # Qt's own arrow is dark, on a dark bar: ours is in the ink
+            more.setIcon(icons.icon("more"))
+            more.setToolTip("More tools")
+        self.tray = SlidingTray(tools, self.tray_action)
+        bar.addWidget(self.tray.row())
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar
+        """The top bar: the 2D/3D switch, then the tray of tools (`self.tray.bar`)."""
 
     def _build_dock(self) -> None:
         features = QDockWidget.DockWidgetFeature.DockWidgetMovable
@@ -543,7 +635,8 @@ class MainWindow(QMainWindow):
         self.timing.copied.connect(lambda: self.show_message(copied))
         timing = QDockWidget("Timing", self)
         timing.setObjectName("timing-dock")
-        timing.setFeatures(features)
+        timing.setFeatures(features | QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        timing.topLevelChanged.connect(self._timing_moved)
         timing.setWidget(self.timing)
         timing.setMinimumWidth(DOCK_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, timing)
@@ -574,9 +667,21 @@ class MainWindow(QMainWindow):
         self.resizeDocks([browser, dock], [BROWSER_WIDTH, DOCK_WIDTH], Qt.Orientation.Horizontal)
         self.resizeDocks([dock, commands, checks], [260, 260, 280], Qt.Orientation.Vertical)
 
+    def _build_edges(self) -> None:
+        """A strip down each side of the view that folds the panels beyond it away."""
+        self.left_edge = EdgeToggle(self.left_panel_action, "left", "the left panel")
+        self.right_edge = EdgeToggle(self.right_panel_action, "right", "the right panel")
+        self._central_row.insertWidget(0, self.left_edge)
+        self._central_row.addWidget(self.right_edge)
+
     def _build_status_bar(self) -> None:
         status = self.statusBar()
         status.setSizeGripEnabled(False)
+        self.prompt_button = QToolButton()
+        self.prompt_button.setObjectName("prompt-toggle")
+        self.prompt_button.setDefaultAction(self.prompt_action)
+        self.prompt_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.prompt_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hint_label = QLabel()
         self.solve_label = QLabel()
         self.solve_label.setObjectName("solve-status")
@@ -594,6 +699,7 @@ class MainWindow(QMainWindow):
         status.addPermanentWidget(self.solid_label)
         status.addPermanentWidget(self.solve_label)
         status.addPermanentWidget(self.cursor_label)
+        status.addPermanentWidget(self.prompt_button)  # permanent: a message never covers it
 
     # --- File -----------------------------------------------------------------------------
 
@@ -797,7 +903,7 @@ class MainWindow(QMainWindow):
         if any(f.id == sketch for f in base.features):
             self._open_sketch(sketch, self.session.history_position)
         else:
-            self._face_plane(sketches[sketch], None)  # a sketch the proposal makes
+            self._face_plane(sketches[sketch], None, after)  # a sketch the proposal makes
             self._previewing = sketch
         return [id for id, e in changed if e.sketch == sketch]
 
@@ -812,7 +918,75 @@ class MainWindow(QMainWindow):
         else:
             self._close_sketch()
 
+    def _remember_chrome(self) -> None:
+        """What was folded away when Caliper last ran is folded away again, and each fold is
+        remembered as it changes. Timing popped out isn't: it shows only while Claude Desktop
+        can connect."""
+        folds = {
+            "left_panel": self.left_panel_action,
+            "right_panel": self.right_panel_action,
+            "tool_tray": self.tray_action,
+            "agent_prompt": self.prompt_action,
+        }
+        for name, action in folds.items():
+            action.setChecked(_remembered(name, action.isChecked()))
+            action.toggled.connect(lambda shown, name=name: _remember(name, shown))
+
+    def _fold(self, side: Qt.DockWidgetArea, shown: bool) -> None:
+        """Hide the panels docked on one side, or show again the ones that hid; the view
+        takes the room. A panel popped out (Timing) stays where it is."""
+        if shown:
+            folded = self._folded.pop(side, [])
+            for dock, _ in folded:
+                dock.show()
+            docks = [dock for dock, _ in folded]
+            for orientation, size in (
+                (Qt.Orientation.Horizontal, QSize.width),
+                (Qt.Orientation.Vertical, QSize.height),
+            ):
+                self.resizeDocks(docks, [size(s) for _, s in folded], orientation)
+            return
+        hidden = [
+            (dock, dock.size())
+            for dock in self.findChildren(QDockWidget)
+            if self.dockWidgetArea(dock) == side and not dock.isFloating() and not dock.isHidden()
+        ]
+        for dock, _ in hidden:
+            dock.hide()
+        self._folded[side] = hidden
+
+    def _show_prompt(self, shown: bool) -> None:
+        focus = QApplication.focusWidget()
+        had_focus = focus is not None and self.prompt_bar.isAncestorOf(focus)
+        self.prompt_bar.setVisible(shown)
+        if had_focus and not shown:
+            self.views.currentWidget().setFocus()
+
+    def _pop_timing(self, out: bool) -> None:
+        """Timing in a window of its own over the part's top right corner, or docked again."""
+        dock = self.timing_dock
+        if dock.isFloating() == out:
+            return  # the dock moved itself: its own button, or dragged
+        for side, folded in self._folded.items():
+            self._folded[side] = [(d, size) for d, size in folded if d is not dock]
+        dock.setFloating(out)
+        if out:
+            dock.resize(DOCK_WIDTH + SPACE.xl, dock.sizeHint().height())
+            right = self.views.mapToGlobal(QPoint(self.views.width(), 0))
+            dock.move(right.x() - dock.width() - SPACE.l, right.y() + SPACE.l)
+            dock.show()
+
+    def _timing_moved(self, floating: bool) -> None:
+        """Popped out or docked again, however it happened: the action agrees, and docked
+        on a folded side it hides with the rest."""
+        self.pop_timing_action.setChecked(floating)
+        folded = self._folded.get(self.dockWidgetArea(self.timing_dock))
+        if not floating and folded is not None:
+            self.timing_dock.hide()
+            folded.append((self.timing_dock, self.timing_dock.sizeHint()))
+
     def _focus_prompt(self) -> None:
+        self.prompt_action.setChecked(True)
         self.prompt_bar.input.setFocus()
         self.prompt_bar.input.selectAll()
 
@@ -828,6 +1002,8 @@ class MainWindow(QMainWindow):
         )
         if self.tool_bar.toolButtonStyle() != style:
             self.tool_bar.setToolButtonStyle(style)
+            self.tray.bar.setToolButtonStyle(style)
+            self.tray.refit()
         if self.proposal_card.isVisible():
             self.proposal_card.reposition()
         super().resizeEvent(event)
@@ -842,8 +1018,13 @@ class MainWindow(QMainWindow):
         problem = self.mcp.start()
         if problem is not None:
             self.session.message.emit(problem)
-        self.timing_dock.setVisible(problem is None)
+        folded = self._folded.get(self.dockWidgetArea(self.timing_dock))
+        if problem is None and folded is not None:
+            folded.append((self.timing_dock, self.timing_dock.sizeHint()))  # when it unfolds
+        else:
+            self.timing_dock.setVisible(problem is None)
         self.start_run_action.setEnabled(problem is None)
+        self.pop_timing_action.setEnabled(problem is None)
         return problem is None
 
     def serve_opens(self, path: Path) -> bool:
@@ -980,6 +1161,7 @@ class MainWindow(QMainWindow):
                 self.canvas.reset_view()
         (self.mode_2d_action if mode == "2d" else self.mode_3d_action).setChecked(True)
         self._show_views()
+        self.agent.resume()  # a proposal left waiting on this tab is back on its card (C-18)
         if mode == "3d" and self.sketch_open is None:
             self.show_message("3D: drag to orbit, right-drag to pan, scroll to zoom, F to fit")
 
@@ -1011,6 +1193,18 @@ class MainWindow(QMainWindow):
             self.view3d.refresh()
             self.view3d.setFocus()
 
+    def _card_top(self) -> int:
+        """Where the proposal card's top goes: the view's top right, or under the sketch bar
+        when the view is too narrow for the two side by side, so neither covers the other."""
+        bar, card = self.sketch_bar, self.proposal_card
+        page = card.parentWidget()
+        if bar.isHidden() or page is None:
+            return SPACE.l
+        left = page.width() - card.width() - SPACE.l
+        if bar.geometry().right() + SPACE.m <= left:
+            return SPACE.l
+        return bar.geometry().bottom() + SPACE.m
+
     def _seat_card(self, page: QWidget) -> None:
         card = self.proposal_card
         if card.parentWidget() is page:
@@ -1021,10 +1215,11 @@ class MainWindow(QMainWindow):
         card.setVisible(shown)
 
     def _update_sketch_tools(self) -> None:
-        """Sketch tools act on the canvas: in 2D always, in 3D while it faces an open sketch."""
+        """Sketch tools act on the canvas: in 2D always, in 3D while an open sketch can be
+        drawn on, facing it or turned up to 70° from it (ADR 0016)."""
         backdrop = self._backdrop if self.mode == "3d" else None
         drawing = self.mode == "2d" or (
-            backdrop is not None and backdrop.facing and self.sketch_open is not None
+            backdrop is not None and backdrop.drawable and self.sketch_open is not None
         )
         for action in self._sketch_actions():
             action.setEnabled(drawing)
@@ -1032,12 +1227,16 @@ class MainWindow(QMainWindow):
         for action in (self.finish_sketch_action, self.cancel_sketch_action):
             action.setEnabled(sketching)
         self.face_action.setEnabled(backdrop is not None and not backdrop.facing)
-        self.sketch_hint.setText(
-            "Right-drag to orbit · N to face the sketch"
-            if backdrop is None or backdrop.facing
-            else "Turned away: press N to face the sketch and keep drawing"
-        )
+        if backdrop is None or backdrop.facing:
+            hint = "Right-drag to orbit · N to face the sketch"
+        elif backdrop.drawable:
+            hint = "At an angle: draw on the sketch's plane, or N to face it"
+        else:
+            hint = "Turned too far to draw: press N to face the sketch and keep drawing"
+        self.sketch_hint.setText(hint)
         self.sketch_bar.adjustSize()
+        if not self.proposal_card.isHidden():
+            self.proposal_card.reposition()  # the bar's width changed under it
         if drawing:
             self._update_constraint_actions()
         self._update_tool_state()
@@ -1053,13 +1252,16 @@ class MainWindow(QMainWindow):
         elif len(picked) == 1:
             self.edit_sketch(picked[0])
         else:
-            self.show_message("Pick a plane (Top, Front, Right) or a sketch, then Sketch")
+            self.show_message(
+                "Pick a plane (Top, Front, Right), a flat face, or a sketch, then Sketch"
+            )
             menu = self.sketch_button.menu()
             if menu is not None and self.sketch_button.isVisible():  # the planes, to pick one
                 menu.popup(self.sketch_button.mapToGlobal(self.sketch_button.rect().bottomLeft()))
 
-    def new_sketch(self, plane: Plane) -> None:
-        """Start a sketch on `plane` and edit it in 3D, facing the plane. Cancel removes it."""
+    def new_sketch(self, plane: Plane | FaceRef) -> None:
+        """Start a sketch on `plane`, or on a flat face of the part (ADR 0016), and edit it in
+        3D, facing it. Cancel removes it."""
         if self.mode != "3d":
             return
         self._close_sketch()
@@ -1068,7 +1270,10 @@ class MainWindow(QMainWindow):
         if isinstance(result, Applied):
             (sketch,) = result.created_ids
             self._open_sketch(sketch, entry)
-            self.show_message(f"Sketching on {PLANE_NAMES[plane]}: Finish (✓) when it's done")
+            where = place_name(self.session.document, plane)
+            self.show_message(f"Sketching on {where}: Finish (✓) when it's done")
+        else:
+            self.show_message(f"Can't sketch there: {result.errors[0].message}")
 
     def edit_sketch(self, sketch: EntityId) -> None:
         """Edit `sketch`: in 3D, facing its plane, until Finish or Cancel; in 2D, on the canvas."""
@@ -1082,8 +1287,8 @@ class MainWindow(QMainWindow):
         self.canvas.zoom_to_fit()
 
     def _open_picked(self, found: object) -> None:
-        """A double-click in the 3D view: sketch on a plane, or edit a sketch."""
-        if isinstance(found, Plane):
+        """A double-click in the 3D view: sketch on a plane or a face, or edit a sketch."""
+        if isinstance(found, Plane | FaceRef):
             self.new_sketch(found)
         elif isinstance(found, str):
             self.edit_sketch(EntityId(found))
@@ -1095,25 +1300,55 @@ class MainWindow(QMainWindow):
         self.controller.cancel_operation()
         self.session.set_active_sketch(sketch)
         self.sketch_open, self._sketch_entry = sketch, entry
-        self._face_plane(plane, sketch)
+        if not self._face_plane(plane, sketch):
+            self.sketch_open = None  # its face is gone: nothing to face, so it isn't open
+            self._show_views()
+            return
         named = titles(self.session.document.features)[sketch]
-        self.sketch_title.setText(f"{named}  ·  {PLANE_NAMES[plane]}")
+        where = place_name(self.session.document, plane)
+        self.sketch_title.setText(f"{named}  ·  {where}")
         self.features.rebuild()
 
-    def _face_plane(self, plane: Plane, sketch: EntityId | None) -> None:
-        """Turn the canvas, over the part, to face `plane`, from where the 3D view looks."""
-        if self._backdrop is not None and self._backdrop.plane is plane:
-            self._backdrop.sketch = sketch
+    def _face_plane(
+        self, plane: Plane | FaceRef, sketch: EntityId | None, document: Document | None = None
+    ) -> bool:
+        """Turn the canvas, over the part, to face `plane` (a plane or a face, where it is in
+        `document`, the session's by default), from where the 3D view looks. False, with the
+        reason shown, when a face can't be found."""
+        document = self.session.document if document is None else document
+        frame = Bus(document).queries.plane_frame(plane)
+        if isinstance(frame, Error):
+            self.show_message(f"Can't face {place_name(document, plane)}: {frame.message}")
+            return False
+        backdrop = self._backdrop
+        if backdrop is not None and backdrop.plane == plane and backdrop.frame == frame:
+            backdrop.sketch = sketch
         else:
             camera = self.view3d.camera
-            if self._backdrop is not None:
-                camera = self._backdrop.camera(
-                    self.canvas.view, self.views.width(), self.views.height()
-                )
-            self._backdrop = Backdrop(plane, sketch, self.view3d.paint_scene)
-            look(self.canvas.view, plane, camera, self.views.width(), self.views.height())
-        self.sketch_title.setText(f"{PLANE_NAMES[plane]}  ·  proposal")
+            if backdrop is not None:
+                camera = backdrop.camera(self.canvas.view, self.views.width(), self.views.height())
+            self._backdrop = Backdrop(
+                plane, frame, sketch, self.view3d.paint_scene, self.view3d.shows
+            )
+            look(self.canvas.view, frame, camera, self.views.width(), self.views.height())
+        self.sketch_title.setText(f"{place_name(document, plane)}  ·  proposal")
         self._show_views()
+        return True
+
+    def _follow_face(self) -> None:
+        """The open sketch's face moved (an edit to its extrude, undo, Claude): the backdrop
+        follows it, so the sketch stays where its face is (ADR 0016)."""
+        backdrop = self._backdrop
+        if backdrop is None or self.sketch_open is None or self.session.space is not Space.PART:
+            return
+        plane = self._plane_of(self.sketch_open)
+        if plane is None:
+            return
+        frame = self.session.queries.plane_frame(plane)
+        if isinstance(frame, Error) or (plane == backdrop.plane and frame == backdrop.frame):
+            return
+        backdrop.plane, backdrop.frame = plane, frame
+        self.canvas.update()
 
     def finish_sketch(self) -> None:
         """Close the sketch being edited in 3D: its changes stay, each its own undo step."""
@@ -1166,8 +1401,8 @@ class MainWindow(QMainWindow):
         ):
             self._close_sketch()
 
-    def _plane_of(self, id: EntityId) -> Plane | None:
-        """The plane of the sketch `id`, or None if the part has no such sketch."""
+    def _plane_of(self, id: EntityId) -> Plane | FaceRef | None:
+        """The plane or face of the sketch `id`, or None if the part has no such sketch."""
         return next(
             (
                 f.plane
@@ -1211,9 +1446,8 @@ class MainWindow(QMainWindow):
             return
         plane = self._plane_of(sketch)
         named = titles(self.session.document.features)[sketch]
-        self.sketch_label.setText(
-            f"Editing {named}  ·  {PLANE_NAMES[plane] if plane is not None else ''}"
-        )
+        where = place_name(self.session.document, plane) if plane is not None else ""
+        self.sketch_label.setText(f"Editing {named}  ·  {where}")
         self.sketch_label.adjustSize()
 
     def _build_sketch_bar(self) -> None:

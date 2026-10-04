@@ -13,6 +13,7 @@ from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QToolButton
 
+from caliper.app import theme
 from caliper.app.main_window import MainWindow
 from caliper.app.session import DocumentSession, Space
 from caliper.contracts.commands import (
@@ -175,6 +176,38 @@ def test_with_no_solid_the_planes_show_and_it_says_how_to_start(window: MainWind
     window.finish_sketch()
     assert view.problem is None  # a sketch to extrude: the Part panel says there's no solid
     assert window.features.volume.text() == "No solid yet"
+
+
+def test_in_a_narrow_view_what_it_says_wraps_instead_of_running_off_the_edges(
+    window: MainWindow,
+) -> None:
+    """The line under the part, "Pick a plane and press Sketch, or double-click a plane", is
+    wider than a narrow view: it wraps upwards, none of it cut off at either edge."""
+    window.set_mode("3d")
+    window.resize(window.minimumSizeHint().width(), 600)
+    QApplication.processEvents()
+    view = window.view3d
+    assert "Pick a plane" in (view.problem or "")
+    wide = view.fontMetrics().horizontalAdvance(view.problem or "")
+    assert wide > view.width() - 144  # it wouldn't fit on one line beside the triad
+    image = view.grab().toImage()
+    ratio = image.devicePixelRatio()
+    said = theme.TEXT_DIM
+
+    def written(x: int, y: int) -> bool:
+        c = image.pixelColor(x, y)
+        return abs(c.red() - said.red()) + abs(c.green() - said.green()) < 40 and (
+            abs(c.blue() - said.blue()) < 20
+        )
+
+    strip = range(int((view.height() - 200) * ratio), image.height())
+    edge = int(8 * ratio)
+    assert any(written(x, y) for y in strip for x in range(edge, image.width() - edge))
+    assert not any(written(x, y) for y in strip for x in range(edge))
+    assert not any(written(x, y) for y in strip for x in range(image.width() - edge, image.width()))
+    # Above the triad in the corner, not over it.
+    corner = range(int((view.height() - 60) * ratio), image.height())
+    assert not any(written(x, y) for y in corner for x in range(int(60 * ratio)))
 
 
 def test_without_a_kernel_it_says_what_to_install(

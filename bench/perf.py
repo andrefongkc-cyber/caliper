@@ -32,7 +32,9 @@ The sessions are small (`rectangle`, a short request written by hand), medium
 Synthetic cases cover what the sessions don't reach: many entities, many constraints, many
 checks, a large `inspect_document`, saving and opening a large sketch, drawing it, and what
 the Timing panel costs a call. `repeat/*` times one mirror, linear pattern, and circular
-pattern call each (the recorded sessions predate those tools). Times are wall-clock seconds
+pattern call each (the recorded sessions predate those tools). `bench/perf_v22.py` adds the
+window's per-event work, files, replay, the solver's counts, recompute, and 3D frames (the
+Performance V2.2 plan). Times are wall-clock seconds
 (or milliseconds and microseconds where marked) on this machine; compare runs on the same
 machine only.
 
@@ -527,7 +529,8 @@ def repeats() -> list[Result]:
 
 
 def many_checks() -> Result:
-    """Preparing a proposal with 200 checks, and the Checks panel re-measuring 200 checks."""
+    """Preparing a proposal with 200 checks (the Checks panel with 200 checks is timed by
+    `ui/edit`'s refreshes in perf_v22)."""
     from caliper.app.agent.proposal import Plan, prepare
 
     document = _circles(400)
@@ -773,6 +776,11 @@ def cases() -> list[tuple[str, Callable[[], list[Result]]]]:
     found.append(("synthetic/file", lambda: [large_file()]))
     found.append(("synthetic/render", lambda: [large_render()]))
     found.append(("timing/overhead", lambda: [timing_overhead()]))
+    import perf_faces  # ADR 0016's cases: sketching at an angle, faces
+    import perf_v22  # Performance V2.2's cases, beside this file
+
+    found += perf_v22.cases()  # type: ignore[arg-type]
+    found += perf_faces.cases()  # type: ignore[arg-type]
     return found
 
 
@@ -822,4 +830,5 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("perf", sys.modules["__main__"])  # perf_v22 imports this as `perf`
     sys.exit(main(sys.argv))

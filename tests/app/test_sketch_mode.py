@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 from caliper.app.agent.proposal import Plan
 from caliper.app.main_window import MainWindow
 from caliper.app.panels.checks import options
+from caliper.app.tokens import SPACE
 from caliper.app.viewport.painter import ModelPainter
 from caliper.app.viewport.scene3d import facing_camera
 from caliper.contracts.commands import (
@@ -23,6 +24,7 @@ from caliper.contracts.commands import (
     CreateLine,
     CreateRectangle,
     DeleteEntities,
+    ModifyEntity,
 )
 from caliper.contracts.document import (
     EntityId,
@@ -30,10 +32,11 @@ from caliper.contracts.document import (
     Extrude,
     Plane,
     Point2,
+    Rectangle,
     Sketch,
 )
 from caliper.contracts.queries import Point3
-from caliper.engine import features, geometry
+from caliper.engine import faces, features, geometry, part
 from caliper.engine.geometry.fake_kernel import FakeKernel
 from tests.app.parts import plate, sketch_on
 
@@ -175,7 +178,37 @@ def test_finish_keeps_the_sketch_and_cancel_takes_back_all_of_it(window: MainWin
     assert window.session.document == kept
 
 
-def test_a_right_drag_orbits_away_and_n_faces_the_sketch_again(
+def test_a_right_drag_orbits_and_drawing_carries_on_at_an_angle(
+    window: MainWindow,
+    driver,  # type: ignore[no-untyped-def]
+    qtbot,  # type: ignore[no-untyped-def]
+) -> None:
+    """ADR 0016: turned up to 70° from the sketch's plane, the tools still draw on it; a click
+    lands where the pointer meets the plane."""
+    sketch_on(window)
+    canvas, backdrop = window.canvas, window.canvas.backdrop
+    assert backdrop is not None
+    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 300))
+    qtbot.mouseMove(canvas, QPoint(340, 280))
+    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(340, 280))
+    assert not backdrop.facing
+    assert backdrop.drawable
+    assert 0.34 < backdrop.tilt < 1.0
+    assert window.tool_actions["Rectangle"].isEnabled()
+    assert window.face_action.isEnabled()
+    assert "At an angle" in window.sketch_hint.text()
+    mapping = canvas.mapping
+    driver.tool("Rectangle")
+    a, b = mapping.to_widget(Point2(x=0, y=0)), mapping.to_widget(Point2(x=40, y=20))
+    qtbot.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(a[0]), round(a[1])))
+    qtbot.mouseMove(canvas, QPoint(round(b[0]), round(b[1])))
+    qtbot.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(b[0]), round(b[1])))
+    (drawn,) = window.session.document.entities.values()
+    assert isinstance(drawn, Rectangle)
+    assert (drawn.width, drawn.height) == pytest.approx((40.0, 20.0), abs=1.0)  # snapped
+
+
+def test_turned_too_far_from_the_sketch_only_looks_and_n_faces_it_again(
     window: MainWindow,
     driver,  # type: ignore[no-untyped-def]
     qtbot,  # type: ignore[no-untyped-def]
@@ -184,13 +217,12 @@ def test_a_right_drag_orbits_away_and_n_faces_the_sketch_again(
     canvas, backdrop = window.canvas, window.canvas.backdrop
     assert backdrop is not None
     before = (canvas.view.scale, canvas.view.origin_x, canvas.view.origin_y)
-    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 300))
-    qtbot.mouseMove(canvas, QPoint(340, 280))
-    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(340, 280))
-    assert not backdrop.facing
-    assert not window.tool_actions["Rectangle"].isEnabled()  # nothing to draw on, turned away
-    assert window.face_action.isEnabled()
-    assert "press N" in window.sketch_hint.text()
+    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 330))
+    qtbot.mouseMove(canvas, QPoint(300, 120))  # tilted by about 84°: nearly edge on
+    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 120))
+    assert not backdrop.drawable
+    assert not window.tool_actions["Rectangle"].isEnabled()
+    assert "Turned too far" in window.sketch_hint.text()
     driver.click(10, 10)
     driver.click(30, 20)
     assert dict(window.session.document.entities) == {}  # clicks turn the view, never draw
@@ -457,13 +489,39 @@ def test_a_proposal_is_drawn_only_where_it_lands_in_the_sketch_being_edited(
     assert 5.0 not in radii  # not the first sketch's, on another plane
 
 
-def test_the_facing_camera_looks_straight_at_each_plane() -> None:
-    """Right is the plane's x and up its y, so the plane reads as a sketch does."""
-    for plane, right, up in (
-        (Plane.XY, (1, 0, 0), (0, 1, 0)),
-        (Plane.XZ, (1, 0, 0), (0, 0, 1)),
-        (Plane.YZ, (0, 1, 0), (0, 0, 1)),
+def test_the_facing_camera_looks_straight_at_each_plane_and_face() -> None:
+    """Right is the plane's x and up its y, so the plane reads as a sketch does; a face's
+    frame (ADR 0016) is faced the same way, the bottom of a plate from below."""
+    bottom = faces.canonical(Point3(x=0.0, y=0.0, z=-1.0), Point3(x=0.0, y=0.0, z=0.0))
+    side = faces.canonical(Point3(x=0.6, y=-0.8, z=0.0), Point3(x=3.0, y=0.0, z=0.0))
+    for frame, right, up in (
+        (part.frame(Plane.XY), (1, 0, 0), (0, 1, 0)),
+        (part.frame(Plane.XZ), (1, 0, 0), (0, 0, 1)),
+        (part.frame(Plane.YZ), (0, 1, 0), (0, 0, 1)),
+        (bottom, (1, 0, 0), (0, -1, 0)),
+        (side, (0.8, 0.6, 0), (0, 0, 1)),
     ):
-        r, u, _ = facing_camera(plane, Point2(x=0, y=0), 1.0).axes()
+        r, u, _ = facing_camera(frame, Point2(x=0, y=0), 1.0).axes()
         assert (r.x, r.y, r.z) == pytest.approx(right, abs=1e-12)
         assert (u.x, u.y, u.z) == pytest.approx(up, abs=1e-12)
+
+
+def test_the_proposal_card_sits_clear_of_the_sketch_bar(window: MainWindow) -> None:
+    """Both are at the top of the view: the bar from the left, the card on the right. In a
+    view too narrow for the two side by side the card goes under the bar, so Finish, Cancel,
+    and the card's title can all be read; in a wide one it's at the top."""
+    _, rectangle, _ = plate(window)
+    plan = Plan("Widen", "Wider.", (ModifyEntity(id=rectangle, changes={"width": 140.0}),))
+    window.agent.propose(plan, window.session.document)
+    QApplication.processEvents()
+    bar, card = window.sketch_bar, window.proposal_card
+    assert bar.isVisible()
+    assert card.isVisible()
+    assert card.parentWidget() is window.canvas  # which fills the views the bar is over
+    assert not card.geometry().intersects(bar.geometry())
+    assert card.y() > bar.geometry().bottom()
+    window.resize(1900, 800)
+    QApplication.processEvents()
+    assert not card.geometry().intersects(bar.geometry())
+    assert card.y() == SPACE.l
+    window.agent.reject()
