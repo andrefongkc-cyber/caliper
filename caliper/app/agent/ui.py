@@ -35,7 +35,7 @@ from caliper.app.agent.proposal import CheckChange, Plan, Proposal, prepare
 from caliper.app.agent.scripted import understand
 from caliper.app.panels.checks import describe
 from caliper.app.panels.describe import n
-from caliper.app.session import Author, DocumentSession
+from caliper.app.session import Author, DocumentSession, Space
 from caliper.app.tokens import SPACE
 from caliper.contracts.document import Document, Point2, Ref
 from caliper.contracts.queries import CheckResult
@@ -310,11 +310,14 @@ class AgentController(QObject):
         """Counts documents opened and turns stopped, so an answer to either is dropped."""
         self._stop: threading.Event | None = None
         """Set to stop the turn the assistant is working on (`stop`)."""
+        self._space = session.space
+        """The tab the proposal on the card is for."""
+        self._waiting: dict[Space, Proposal] = {}
+        """The other tab's proposal, until its tab is shown again (C-18)."""
         bar.submitted.connect(self.ask)
         card.accepted.connect(self.accept)
         card.rejected.connect(self.reject)
-        session.document_replaced.connect(self.reject)
-        session.document_replaced.connect(self._forget)
+        session.document_replaced.connect(self._replaced)
         bar.escaped.connect(self.reject)
         bar.stopped.connect(self.stop)
         self._answered.connect(self._show_turn)  # queued: it arrives from the worker thread
@@ -371,6 +374,37 @@ class AgentController(QObject):
     def reject(self) -> None:
         if self.proposal is not None:
             self._close()
+
+    def _replaced(self) -> None:
+        """Another document is shown. Switching tabs leaves the tab left as it was, so a
+        proposal for it waits there until its tab is shown again (`resume`). New and Open
+        replace the document the proposal was for, which drops it."""
+        space = self.session.space
+        if space is self._space:
+            self.reject()
+        else:
+            leaving, self._space = self._space, space
+            if self.proposal is not None:
+                self._waiting[leaving] = self.proposal
+                self._close()
+        self._forget()
+
+    def waits(self, proposal: Proposal) -> bool:
+        """Whether `proposal` is waiting for its tab to be shown again, not gone."""
+        return any(held is proposal for held in self._waiting.values())
+
+    def resume(self) -> None:
+        """Show the proposal that was waiting for the tab now shown, as it was left. The
+        window calls this once the tab's views are up, so the proposal is framed in them."""
+        proposal = self._waiting.pop(self.session.space, None)
+        if proposal is None or self.proposal is not None:
+            return
+        if proposal.base is not self.session.document:
+            return  # the tab's document isn't the one it was made for any more
+        self.proposal = proposal
+        self.card.show_proposal(proposal)
+        self.proposal_changed.emit()
+        self.proposal_shown.emit(proposal)
 
     def stop(self) -> None:
         """Stop the assistant's turn after its current step and drop it. It worked on a copy,

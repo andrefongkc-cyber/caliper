@@ -6,6 +6,8 @@ thread, one at a time, in the `Draft` against the session's document. When the d
 it goes on the proposal card like the in-app assistant's changes, and the user accepts it (one
 undo step, credited to the agent) or rejects it there; the client can't. Closing, accepting,
 editing, or opening another document ends the draft, and the client's next call says so.
+Each tab has a draft of its own: switching tabs leaves a draft waiting with its proposal, and
+the client's next call, which works on the tab shown, says where its changes are (C-18).
 Each call, and the user's Accept, is timed for the Timing panel (`caliper.app.agent.timing`),
 and report_progress, Claude's estimate of the calls left, is answered here for its time left.
 """
@@ -33,8 +35,14 @@ from caliper.ai.tools import CHANGES
 from caliper.app.agent.proposal import Plan, Proposal
 from caliper.app.agent.timing import RunTimer
 from caliper.app.agent.ui import AgentController
-from caliper.app.session import DocumentSession
+from caliper.app.session import DocumentSession, Space
 
+SWITCHED = (
+    "The user switched to the {shown} in Caliper. Your pending changes are still on the "
+    "{left}, waiting for the user there: they are not applied and not dropped. Your calls "
+    "now work on the {shown}. Look at it before continuing."
+)
+TABS = {Space.SKETCH: "2D sketch tab", Space.PART: "3D part tab"}
 BUSY = (
     "Caliper's own assistant is working on a request right now, so Caliper can't take changes "
     "from you until it's done. Try again in a moment."
@@ -67,13 +75,18 @@ class McpHost(QObject):
         """The draft's proposal, while it's the one on the card."""
         self._accepted: Proposal | None = None
         self._updating = False
+        self._space = session.space
+        """The tab `draft` is for."""
+        self._waiting: dict[Space, tuple[Draft, Proposal | None]] = {}
+        """The other tab's draft and the proposal it showed, until its tab is shown again."""
+        self._called_in: Space | None = None
+        """The tab the client's last call worked on."""
         self._server = QLocalServer(self)
         self._server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
         self._server.newConnection.connect(self._connected)
         controller.applied.connect(self._applied)
         controller.proposal_changed.connect(self._proposal_changed)
-        session.document_replaced.connect(partial(self.draft.end, Ended.OPENED))
-        session.document_replaced.connect(lambda: self.timer.end())
+        session.document_replaced.connect(self._replaced)
 
     def start(self) -> str | None:
         """Listen for `caliper-mcp`. None when listening, else why not, for the status bar."""
@@ -132,6 +145,7 @@ class McpHost(QObject):
         if request.tool in CHANGES and self.controller.busy:
             return encode_response(Response({"error": BUSY}, is_error=True)), False
         self._client = request.client
+        switched = self._switched()
         try:
             answer = self.draft.call(
                 self.session.document,
@@ -147,8 +161,20 @@ class McpHost(QObject):
         if answer.changed:
             self._show()
         outcome = answer.outcome
-        response = Response(outcome.content, outcome.is_error, answer.note)
+        note = " ".join(said for said in (switched, answer.note) if said) or None
+        response = Response(outcome.content, outcome.is_error, note)
         return encode_response(response), answer.changed
+
+    def _switched(self) -> str | None:
+        """What to tell the client when the user changed tabs since its last call and left
+        its pending changes waiting on the other one. Nothing when they came back."""
+        last, self._called_in = self._called_in, self.session.space
+        if last is None or last is self.session.space:
+            return None
+        left = self._waiting.get(last)
+        if left is None or left[0].workspace is None:
+            return None
+        return SWITCHED.format(shown=TABS[self.session.space], left=TABS[last])
 
     def _progress(self, arguments: Mapping[str, object]) -> ToolOutcome:
         """report_progress: Claude's estimate, for the time left. It never touches the draft,
@@ -187,6 +213,19 @@ class McpHost(QObject):
             socket.disconnectFromServer()
         socket.flush()
 
+    def _replaced(self) -> None:
+        """Another document is shown. Opening one in this tab ends its draft; switching tabs
+        leaves the draft waiting with its proposal and takes up the other tab's (C-18). The
+        run being timed goes on across a switch: the task isn't over."""
+        space = self.session.space
+        if space is self._space:
+            self.draft.end(Ended.OPENED)
+            self.timer.end()
+            return
+        self._waiting[self._space] = (self.draft, self._shown)
+        self.draft, self._shown = self._waiting.pop(space, (Draft(), None))
+        self._space = space
+
     # --- The draft on the card ----------------------------------------------------------
 
     def _show(self) -> None:
@@ -218,6 +257,8 @@ class McpHost(QObject):
         shown = self._shown
         if self._updating or shown is None or self.controller.proposal is shown:
             return
+        if self.controller.waits(shown):
+            return  # the user changed tabs: it's waiting there, with its draft
         self._shown = None
         if self._accepted is shown:
             self.draft.end(Ended.ACCEPTED)
