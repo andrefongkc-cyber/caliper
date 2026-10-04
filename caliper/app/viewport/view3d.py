@@ -200,6 +200,13 @@ class View3D(QWidget):
         self.scene.paint(painter, camera, width, height, **options)  # type: ignore[arg-type]
         self.paint_triad(painter, camera, height)
 
+    def solid_shown(self) -> object:
+        """The solid `paint_scene` draws and whether it's a proposal's, as a value that
+        changes only when it does: the engine keeps a mesh by identity, so the same solid
+        compares at once."""
+        self.refresh()
+        return (self.scene.mesh, self.scene.proposed)
+
     def shows(self, hidden: EntityId | None) -> object:
         """What `paint_scene` draws with the sketch `hidden` left out, as a value equal only
         when it draws the same: the solid (the engine keeps its mesh by identity, so an

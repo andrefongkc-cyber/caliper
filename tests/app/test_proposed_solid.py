@@ -17,10 +17,11 @@ from caliper.contracts.commands import (
     CreateCheck,
     CreateExtrude,
     CreateRectangle,
+    CreateSketch,
     DeleteEntities,
     ModifyEntity,
 )
-from caliper.contracts.document import EntityId, Metric, Point2
+from caliper.contracts.document import EntityId, Metric, Plane, Point2
 from caliper.contracts.errors import Error
 from caliper.contracts.queries import Mesh
 from caliper.engine import features, geometry
@@ -252,3 +253,31 @@ def test_the_proposed_solid_is_worked_out_when_the_view_is_painted_not_when_prop
     view.repaint()
     assert len(built) == 1
     assert max(p.z for p in view.scene.mesh.vertices) == pytest.approx(30.0)  # type: ignore[union-attr]
+
+
+def test_a_proposal_that_grows_while_the_canvas_faces_its_sketch_shows_its_solid_there(
+    window: MainWindow,
+) -> None:
+    """Claude Desktop builds a proposal call by call: the first calls draw a sketch, which the
+    canvas turns to face over the part; a later one extrudes it. The part behind the sketch is
+    drawn again then, with the solid the proposal would make (found in test run 006: the
+    canvas kept the picture it had of the part, so the solid never showed)."""
+    window.set_mode("3d")
+    drawing = (
+        CreateSketch(plane=Plane.XY, id="e1"),
+        CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50, sketch="e1"),
+    )
+    propose(window, *drawing, label="Draw Plate")
+    canvas, view = window.canvas, window.view3d
+    assert window.views.currentWidget() is canvas  # facing the sketch the proposal makes
+    canvas.grab()
+    before = canvas._layer
+    assert not view.scene.proposed  # no solid proposed yet
+    propose(window, *drawing, CreateExtrude(depth=10.0, sketch="e1"), label="Plate")
+    middle = canvas.view.to_widget(Point2(x=60, y=25))
+    shown = canvas.grab().toImage()
+    assert canvas._layer is not before  # the part behind the sketch was drawn again
+    assert view.scene.proposed
+    ratio = shown.devicePixelRatio()
+    inside = shown.pixelColor(round(middle[0] * ratio), round(middle[1] * ratio))
+    assert nearer(inside, to=theme.AGENT, than=theme.CANVAS)  # the proposed plate's top

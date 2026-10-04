@@ -1069,6 +1069,7 @@ class Canvas(QWidget):
             backdrop.frame,
             backdrop.sketch,
             self.session.document,
+            backdrop.solid(),  # a proposal can change the solid and leave the document
         )
 
     def _paint_glyphs(
