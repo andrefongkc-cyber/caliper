@@ -14,7 +14,7 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 | | Breaks work | Slow | Cosmetic |
 |---|---|---|---|
 | AI side, untested or limited | AI-6, AI-8 | | |
-| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | C-16, C-18 |
+| Client side | C-13 (limited), C-15 (needs OCCT), C-19 (limited) | C-6 | |
 
 ---
 
@@ -80,22 +80,6 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
   on across both: the star's circular pattern 333 → 188 ms, the chain's 299 calls 2.6 → 1.0 s
   (median 1.6 → 0.5 ms, p95 35 → 12 ms).
 
-### C-16. A proposed extrude can't be seen before it's accepted
-- **What happens:** a proposal is drawn as dashed geometry on the sketch it changes. An
-  extrude changes no geometry, so there is nothing to draw: the card, over the 3D view, lists
-  it, and its volume check is measured on the proposed solid, but the 3D view shows the solid
-  as it is until Accept.
-- **Where:** `caliper/app/viewport/view3d.py`, which meshes `session.document`.
-- **Fix, if it matters:** mesh `proposal.result` in the 3D view while a proposal is shown,
-  in the agent colour. The engine's `mesh` query already works on any document.
-
-### C-18. Switching tabs drops a pending proposal
-- **What happens:** each tab is its own document, and Claude works on the one shown. Switching
-  tabs while Claude's proposal waits drops it, as opening a file does, and Claude's next call
-  is told the document changed.
-- **Where:** `caliper/app/agent/ui.py` and `mcp_host.py`, on `document_replaced`.
-- **Fix, if it matters:** keep a proposal with its tab, and show it again on the way back.
-
 ### C-19. A sketch on a face a later cut removed stays where the face was
 - **What happens:** a sketch on a face is placed from its extrude's inputs (ADR 0016), not
   from the solid. If a later cut takes the whole face away, the sketch doesn't notice: it
@@ -111,6 +95,24 @@ something is fixed, move it to [Recently fixed](#recently-fixed) with its PR.
 ---
 
 ## Recently fixed
+
+On `shared/proposal-in-3d` (stacked on `shared/collapsible-chrome`, #57):
+
+- C-16: a proposed extrude couldn't be seen before it was accepted, because an extrude changes
+  no geometry and the 3D view drew the part as it was. While a proposal waits, the 3D view
+  draws the solid it would leave, in the agent's colour with dashed edges, and says it isn't
+  the part yet; the canvas over the part shows it behind a sketch a proposal changes. A
+  proposal that would break the solid keeps the part on screen and says why. The solid is
+  built when the view is next painted, so Claude's call isn't slowed, and Accept finds it
+  waiting.
+- C-18: switching tabs dropped a pending proposal. It waits with its tab now and is on the
+  card again on the way back, each tab with its own. Claude Desktop has a draft per tab: its
+  first call after a switch is told its changes are waiting on the other tab, neither applied
+  nor dropped, and that its calls now work on the tab shown. New and Open still drop the
+  proposal of the tab they replace.
+- The proposal card went under the sketch bar in a narrow view; the tool bar's overflow button
+  couldn't be seen on the dark bar; the line under the 3D view was cut off in a narrow view;
+  scrollbars were the platform's black track. All four are fixed.
 
 In [#54](https://github.com/andrefongkc-cyber/caliper/pull/54) (the N phase):
 
