@@ -196,16 +196,21 @@ def test_a_proposal_updated_without_a_change_to_the_part_keeps_the_sketches_draw
     assert max(p.z for p in view.scene.mesh.vertices) == pytest.approx(20.0)  # type: ignore[union-attr]
 
 
-def test_switching_to_the_2d_tab_and_back_forgets_the_proposed_solid(window: MainWindow) -> None:
+def test_the_proposed_solid_is_back_with_its_proposal_after_a_look_at_the_2d_tab(
+    window: MainWindow,
+) -> None:
     sketch = profile(window)
     propose(window, CreateExtrude(depth=10.0, sketch=sketch))
+    proposed = window.view3d.scene.mesh
     assert window.view3d.scene.proposed
-    window.set_mode("2d")  # drops the proposal (C-18)
+    window.set_mode("2d")  # the proposal waits on the 3D tab (C-18)
+    assert window.agent.proposal is None
     window.set_mode("3d")
     QApplication.processEvents()
-    assert window.agent.proposal is None
-    assert not window.view3d.scene.proposed
-    assert window.view3d.scene.mesh is None
+    assert window.agent.proposal is not None
+    assert window.view3d.scene.proposed
+    assert window.view3d.scene.mesh is proposed
+    assert window.view3d.mesh is None  # the part itself still has no solid
 
 
 def test_a_proposal_the_part_has_moved_on_from_is_not_drawn(window: MainWindow) -> None:

@@ -1161,6 +1161,7 @@ class MainWindow(QMainWindow):
                 self.canvas.reset_view()
         (self.mode_2d_action if mode == "2d" else self.mode_3d_action).setChecked(True)
         self._show_views()
+        self.agent.resume()  # a proposal left waiting on this tab is back on its card (C-18)
         if mode == "3d" and self.sketch_open is None:
             self.show_message("3D: drag to orbit, right-drag to pan, scroll to zoom, F to fit")
 
