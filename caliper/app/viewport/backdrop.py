@@ -28,6 +28,8 @@ Painter = Callable[..., None]
 """`View3D.paint_scene`: (painter, camera, width, height, **options)."""
 Shows = Callable[[EntityId | None], object]
 """`View3D.shows`: what the scene draws with a sketch left out, equal only when it's the same."""
+Solid = Callable[[], object]
+"""`View3D.solid_shown`: the solid the scene draws, the part's or a proposal's."""
 
 
 @dataclass(slots=True)
@@ -40,6 +42,9 @@ class Backdrop:
     """The sketch the canvas draws, left out of the scene while the view faces it."""
     paint_scene: Painter
     shows: Shows
+    solid: Solid = lambda: None
+    """Changes when the solid behind the sketch does, as when a proposal gains an extrude:
+    the canvas then draws the part again, though the document is as it was."""
     free: Camera | None = None
     """The camera while orbited away from the plane; None while facing it."""
     _image: QPixmap | None = None

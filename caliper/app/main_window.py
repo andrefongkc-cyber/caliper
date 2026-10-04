@@ -1328,7 +1328,12 @@ class MainWindow(QMainWindow):
             if backdrop is not None:
                 camera = backdrop.camera(self.canvas.view, self.views.width(), self.views.height())
             self._backdrop = Backdrop(
-                plane, frame, sketch, self.view3d.paint_scene, self.view3d.shows
+                plane,
+                frame,
+                sketch,
+                self.view3d.paint_scene,
+                self.view3d.shows,
+                self.view3d.solid_shown,
             )
             look(self.canvas.view, frame, camera, self.views.width(), self.views.height())
         self.sketch_title.setText(f"{place_name(document, plane)}  ·  proposal")
