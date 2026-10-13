@@ -9,6 +9,7 @@ import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import (
     QColor,
+    QFontMetrics,
     QImage,
     QMouseEvent,
     QNativeGestureEvent,
@@ -19,7 +20,9 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
 
 from caliper.app import shortcuts, theme
+from caliper.app.agent.proposal import Plan
 from caliper.app.main_window import MainWindow
+from caliper.app.panels.checks import fitted
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import DIM, Scene
 from caliper.app.viewport.view3d import View3D
@@ -978,3 +981,53 @@ def test_the_3d_tabs_hint_says_what_the_trackpad_does(window: MainWindow) -> Non
     hint = window.statusBar().currentMessage()
     assert "two fingers pan" in hint
     assert "scroll to zoom" not in hint  # what it said, and no longer does on a trackpad
+
+
+# --- F13: a proposed solid that outgrows the view is brought into it ---------------------------
+
+
+def test_a_proposed_solid_bigger_than_the_view_is_brought_into_it(window: MainWindow) -> None:
+    sketch, _, extrude = plate(window)
+    view = window.view3d
+    view.fit()
+    view.camera = view.camera.zoomed(1.2, (view.width() / 2, view.height() / 2), (800.0, 600.0))
+    held = view.camera
+
+    def propose(depth: float) -> None:
+        plan = Plan(
+            "Deeper",
+            "What the agent would do.",
+            (ModifyEntity(id=extrude, changes={"depth": depth}),),
+        )
+        window.agent.propose(plan, window.session.document)
+        view.refresh()
+
+    propose(8.0)  # inside the part's own box: the view is the user's
+    assert view.scene.proposed
+    assert view.camera == held
+    propose(600.0)
+    assert view.camera != held
+    assert (view.camera.yaw, view.camera.pitch) == (held.yaw, held.pitch)
+    for corner in (Point3(x=0.0, y=0.0, z=0.0), Point3(x=120.0, y=50.0, z=600.0)):
+        at = view.camera.project(corner, view.width(), view.height())
+        assert 0 <= at.x <= view.width()  # the part and what's proposed, both
+        assert 0 <= at.y <= view.height()
+    window.agent.reject()
+    assert sketch in window.features.items
+
+
+# --- F14: a check's row keeps the number it's about -------------------------------------------
+
+
+def test_a_narrow_checks_row_keeps_the_expected_value() -> None:
+    metrics = QFontMetrics(theme.font())
+    line = "Volume of the part = 60000 ± 0.001"
+    whole = metrics.horizontalAdvance(line)
+    assert fitted(metrics, line, whole) == line
+    narrow = fitted(metrics, line, whole - 40)
+    assert narrow.endswith(" = 60000 ± 0.001")  # it was "Volume of the part = 60…"
+    assert "…" in narrow
+    assert metrics.horizontalAdvance(narrow) <= whole - 40
+    tiny = fitted(metrics, line, metrics.horizontalAdvance("= 60000 ±"))
+    assert tiny.endswith("…")  # no room even for the value: cut from the right, as before
+    assert fitted(metrics, "No value here", 30).endswith("…")

@@ -14,7 +14,7 @@ tolerance, or something else from the selection to measure instead. Saving is on
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QModelIndex, QObject, QPersistentModelIndex, Qt
-from PySide6.QtGui import QKeyEvent, QPainter
+from PySide6.QtGui import QFontMetrics, QKeyEvent, QPainter
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -155,6 +155,20 @@ def options(session: DocumentSession) -> list[Option]:
     return found
 
 
+def fitted(metrics: QFontMetrics, text: str, width: int) -> str:
+    """A check's line (`describe`) cut to `width` pixels without losing the number it's
+    about: what's measured gives way first, from its middle, and "= expected ± tolerance"
+    stays whole. Only when that alone doesn't fit is it cut, from the right."""
+    if metrics.horizontalAdvance(text) <= width:
+        return text
+    subject, equals, value = text.rpartition(" = ")
+    kept = equals + value
+    room = width - metrics.horizontalAdvance(kept)
+    if not subject or room < metrics.horizontalAdvance("…"):
+        return metrics.elidedText(text, Qt.TextElideMode.ElideRight, width)
+    return metrics.elidedText(subject, Qt.TextElideMode.ElideMiddle, room) + kept
+
+
 class _Row(QStyledItemDelegate):
     def paint(
         self,
@@ -183,9 +197,7 @@ class _Row(QStyledItemDelegate):
         used = painter.fontMetrics().horizontalAdvance(actual) + SPACE.m
         painter.setFont(option.font)
         painter.setPen(theme.TEXT)
-        elided = painter.fontMetrics().elidedText(
-            index.data(), Qt.TextElideMode.ElideRight, text_rect.width() - used
-        )
+        elided = fitted(painter.fontMetrics(), index.data(), text_rect.width() - used)
         painter.drawText(
             text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided
         )
