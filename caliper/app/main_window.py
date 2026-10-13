@@ -580,6 +580,10 @@ class MainWindow(QMainWindow):
         sketch.setMenu(planes)
         self.sketch_button = sketch
         self._sketch_item = tools.addWidget(sketch)
+        # Out of the tray it's no child of the bar's, so it's told the bar's style itself:
+        # with an icon it would otherwise drop its name.
+        sketch.setToolButtonStyle(tools.toolButtonStyle())
+        tools.toolButtonStyleChanged.connect(sketch.setToolButtonStyle)
         """The Sketch button's place in the tray: taken out and put back with the context."""
         tools.removeAction(self._sketch_item)
         # Groups by category, so a later category adds a group, not a redesign.

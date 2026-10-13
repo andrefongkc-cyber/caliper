@@ -914,6 +914,8 @@ def test_the_part_has_its_own_short_tray(window: MainWindow) -> None:
     window.set_mode("3d")
     assert tray(window) == ["Sketch", "Extrude…", "|", "Zoom to Fit"]  # what a part can do
     assert window.sketch_button.isVisible()
+    labelled = Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+    assert window.sketch_button.toolButtonStyle() == labelled  # its name beside its icon
     for action in (window.sketch_action, window.extrude_action):
         assert not action.icon().isNull()  # the two things to do here, found at a glance
     sketch = sketch_on(window)
