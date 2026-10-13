@@ -16,9 +16,9 @@ from PySide6.QtGui import (
     QPointingDevice,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
 
-from caliper.app import theme
+from caliper.app import shortcuts, theme
 from caliper.app.main_window import MainWindow
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import DIM, Scene
@@ -31,6 +31,7 @@ from caliper.contracts.commands import (
     ModifyEntity,
 )
 from caliper.contracts.document import (
+    ConstraintType,
     EntityId,
     Extrude,
     ExtrudeOperation,
@@ -897,3 +898,83 @@ def test_a_right_click_on_a_row_of_the_part_panel_asks_for_its_menu(window: Main
     assert asked == [sketch]
     assert window.session.selection == {sketch}
     window._part_menu.close()
+
+
+# --- F8: the tray holds what the context can use -----------------------------------------------
+
+
+def tray(window: MainWindow) -> list[str]:
+    return ["|" if a.isSeparator() else a.text() or "Sketch" for a in window.tray.bar.actions()]
+
+
+def test_the_part_has_its_own_short_tray(window: MainWindow) -> None:
+    window.set_mode("3d")
+    assert tray(window) == ["Sketch", "Extrude…", "|", "Zoom to Fit"]  # what a part can do
+    assert window.sketch_button.isVisible()
+    for action in (window.sketch_action, window.extrude_action):
+        assert not action.icon().isNull()  # the two things to do here, found at a glance
+    sketch = sketch_on(window)
+    drawing = tray(window)
+    assert drawing[:3] == ["Extrude…", "|", "Select"]  # sketching already: no Sketch button
+    assert {"Line", "Circle", "Rectangle", "Dimension", "Measure"} <= set(drawing)
+    assert drawing[-2:] == ["Zoom to Fit", "Show Constraints"]
+    window.finish_sketch()
+    assert tray(window) == ["Sketch", "Extrude…", "|", "Zoom to Fit"]
+    assert sketch in window.features.items
+    window.set_mode("2d")
+    assert "Extrude…" not in tray(window)  # the 2D sketch has no part to extrude into
+    assert "Sketch" not in tray(window)
+    assert tray(window)[0] == "Select"
+
+
+def test_tools_out_of_the_tray_are_still_in_the_menus_and_on_their_keys(
+    window: MainWindow, qtbot
+) -> None:  # type: ignore[no-untyped-def]
+    window.set_mode("3d")
+    sketch_menu = window.menus[4]
+    assert sketch_menu.title() == "Sketch"
+    assert window.tool_actions["Line"] in sketch_menu.actions()  # listed, and disabled
+    assert not window.tool_actions["Line"].isEnabled()
+    sketch_on(window)
+    assert window.tool_actions["Line"].isEnabled()
+    window.tool_actions["Line"].trigger()
+    assert window.controller.active.name == "Line"
+    window.set_mode("2d")  # Extrude leaves the tray, and comes back with the part
+    window.set_mode("3d")
+    names = [b.objectName() for b in window.tool_bar.findChildren(QToolButton)]
+    assert names.count("extrude") == 1  # one to click, not the one that left as well
+
+
+# --- F12: the status bar and the shortcut sheet know about 3D ----------------------------------
+
+
+def test_degrees_of_freedom_show_only_while_a_sketch_is_being_edited(window: MainWindow) -> None:
+    sketch = sketch_on(window)
+    line = created(window, CreateLine(start=Point2(x=0, y=0), end=Point2(x=30, y=10)))
+    window.session.set_selection(frozenset({line}))
+    window.constraint_actions[ConstraintType.HORIZONTAL].trigger()
+    assert not window.solve_label.isHidden()
+    assert "degrees of freedom" in window.solve_label.text()
+    window.finish_sketch()
+    assert window.solve_label.isHidden()  # looking at the part: nothing here is being solved
+    window.edit_sketch(sketch)
+    assert not window.solve_label.isHidden()
+    window.cancel_sketch()
+    assert window.solve_label.isHidden()
+
+
+def test_the_shortcut_sheet_lists_how_to_move_the_part(window: MainWindow) -> None:
+    by_title = dict(shortcuts.sections(window.menus))
+    moves = dict(by_title["3D view"])
+    assert "Two-finger scroll" in moves["Pan the part"]
+    assert "Pinch" in moves["Zoom the part"]
+    assert "Shift+two-finger scroll" in moves["Orbit the part"]
+    assert "Right-click" in moves["Menu for what's under the pointer"]
+    assert dict(by_title["Canvas"])["Pan"].startswith("Two-finger scroll")  # the same fingers
+
+
+def test_the_3d_tabs_hint_says_what_the_trackpad_does(window: MainWindow) -> None:
+    window.set_mode("3d")
+    hint = window.statusBar().currentMessage()
+    assert "two fingers pan" in hint
+    assert "scroll to zoom" not in hint  # what it said, and no longer does on a trackpad

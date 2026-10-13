@@ -1,7 +1,7 @@
 """Help → Keyboard Shortcuts: a sheet generated from the window's real actions.
 
 Menu actions are read live, so a new action or a changed key shows up here without editing
-this file. Canvas gestures aren't actions, so they're listed once below.
+this file. The canvas's and the 3D view's gestures aren't actions, so they're listed once below.
 """
 
 from PySide6.QtGui import QAction, QKeySequence
@@ -32,6 +32,18 @@ GESTURES: tuple[tuple[str, str], ...] = (
 )
 
 
+GESTURES_3D: tuple[tuple[str, str], ...] = (
+    ("Orbit the part", "Drag · Shift+two-finger scroll"),
+    ("Pan the part", "Two-finger scroll · right-drag · middle-drag · Shift+drag"),
+    ("Zoom the part", "Pinch · Cmd+scroll · mouse wheel"),
+    ("Pick", "Click a plane, a face of the solid, or a sketch"),
+    ("Sketch on it, or edit it", "Double-click a plane, a face, a sketch, or an extrude's row"),
+    ("Menu for what's under the pointer", "Right-click"),
+    ("Orbit while sketching", "Right-drag · N faces the sketch again"),
+)
+"""The 3D view's, named apart from the canvas's: a trackpad does the same in both."""
+
+
 def keys(action: QAction) -> str:
     return " or ".join(
         s.toString(QKeySequence.SequenceFormat.NativeText) for s in action.shortcuts()
@@ -50,6 +62,7 @@ def sections(menus: list[QMenu]) -> list[tuple[str, list[tuple[str, str]]]]:
         if rows:
             result.append((menu.title().replace("&", ""), rows))
     result.append(("Canvas", list(GESTURES)))
+    result.append(("3D view", list(GESTURES_3D)))
     return result
 
 

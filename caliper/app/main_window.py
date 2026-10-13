@@ -1202,7 +1202,9 @@ class MainWindow(QMainWindow):
 
     def _update_solve_status(self) -> None:
         document = self.session.document
-        if not solve_state.is_constrained(document):
+        # Of the sketch being edited: looking at the part, nothing is being solved.
+        editing = self.mode == "2d" or self.sketch_open is not None
+        if not editing or not solve_state.is_constrained(document):
             self.solve_label.setText("")
             self.solve_label.hide()
             return
@@ -1234,7 +1236,10 @@ class MainWindow(QMainWindow):
         self._show_views()
         self.agent.resume()  # a proposal left waiting on this tab is back on its card (C-18)
         if mode == "3d" and self.sketch_open is None:
-            self.show_message("3D: drag to orbit, right-drag to pan, scroll to zoom, F to fit")
+            self.show_message(
+                "3D: drag to orbit · two fingers pan · pinch or wheel zooms · "
+                "right-click for a menu · F fits"
+            )
 
     def _show_views(self) -> None:
         """The view for the tab and the state: in 2D the canvas; in 3D the part, or the canvas
@@ -1258,6 +1263,7 @@ class MainWindow(QMainWindow):
         self.sketch_button.setEnabled(in_3d)
         self._update_sketch_tools()
         self._update_part_labels()
+        self._update_solve_status()
         if on_canvas:
             self.canvas.setFocus()
         else:
@@ -1297,13 +1303,13 @@ class MainWindow(QMainWindow):
         sketching = self.mode == "3d" and self.sketch_open is not None
         for action in (self.finish_sketch_action, self.cancel_sketch_action):
             action.setEnabled(sketching)
+        self._fill_tray(part=self.mode == "3d", drawing=self.mode == "2d" or sketching)
         self.face_action.setEnabled(backdrop is not None and not backdrop.facing)
         if backdrop is None or backdrop.facing:
             hint = "Right-drag to orbit · N to face the sketch"
         elif backdrop.drawable:
             hint = "At an angle: draw on the sketch's plane, or N to face it"
         else:
-        self._fill_tray(part=self.mode == "3d", drawing=self.mode == "2d" or sketching)
             hint = "Turned too far to draw: press N to face the sketch and keep drawing"
         self.sketch_hint.setText(hint)
         self.sketch_bar.adjustSize()
