@@ -8,9 +8,13 @@ by identity (ADR 0013), so asking again costs little.
 
 While an agent's proposal waits, the solid drawn is the one the proposal would leave, in the
 agent's colour (C-16): an extrude changes no geometry, so this is where it's seen before Accept.
+While the Extrude form is open, it's the solid the form's fields would make, in the preview's
+colour. Either is brought into view when it outgrows the part and the view.
 
-A click picks a plane or a sketch, which is what Sketch and Extrude act on; a double-click on
-one asks to sketch on it or edit it. A left drag orbits, a right or middle drag (or Shift with
+What's under the pointer is drawn in the hover colour: it's what a click would pick. A selected
+extrude shows as what it made. A click picks a plane, a face, or a sketch, which is what Sketch
+and Extrude act on; a double-click on one asks to sketch on it or edit it; a right click that
+doesn't move asks for its menu. A left drag orbits, a right or middle drag (or Shift with
 a left drag) pans, and F fits. A trackpad moves it as it moves the canvas (`scrolled`): two
 fingers pan, a pinch or ⌘ with two fingers zooms about the pointer, and Shift with two fingers
 orbits; a mouse wheel zooms. The camera is UI state.
@@ -21,7 +25,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QInputDevice,
     QKeyEvent,
@@ -39,10 +43,19 @@ from caliper.app.agent.proposal import Proposal
 from caliper.app.session import DocumentSession, Space
 from caliper.app.tokens import SPACE
 from caliper.app.viewport.camera3d import Camera
-from caliper.app.viewport.scene3d import FACE_TOLERANCE, Picked, Scene
-from caliper.contracts.document import EntityId, Extrude, FaceRef, Plane, Sketch
+from caliper.app.viewport.scene3d import FACE_TOLERANCE, Picked, Scene, mesh_box
+from caliper.contracts.document import (
+    Arc,
+    Circle,
+    Document,
+    EntityId,
+    Extrude,
+    FaceRef,
+    Plane,
+    Sketch,
+)
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.contracts.queries import Mesh, Point3, Queries
+from caliper.contracts.queries import BoundingBox3, Mesh, Point3, Queries
 from caliper.engine.commands.bus import Bus
 
 DRAG_PX = 3.0
@@ -57,6 +70,8 @@ CAPTION_FLAGS = (
 class View3D(QWidget):
     open_requested = Signal(object)
     """A double-click on a plane (a `Plane`) or a sketch (its id): sketch on it, or edit it."""
+    menu_requested = Signal(object, QPoint)
+    """A right click that didn't move: what was under it (as `pick`), and where on screen."""
 
     def __init__(self, session: DocumentSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -81,16 +96,41 @@ class View3D(QWidget):
         self._drag: tuple[Qt.MouseButton, QPointF, bool] | None = None
         self._pressed: QPointF | None = None
         """Where a left press was, until it moves far enough to be an orbit."""
+        self._clicked: QPointF | None = None
+        """Where a right press was, until it moves far enough to be a pan."""
         self._tint: tuple[tuple[object, FaceRef], frozenset[int]] | None = None
         """The picked face's triangles, for the scene they were found in."""
         self._seed: tuple[Scene, FaceRef, int] | None = None
         """The triangle a click picked a face on, in the scene it was picked in."""
+        self._made: tuple[Scene, frozenset[EntityId], frozenset[int]] | None = None
+        """What the selected extrudes made, as triangles of the scene they were found in."""
+        self.preview: Document | None = None
+        """The part as the Extrude form's fields would leave it, to draw its solid; set by
+        `show_preview`."""
+        self._brought: BoundingBox3 | None = None
+        """The proposed or previewed solid's box when the view last made sure of showing it."""
+        self.hover: Picked = None
+        """What's under the pointer, or under it in the Part panel: UI state, never selected
+        by being here."""
+        self._lit: frozenset[int] = frozenset()
+        """The triangles of the solid drawn as hovered: a face's, or what an extrude made."""
+        self._hover_at: QPointF | None = None
+        self._hover_timer = QTimer(self)
+        """Coalesces pointer moves: one pick for however many arrived since the last."""
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(0)
+        self._hover_timer.timeout.connect(self._hover_now)
+        self.show_planes = True
+        """View → Show Planes: off hides the origin planes, and they can't be picked."""
+        self.offering = False
+        """Sketch is waiting for a plane to be picked: the planes show in full until one is."""
+        self.setMouseTracking(True)
         self.setObjectName("view-3d")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(200, 150)
         session.document_changed.connect(self._changed)
         session.document_replaced.connect(self._replaced)
-        session.selection_changed.connect(self.update)
+        session.selection_changed.connect(self._selection_changed)
 
     # --- What's drawn -------------------------------------------------------------------
 
@@ -108,6 +148,19 @@ class View3D(QWidget):
             self.mesh, self._fit = None, True
         self._space = space
         self._changed()
+
+    def _selection_changed(self) -> None:
+        self.offering = False  # something was picked: the planes go back to how they were
+        self.update()
+
+    def show_preview(self, document: Document | None) -> None:
+        """Draw the solid `document` has in place of the part's, in the preview's colour: the
+        part as the Extrude form's fields would leave it. None draws the part again. Worked
+        out when the view is next painted, as a proposal's is."""
+        if document is not self.preview:
+            self.preview = document
+            self._proposal_stale = True
+            self.update()
 
     def show_proposal(self) -> None:
         """The proposal to preview changed: the solid drawn is the one it would leave. It's
@@ -137,16 +190,57 @@ class View3D(QWidget):
             else:
                 self._solid()
         self._stale = self._proposal_stale = False
-        proposed, self.note = self._proposed()
+        other, self.note = self._previewed(), None
+        previewed = other is not None
+        if not previewed:  # the form's own solid is what's being worked on: it comes first
+            other, self.note = self._proposed()
         self.scene = Scene.of(
             document,
-            self.mesh if proposed is None else proposed,
-            proposed=proposed is not None,
+            self.mesh if other is None else other,
+            proposed=other is not None,
+            preview=previewed,
             curves=curves,
         )
+        self.hover, self._lit = None, frozenset()  # of the scene before: found again on a move
         if self._fit:
             self.camera = self.camera.fitted(self.scene.box(), self.width(), self.height())
             self._fit = False
+        elif other is not None:
+            self._bring_into_view()
+        else:
+            self._brought = None
+
+    def _bring_into_view(self) -> None:
+        """A proposed or previewed solid that reaches past the part and out of the view is
+        fitted, with the part, from where the camera looks. Once: the view isn't moved again
+        until the solid outgrows what was last looked at, so zooming in on it holds."""
+        box, own = self.scene.box(), mesh_box(self.mesh)
+        last, self._brought = self._brought, box
+        if (own is not None and _within(box, own)) or (last is not None and _within(box, last)):
+            return
+        width, height = self.width(), self.height()
+        corners = [
+            self.camera.project(Point3(x=x, y=y, z=z), width, height)
+            for x in (box.x_min, box.x_max)
+            for y in (box.y_min, box.y_max)
+            for z in (box.z_min, box.z_max)
+        ]
+        if all(0 <= c.x <= width and 0 <= c.y <= height for c in corners):
+            return
+        self.camera = self.camera.fitted(box if own is None else _around(box, own), width, height)
+
+    def _previewed(self) -> Mesh | None:
+        """The solid the Extrude form's fields would make, when it isn't the part's own. A
+        solid that can't be worked out leaves the part's drawn: the form says why."""
+        document = self.preview
+        if document is None or document is self.session.document:
+            return None
+        if not any(isinstance(f, Extrude) for f in document.features):
+            return None
+        mesh = _mesh(Bus(document).queries)
+        if isinstance(mesh, Error) or mesh is self.mesh or mesh == self.mesh:
+            return None
+        return mesh
 
     def _solid(self) -> None:
         mesh = _mesh(self.session.queries)
@@ -208,8 +302,24 @@ class View3D(QWidget):
         """The scene as `camera` sees it: for the canvas behind a sketch edited in 3D."""
         self.refresh()
         painter.fillRect(QRectF(0, 0, width, height), theme.CANVAS)
-        self.scene.paint(painter, camera, width, height, **options)  # type: ignore[arg-type]
+        looks = self.plane_look()
+        self.scene.paint(painter, camera, width, height, planes=looks, **options)  # type: ignore[arg-type]
         self.paint_triad(painter, camera, height)
+
+    def plane_look(self) -> str:
+        """How the origin planes are drawn now (`scene3d.PLANE_LOOKS`)."""
+        if self.offering:
+            return "full"
+        return "auto" if self.show_planes else "hidden"
+
+    def set_show_planes(self, shown: bool) -> None:
+        self.show_planes = shown
+        self.update()
+
+    def offer_planes(self) -> None:
+        """Sketch was asked for with nothing to sketch on: show the planes in full, to pick."""
+        self.offering = True
+        self.update()
 
     def solid_shown(self) -> object:
         """The solid `paint_scene` draws and whether it's a proposal's, as a value that
@@ -225,7 +335,7 @@ class View3D(QWidget):
         self.refresh()
         scene = self.scene
         curves = tuple(c for c in scene.curves if c.sketch != hidden)
-        return (scene.mesh, curves, scene.half, scene.proposed)
+        return (scene.mesh, curves, scene.half, scene.proposed, scene.preview, self.plane_look())
 
     # --- Drawing ------------------------------------------------------------------------
 
@@ -244,6 +354,9 @@ class View3D(QWidget):
             picked=picked,
             selected=self.session.selection,
             tinted=self._tinted(picked),
+            hovered=self.hover,
+            lit=self._lit,
+            planes=self.plane_look(),
         )
         self.paint_triad(painter, self.camera, height)
         said = self.note or self.problem  # the proposal is what's on screen
@@ -281,21 +394,36 @@ class View3D(QWidget):
     def pick(self, x: float, y: float) -> Picked:
         """What a click at (x, y) picks: a sketch, a flat face of the solid (ADR 0016), or a
         plane; the solid hides the planes behind it."""
-        self.refresh()
-        # A proposed solid isn't the part yet: it has no faces to name, so it isn't picked.
-        faces = None if self.scene.proposed else self._face_at
-        found = self.scene.pick(self.camera, self.width(), self.height(), x, y, faces=faces)
+        found, triangle = self._under(x, y)
         if isinstance(found, FaceRef):  # where it was hit: the tint floods out from there
-            hit = self.scene.solid_hit(self.camera, self.width(), self.height(), x, y)
-            self._seed = (self.scene, found, hit[3]) if hit is not None else None
+            self._seed = (self.scene, found, triangle) if triangle is not None else None
         return found
+
+    def _under(self, x: float, y: float) -> tuple[Picked, int | None]:
+        """What's under (x, y), as `pick` returns it, and the triangle of the solid there."""
+        self.refresh()
+        scene, size = self.scene, (self.width(), self.height())
+        # A proposed solid isn't the part yet: it has no faces to name, so it isn't picked.
+        faces = None if scene.proposed else self._face_at
+        hit = None if faces is None else scene.solid_hit(self.camera, *size, x, y)
+        found = scene.pick_over(
+            self.camera, *size, x, y, hit, faces=faces, planes=self.plane_look() != "hidden"
+        )
+        return found, None if hit is None else hit[3]
 
     def _face_at(self, point: Point3, normal: Point3) -> FaceRef | None:
         return self.session.queries.face_at(point, normal, FACE_TOLERANCE)
 
     def _tinted(self, picked: object) -> frozenset[int]:
+        """The triangles drawn as picked: the picked face's, and what a selected extrude made."""
+        if self.scene.proposed:
+            return frozenset()
+        face, made = self._face(picked), self._selected()
+        return face | made if made else face  # the kept set itself, when it's all there is
+
+    def _face(self, picked: object) -> frozenset[int]:
         """The triangles of the picked face, worked out once per scene."""
-        if not isinstance(picked, FaceRef) or self.scene.proposed:
+        if not isinstance(picked, FaceRef):
             return frozenset()
         key = (self.scene, picked)
         if self._tint is not None and self._tint[0] == key:
@@ -312,6 +440,83 @@ class View3D(QWidget):
             )
         self._tint = (key, found)
         return found
+
+    def _selected(self) -> frozenset[int]:
+        """What the selected extrudes made, worked out once per scene and selection."""
+        selection = self.session.selection
+        made = self._made
+        if made is not None and made[0] is self.scene and made[1] == selection:
+            return made[2]
+        found: frozenset[int] = frozenset()
+        for feature in self.session.document.features:
+            if isinstance(feature, Extrude) and feature.id in selection:
+                found |= self._swept(feature)
+        self._made = (self.scene, selection, found)
+        return found
+
+    def _swept(self, extrude: Extrude) -> frozenset[int]:
+        """The triangles of the part's solid that `extrude` made (`Scene.swept_triangles`)."""
+        document = self.session.document
+        plane = next(
+            (
+                f.plane
+                for f in document.features
+                if isinstance(f, Sketch) and f.id == extrude.sketch
+            ),
+            None,
+        )
+        frame = None if plane is None else self.session.queries.plane_frame(plane)
+        if frame is None or isinstance(frame, Error):
+            return frozenset()
+        entities = document.entities
+        profile = extrude.ids or tuple(
+            id for id, e in entities.items() if getattr(e, "sketch", None) == extrude.sketch
+        )
+        rounds = [
+            (e.center, e.radius)
+            for e in (entities.get(id) for id in profile)
+            if isinstance(e, Circle | Arc) and not e.construction
+        ]
+        return self.scene.swept_triangles(
+            extrude.id, frame, extrude.depth, rounds, self._face_at, reversed=extrude.reversed
+        )
+
+    # --- Under the pointer --------------------------------------------------------------
+
+    def set_hover(self, target: object) -> None:
+        """Show `target` as hovered: a plane, a sketch or an extrude by its id, or None. For
+        the Part panel, whose rows are the same things."""
+        self.refresh()
+        lit: frozenset[int] = frozenset()
+        extrude = next(
+            (
+                f
+                for f in self.session.document.features
+                if isinstance(f, Extrude) and f.id == target
+            ),
+            None,
+        )
+        if extrude is not None and not self.scene.proposed:
+            lit = self._swept(extrude)
+        self._show_hover(target, lit)  # type: ignore[arg-type]
+
+    def _hover_now(self) -> None:
+        at = self._hover_at
+        if at is None or self._drag is not None or not self.isVisible():
+            return
+        found, triangle = self._under(at.x(), at.y())
+        on_face = isinstance(found, FaceRef) and triangle is not None
+        self._show_hover(found, self.scene.face_region(triangle) if on_face else frozenset())  # type: ignore[arg-type]
+
+    def _show_hover(self, hover: Picked, lit: frozenset[int]) -> None:
+        if hover != self.hover or lit != self._lit:
+            self.hover, self._lit = hover, lit
+            self.update()
+
+    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802
+        self._hover_at = None
+        self._show_hover(None, frozenset())
+        super().leaveEvent(event)
 
     def _choose(self, found: Picked) -> None:
         if isinstance(found, Plane | FaceRef):
@@ -331,10 +536,15 @@ class View3D(QWidget):
         ) or bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         self._drag = (event.button(), event.position(), panning)
         self._pressed = event.position() if event.button() == Qt.MouseButton.LeftButton else None
+        self._clicked = event.position() if event.button() == Qt.MouseButton.RightButton else None
+        self._show_hover(None, frozenset())  # the view is about to move, or the pick to land
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if self._drag is None:
+            self._hover_at = event.position()
+            if not self._hover_timer.isActive():
+                self._hover_timer.start()
             return
         button, last, panning = self._drag
         if self._pressed is not None:
@@ -342,6 +552,11 @@ class View3D(QWidget):
             if math.hypot(moved.x(), moved.y()) < DRAG_PX:
                 return  # still a click
             self._pressed = None
+        if self._clicked is not None:
+            moved = event.position() - self._clicked
+            if math.hypot(moved.x(), moved.y()) < DRAG_PX:
+                return  # still a right click
+            self._clicked = None
         delta = event.position() - last
         if panning:
             self.camera = self.camera.panned(delta.x(), delta.y())
@@ -354,7 +569,12 @@ class View3D(QWidget):
         if self._pressed is not None and event.button() == Qt.MouseButton.LeftButton:
             at = event.position()
             self._choose(self.pick(at.x(), at.y()))
-        self._drag, self._pressed = None, None
+        if self._clicked is not None and event.button() == Qt.MouseButton.RightButton:
+            at = event.position()  # a right click, not a pan: the menu for what's under it
+            self.menu_requested.emit(self.pick(at.x(), at.y()), self.mapToGlobal(at.toPoint()))
+        self._drag, self._pressed, self._clicked = None, None, None
+        self._hover_at = event.position()
+        self._hover_timer.start()
         event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -422,6 +642,29 @@ def pinched(
         return None
     at = event.position()
     return camera.zoomed(1.0 + event.value(), (at.x(), at.y()), (width, height))
+
+
+def _within(inner: BoundingBox3, outer: BoundingBox3) -> bool:
+    slack = 1e-6
+    return (
+        inner.x_min >= outer.x_min - slack
+        and inner.y_min >= outer.y_min - slack
+        and inner.z_min >= outer.z_min - slack
+        and inner.x_max <= outer.x_max + slack
+        and inner.y_max <= outer.y_max + slack
+        and inner.z_max <= outer.z_max + slack
+    )
+
+
+def _around(a: BoundingBox3, b: BoundingBox3) -> BoundingBox3:
+    return BoundingBox3(
+        x_min=min(a.x_min, b.x_min),
+        y_min=min(a.y_min, b.y_min),
+        z_min=min(a.z_min, b.z_min),
+        x_max=max(a.x_max, b.x_max),
+        y_max=max(a.y_max, b.y_max),
+        z_max=max(a.z_max, b.z_max),
+    )
 
 
 def _mesh(queries: Queries) -> Mesh | Error:

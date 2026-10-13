@@ -247,6 +247,7 @@ class MainWindow(QMainWindow):
             self.grid_action,
             self.constraints_action,
             self.snap_action,
+            self.planes_action,
             self.left_panel_action,
             self.right_panel_action,
             self.tray_action,
@@ -318,6 +319,11 @@ class MainWindow(QMainWindow):
         self.snap_action = self._action("Snap to Grid", self._toggle_snap)
         self.snap_action.setCheckable(True)
         self.snap_action.setChecked(True)
+        self.planes_action = self._toggle("Show Planes", self._show_planes, checked=True)
+        self.planes_action.setToolTip(
+            "The part's Top, Front, and Right planes in the 3D view. Once the part has a "
+            "feature they're faint outlines; hidden, they can't be picked"
+        )
         for action, name in (
             (self.undo_action, "undo"),
             (self.redo_action, "redo"),
@@ -488,6 +494,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.grid_action)
         view_menu.addAction(self.constraints_action)
         view_menu.addAction(self.snap_action)
+        view_menu.addAction(self.planes_action)
 
         part_menu = bar.addMenu("Part")
         part_menu.addAction(self.sketch_action)
@@ -610,6 +617,7 @@ class MainWindow(QMainWindow):
         self.features.editing = lambda: self.sketch_open if self.mode == "3d" else None
         self.features.edit_requested.connect(self.edit_sketch)
         self.features.sketch_requested.connect(self.new_sketch)
+        self.features.hovered.connect(self.view3d.set_hover)
         split = QSplitter(Qt.Orientation.Vertical)
         split.setObjectName("browser-split")
         split.setChildrenCollapsible(False)
@@ -932,6 +940,7 @@ class MainWindow(QMainWindow):
             "right_panel": self.right_panel_action,
             "tool_tray": self.tray_action,
             "agent_prompt": self.prompt_action,
+            "planes": self.planes_action,
         }
         for name, action in folds.items():
             action.setChecked(_remembered(name, action.isChecked()))
@@ -1260,6 +1269,7 @@ class MainWindow(QMainWindow):
             self.show_message(
                 "Pick a plane (Top, Front, Right), a flat face, or a sketch, then Sketch"
             )
+            self.view3d.offer_planes()  # in full, hidden or faint as they were, to pick one
             menu = self.sketch_button.menu()
             if menu is not None and self.sketch_button.isVisible():  # the planes, to pick one
                 menu.popup(self.sketch_button.mapToGlobal(self.sketch_button.rect().bottomLeft()))
@@ -1558,6 +1568,10 @@ class MainWindow(QMainWindow):
     def _toggle_constraints(self, checked: bool) -> None:
         self.canvas.show_constraints = checked
         self.canvas.update()
+
+    def _show_planes(self, shown: bool) -> None:
+        self.view3d.set_show_planes(shown)
+        self.canvas.update()  # the part behind a sketch shows them too
 
     def _toggle_snap(self, checked: bool) -> None:
         self.canvas.snap_to_grid = checked

@@ -8,11 +8,11 @@ engine's mesh.
 """
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from itertools import pairwise
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from caliper.app import theme
@@ -51,6 +51,19 @@ FACE_TOLERANCE = 1e-4
 """How far, in mm, a point of the mesh may stray from its face's plane and still be on it."""
 FACING = math.cos(math.radians(0.5))
 """A triangle facing within half a degree of a face's way is facing it (as `face_at`)."""
+DIM = 1 / 3
+"""How much of its own colour the solid keeps behind a sketch being drawn on it; the rest is
+the canvas's, so the sketch's lines read against it."""
+ROUND_TOLERANCE = 1e-3
+"""How far, in mm, a vertex of the mesh may be from a circle of a profile and still be on the
+wall the circle swept."""
+ACROSS = math.sin(math.radians(0.5))
+"""A wall's triangle faces across the sweep, within half a degree."""
+PLANE_LOOKS = ("auto", "full", "hidden")
+"""How the origin planes are drawn: filled until the part has a feature and faint outlines
+after ("auto"), filled whatever the part has ("full": Sketch is waiting for one to be picked),
+or not at all ("hidden": View → Show Planes is off). One picked or under the pointer is always
+drawn in full."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +95,11 @@ class Scene:
     proposed: bool = False
     """The solid is one an agent's proposal would leave, not the part's: drawn in the agent's
     colour, its edges dashed, until the proposal is accepted or rejected (C-16)."""
+    preview: bool = False
+    """The solid is the one the Extrude form's fields would make: not the part's either, and
+    drawn in the preview's colour, not the agent's."""
+    quiet: bool = False
+    """The part has a feature: its planes step back to faint outlines (`PLANE_LOOKS`)."""
 
     @classmethod
     def of(
@@ -90,6 +108,7 @@ class Scene:
         mesh: Mesh | None,
         *,
         proposed: bool = False,
+        preview: bool = False,
         curves: tuple[Curve, ...] | None = None,
     ) -> "Scene":
         """`curves`, when given, are `document`'s sketches as a scene already worked them
@@ -111,20 +130,15 @@ class Scene:
             normals=normals,
             creases=creases,
             proposed=proposed,
+            preview=preview,
+            quiet=bool(document.features),
         )
 
     def box(self) -> BoundingBox3:
         """What fitting the view shows: the solid, or else the planes."""
-        if self.mesh is not None and self.mesh.vertices:
-            v = self.mesh.vertices
-            return BoundingBox3(
-                x_min=min(p.x for p in v),
-                y_min=min(p.y for p in v),
-                z_min=min(p.z for p in v),
-                x_max=max(p.x for p in v),
-                y_max=max(p.y for p in v),
-                z_max=max(p.z for p in v),
-            )
+        solid = mesh_box(self.mesh)
+        if solid is not None:
+            return solid
         h = self.half
         return BoundingBox3(x_min=-h, y_min=-h, z_min=-h, x_max=h, y_max=h, z_max=h)
 
@@ -141,16 +155,23 @@ class Scene:
         selected: frozenset[EntityId] = frozenset(),
         hidden: EntityId | None = None,
         tinted: frozenset[int] = frozenset(),
+        hovered: Picked = None,
+        lit: frozenset[int] = frozenset(),
+        dim: bool = False,
+        planes: str = "auto",
     ) -> None:
         """The planes behind everything, then the sketches, then the solid, which hides what's
         behind it; a picked sketch last, in sight wherever it is. `hidden` is the sketch the
-        canvas draws itself; `tinted`, the triangles of a picked face."""
+        canvas draws itself; `tinted`, the triangles of what's picked: a face, or what a
+        selected extrude made. `hovered` is the plane or sketch under the pointer and `lit`
+        the triangles under it, drawn in the hover colour. `dim` draws the solid behind a
+        sketch being drawn on; `planes` is one of `PLANE_LOOKS`."""
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._planes(painter, camera, width, height, picked if isinstance(picked, Plane) else None)
-        self._sketches(painter, camera, width, height, selected, hidden, picked_only=False)
+        self._planes(painter, camera, width, height, picked, hovered, planes)
+        self._sketches(painter, camera, width, height, selected, hidden, hovered, picked_only=False)
         if self.mesh is not None and self.mesh.triangles:
-            self._solid(painter, camera, width, height, tinted)
-        self._sketches(painter, camera, width, height, selected, hidden, picked_only=True)
+            self._solid(painter, camera, width, height, tinted, lit, dim)
+        self._sketches(painter, camera, width, height, selected, hidden, hovered, picked_only=True)
         o = camera.project(part.frame(Plane.XY).origin, width, height)
         painter.setPen(_pen(theme.TEXT_DIM, 1.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -158,24 +179,49 @@ class Scene:
         painter.drawPoint(QPointF(o.x, o.y))
 
     def _planes(
-        self, painter: QPainter, camera: Camera, width: float, height: float, picked: Plane | None
+        self,
+        painter: QPainter,
+        camera: Camera,
+        width: float,
+        height: float,
+        picked: object,
+        hovered: object,
+        look: str,
     ) -> None:
         h = self.half
         project = camera.projector(width, height)
+        names: list[tuple[QPointF, str, QColor]] = []
         for plane in PLANES:
+            chosen, under = plane is picked, plane is hovered
+            if look == "hidden" and not chosen and not under:
+                continue
             frame = part.frame(plane)
             corners = [
                 project(_on(frame, Point2(x=u, y=v)))
                 for u, v in ((-h, -h), (h, -h), (h, h), (-h, h))
             ]
-            chosen = plane is picked
-            painter.setPen(_pen(theme.ACCENT if chosen else theme.PLANE, 1.5 if chosen else 1.0))
-            painter.setBrush(theme.PICKED_PLANE_FILL if chosen else theme.PLANE_FILL)
+            if chosen:
+                ink, pen, fill = theme.ACCENT, _pen(theme.ACCENT, 1.5), theme.PICKED_PLANE_FILL
+            elif under:
+                ink, pen, fill = theme.HOVER, _pen(theme.HOVER, 1.5), theme.PLANE_FILL
+            elif look == "auto" and self.quiet:  # an outline, out of the part's way
+                ink, pen, fill = theme.FAINT_PLANE, _pen(theme.FAINT_PLANE, 1.0), None
+            else:
+                ink, pen, fill = theme.PLANE, _pen(theme.PLANE, 1.0), theme.PLANE_FILL
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush if fill is None else fill)
             painter.drawPolygon(QPolygonF([QPointF(c[0], c[1]) for c in corners]))
             corner = corners[3]  # the plane's own top left: where Onshape names it
-            painter.setPen(theme.ACCENT if chosen else theme.PLANE)
-            painter.setFont(theme.font())
-            painter.drawText(QPointF(corner[0] + 6, corner[1] + 16), PLANE_NAMES[plane])
+            names.append((QPointF(corner[0] + 6, corner[1] + 16), PLANE_NAMES[plane], ink))
+        # The names after every plane, each on the canvas's colour: no plane's edge runs
+        # through a name.
+        painter.setFont(theme.font())
+        metrics = painter.fontMetrics()
+        for at, name, ink in names:
+            box = QRectF(metrics.boundingRect(name)).translated(at)
+            painter.fillRect(box.adjusted(-2, 0, 2, 0), theme.CANVAS)
+            painter.setPen(ink)
+            painter.drawText(at, name)
 
     def _solid(
         self,
@@ -184,6 +230,8 @@ class Scene:
         width: float,
         height: float,
         tinted: frozenset[int] = frozenset(),
+        lit: frozenset[int] = frozenset(),
+        dim: bool = False,
     ) -> None:
         """The triangles facing the viewer, farthest first (the painter's algorithm), each
         edge drawn just after the nearer of its two faces: a nearer face then covers the
@@ -199,10 +247,10 @@ class Scene:
         light: dict[int, float] = {}
         for index, (a, b, c) in enumerate(mesh.triangles):
             n = normals[index]
-            lit = n.x * bx + n.y * by + n.z * bz  # `facing`, the axes worked out once
-            if lit > 0:  # facing away: hidden behind the faces that face the viewer
+            towards = n.x * bx + n.y * by + n.z * bz  # `facing`, the axes worked out once
+            if towards > 0:  # facing away: hidden behind the faces that face the viewer
                 depth[index] = (flat[a][2] + flat[b][2] + flat[c][2]) / 3
-                light[index] = lit
+                light[index] = towards
         # (depth, 0 for a face or 1 for an edge, which) so an edge comes after its face.
         order: list[tuple[float, int, int]] = [(d, 0, i) for i, d in depth.items()]
         for k, (_, _, left, right) in enumerate(self.creases):
@@ -210,12 +258,18 @@ class Scene:
             if seen:
                 order.append((max(seen), 1, k))
         order.sort()
-        if self.proposed:  # as the canvas draws what a proposal adds: the agent's colour
+        if self.preview:  # the Extrude form's: the colour of a shape being drawn
+            base = theme.PREVIEW_SOLID
+            edge = _pen(theme.PREVIEW, theme.GEOMETRY_WIDTH, Qt.PenStyle.DashLine)
+        elif self.proposed:  # as the canvas draws what a proposal adds: the agent's colour
             base = theme.PROPOSED_SOLID
             edge = _pen(theme.AGENT, theme.GEOMETRY_WIDTH, Qt.PenStyle.DashLine)
         else:
             base = theme.SOLID
             edge = _pen(theme.SOLID_EDGE, theme.GEOMETRY_WIDTH)
+        keep = DIM if dim else 1.0
+        ground = theme.CANVAS
+        gr, gg, gb = (c * (1 - keep) for c in (ground.redF(), ground.greenF(), ground.blueF()))
         for _, kind, index in order:
             if kind == 1:
                 p, q, _, _ = self.creases[index]
@@ -225,9 +279,15 @@ class Scene:
                 continue
             a, b, c = mesh.triangles[index]
             shade = AMBIENT + (1 - AMBIENT) * light[index]
-            tint = theme.ACCENT if index in tinted else base
+            if index in tinted:
+                tint = theme.ACCENT
+            elif index in lit:
+                tint = theme.HOVER_SOLID
+            else:
+                tint = base
+            shade *= keep
             color = QColor.fromRgbF(
-                tint.redF() * shade, tint.greenF() * shade, tint.blueF() * shade
+                gr + tint.redF() * shade, gg + tint.greenF() * shade, gb + tint.blueF() * shade
             )
             painter.setPen(QPen(color, 0.75))  # covers the hairline seams between triangles
             painter.setBrush(color)
@@ -241,6 +301,7 @@ class Scene:
         height: float,
         selected: frozenset[EntityId],
         hidden: EntityId | None,
+        hovered: object = None,
         *,
         picked_only: bool,
     ) -> None:
@@ -251,6 +312,8 @@ class Scene:
                 continue
             if curve.sketch in selected:
                 pen = _pen(theme.ACCENT, theme.HIGHLIGHT_WIDTH)
+            elif curve.sketch == hovered:
+                pen = _pen(theme.HOVER, theme.HIGHLIGHT_WIDTH)
             elif curve.construction:
                 pen = _pen(theme.CONSTRUCTION, theme.GUIDE_WIDTH, Qt.PenStyle.DashLine)
             else:
@@ -274,12 +337,32 @@ class Scene:
         *,
         hidden: EntityId | None = None,
         faces: FaceNamer | None = None,
+        planes: bool = True,
     ) -> Picked:
         """What's under the pixel (x, y): a sketch's curve within `PICK_PX` (one the solid is
         in front of is hidden by it); else, with `faces` to name them, the solid there (its
         flat face, or nothing on a curved one), since the planes are drawn see-through over it;
-        else the nearest plane there; else nothing."""
+        else the nearest plane there, unless `planes` says they aren't shown; else nothing."""
         solid = self.solid_hit(camera, width, height, x, y) if faces is not None else None
+        return self.pick_over(
+            camera, width, height, x, y, solid, hidden=hidden, faces=faces, planes=planes
+        )
+
+    def pick_over(
+        self,
+        camera: Camera,
+        width: float,
+        height: float,
+        x: float,
+        y: float,
+        solid: "Hit | None",
+        *,
+        hidden: EntityId | None = None,
+        faces: FaceNamer | None = None,
+        planes: bool = True,
+    ) -> Picked:
+        """`pick`, for a caller that has `solid_hit` there already (`solid`), and wants the
+        triangle it hit as well as what it names."""
         # A curve the solid is in front of is hidden by it; one on its surface isn't.
         behind = 2 * PICK_PX / camera.scale
         best: tuple[float, EntityId] | None = None
@@ -303,7 +386,7 @@ class Scene:
             z=t.z + su * right.z + sv * up.z,
         )
         nearest: tuple[float, Plane] | None = None
-        for plane in PLANES:
+        for plane in PLANES if planes else ():
             frame = part.frame(plane)
             n = _cross(frame.x, frame.y)
             across = _dot(back, n)
@@ -325,7 +408,7 @@ class Scene:
 
     def solid_hit(
         self, camera: Camera, width: float, height: float, x: float, y: float
-    ) -> tuple[float, Point3, Point3, int] | None:
+    ) -> "Hit | None":
         """The solid under the pixel (x, y): the nearest triangle facing the viewer there, as
         its depth (larger is nearer), the point on it, its outward normal, and its index."""
         mesh = self.mesh
@@ -334,7 +417,7 @@ class Scene:
         project = camera.projector(width, height)
         back = camera.axes()[2]
         v = mesh.vertices
-        best: tuple[float, Point3, Point3, int] | None = None
+        best: Hit | None = None
         for index, (i, j, k) in enumerate(mesh.triangles):
             n = self.normals[index]
             if n.x * back.x + n.y * back.y + n.z * back.z <= 0:
@@ -405,6 +488,106 @@ class Scene:
             if faces(centre, m) == ref:
                 found.add(index)
         return frozenset(found)
+
+    def flat_faces(self) -> list[frozenset[int]]:
+        """The solid's flat faces, each as its triangles (`face_region`), worked out once per
+        mesh. A facet of a round wall isn't one: its neighbour turns from it by less than a
+        crease."""
+        mesh = self.mesh
+        if mesh is None:
+            return []
+        for kept, found in _FLAT:
+            if kept is mesh:
+                return found
+        touching = _adjacency(mesh)
+        smooth = math.cos(math.radians(CREASE_DEGREES))
+        seen: set[int] = set()
+        found = []
+        for index in range(len(mesh.triangles)):
+            if index in seen:
+                continue
+            region = self.face_region(index)
+            seen |= region
+            n = self.normals[index]
+            if not any(
+                other not in region and _dot(self.normals[other], n) >= smooth
+                for triangle in region
+                for other in touching[triangle]
+            ):
+                found.append(region)
+        _FLAT.append((mesh, found))
+        del _FLAT[:-SHAPES_KEPT]
+        return found
+
+    def swept_triangles(
+        self,
+        id: EntityId,
+        frame: Frame,
+        depth: float,
+        rounds: Sequence[tuple[Point2, float]],
+        faces: FaceNamer,
+        *,
+        reversed: bool = False,
+    ) -> frozenset[int]:
+        """What's left on the solid of what the extrude `id` made, to show it selected: its
+        flat faces, by name (`faces`), and its round walls, which have no name (ADR 0016), by
+        where they are: on a circle or an arc of its profile (`rounds`: centres and radii, on
+        the sketch's `frame`), within its `depth` along the frame's normal, or against it
+        when `reversed`. A face a later cut removed isn't there to find."""
+        mesh = self.mesh
+        if mesh is None:
+            return frozenset()
+        v = mesh.vertices
+        found: set[int] = set()
+        for region in self.flat_faces():
+            seed = min(region)
+            a, b, c = (v[i] for i in mesh.triangles[seed])
+            centre = Point3(
+                x=(a.x + b.x + c.x) / 3, y=(a.y + b.y + c.y) / 3, z=(a.z + b.z + c.z) / 3
+            )
+            ref = faces(centre, self.normals[seed])
+            if ref is not None and ref.feature == id:
+                found |= region
+        if not rounds:
+            return frozenset(found)
+        o, n = frame.origin, _cross(frame.x, frame.y)
+        way = -1.0 if reversed else 1.0
+
+        def on_wall(p: Point3) -> bool:
+            d = Point3(x=p.x - o.x, y=p.y - o.y, z=p.z - o.z)
+            if not -ROUND_TOLERANCE <= way * _dot(d, n) <= depth + ROUND_TOLERANCE:
+                return False
+            px, py = _dot(d, frame.x), _dot(d, frame.y)
+            return any(
+                abs(math.hypot(px - centre.x, py - centre.y) - radius) <= ROUND_TOLERANCE
+                for centre, radius in rounds
+            )
+
+        for index, triangle in enumerate(mesh.triangles):
+            across = abs(_dot(self.normals[index], n)) <= ACROSS
+            if index not in found and across and all(on_wall(v[i]) for i in triangle):
+                found.add(index)
+        return frozenset(found)
+
+
+Hit = tuple[float, Point3, Point3, int]
+"""`Scene.solid_hit`: a depth (larger is nearer), the point, its triangle's outward normal, and
+the triangle's index."""
+
+
+def mesh_box(mesh: Mesh | None) -> BoundingBox3 | None:
+    """The box around a solid's mesh; None for no solid, or an empty one."""
+    if mesh is None or not mesh.vertices:
+        return None
+    v = mesh.vertices
+    return BoundingBox3(
+        x_min=min(p.x for p in v),
+        y_min=min(p.y for p in v),
+        z_min=min(p.z for p in v),
+        x_max=max(p.x for p in v),
+        y_max=max(p.y for p in v),
+        z_max=max(p.z for p in v),
+    )
 
 
 def facing_camera(frame: Frame, center: Point2, scale: float) -> Camera:
@@ -554,6 +737,8 @@ def _shape(mesh: Mesh) -> tuple[list[Point3], list[tuple[int, int, int, int]], f
 
 _ADJACENT: list[tuple[Mesh, list[list[int]]]] = []
 """The last few meshes' triangle neighbours, each kept with its mesh (as `_SHAPES`)."""
+_FLAT: list[tuple[Mesh, list[frozenset[int]]]] = []
+"""The last few meshes' flat faces (`Scene.flat_faces`), each kept with its mesh."""
 
 
 def _adjacency(mesh: Mesh) -> list[list[int]]:

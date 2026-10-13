@@ -12,7 +12,7 @@ contract the AI uses; the panel holds no state of its own.
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -82,6 +82,9 @@ class FeatureTree(QWidget):
     """A sketch's id the user wants to edit."""
     sketch_requested = Signal(object)
     """A `Plane` the user wants to start a sketch on."""
+    hovered = Signal(object)
+    """The plane or the feature (its id) of the row under the pointer, or None: the 3D view
+    shows it as hovered, so a row and what it names are seen to be the same thing."""
 
     def __init__(self, session: DocumentSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -127,6 +130,9 @@ class FeatureTree(QWidget):
         """The document and the sketch being edited the rows show."""
         self.editing: Callable[[], EntityId | None] = lambda: session.active_sketch
         """The sketch open for editing, marked in its row: the window says which."""
+        self.tree.setMouseTracking(True)
+        self.tree.itemEntered.connect(lambda item: self.hovered.emit(self.target(item)))
+        self.tree.viewport().installEventFilter(self)
         self.tree.itemSelectionChanged.connect(self._push_selection)
         self.tree.itemDoubleClicked.connect(self._double_clicked)
         session.document_changed.connect(self.rebuild)
@@ -232,10 +238,23 @@ class FeatureTree(QWidget):
         if ids:
             self.session.set_selection(ids)
 
-    def _double_clicked(self, item: QTreeWidgetItem) -> None:
+    def target(self, item: QTreeWidgetItem | None) -> Plane | EntityId | None:
+        """What a row names: a plane, a feature by its id, or nothing (a heading, the origin).
+        Plane rows are told apart by the row itself: Qt keeps a Plane's data as a plain str."""
         plane = next((p for p, row in self.planes.items() if row is item), None)
+        if plane is not None or item is None:
+            return plane
         id = item.data(0, ID_ROLE)
-        if plane is not None:
-            self.sketch_requested.emit(plane)
-        elif any(isinstance(f, Sketch) and f.id == id for f in self.session.document.features):
-            self.edit_requested.emit(id)
+        return EntityId(id) if id in self.items else None
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.Leave and watched is self.tree.viewport():
+            self.hovered.emit(None)
+        return super().eventFilter(watched, event)
+
+    def _double_clicked(self, item: QTreeWidgetItem) -> None:
+        found = self.target(item)
+        if isinstance(found, Plane):
+            self.sketch_requested.emit(found)
+        elif any(isinstance(f, Sketch) and f.id == found for f in self.session.document.features):
+            self.edit_requested.emit(found)

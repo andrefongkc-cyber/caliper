@@ -25,7 +25,8 @@ from caliper.contracts.document import EntityId, FaceRef, Plane, Point2
 from caliper.contracts.queries import BoundingBox, Frame, Point3
 
 Painter = Callable[..., None]
-"""`View3D.paint_scene`: (painter, camera, width, height, **options)."""
+"""`View3D.paint_scene`: (painter, camera, width, height, **options). The backdrop asks for the
+solid dimmed (`dim`): it's behind a sketch being drawn, whose lines have to read against it."""
 Shows = Callable[[EntityId | None], object]
 """`View3D.shows`: what the scene draws with a sketch left out, equal only when it's the same."""
 Solid = Callable[[], object]
@@ -117,6 +118,7 @@ class Backdrop:
             width,
             height,
             hidden=self.sketch if self.facing else None,
+            dim=True,
         )
 
     def draw(
@@ -140,7 +142,7 @@ class Backdrop:
             image = QPixmap(round(width * ratio), round(height * ratio))
             image.setDevicePixelRatio(ratio)
             painter = QPainter(image)
-            self.paint_scene(painter, camera, width, height, hidden=hidden)
+            self.paint_scene(painter, camera, width, height, hidden=hidden, dim=True)
             painter.end()
             self._image, self._image_key = image, key
         return self._image

@@ -49,8 +49,23 @@ PROPOSED_SOLID = QColor(
 )
 """A solid an agent's proposal would make (C-16): the solid's colour, half way to the agent's,
 so it shades as a solid does and still reads as the agent's."""
+
+
+def _between(a: QColor, b: QColor) -> QColor:
+    return QColor(
+        (a.red() + b.red()) // 2, (a.green() + b.green()) // 2, (a.blue() + b.blue()) // 2
+    )
+
+
+PREVIEW_SOLID = _between(SOLID, PREVIEW)
+"""A solid the Extrude form's fields would make, before it's made: the solid's colour, half way
+to the preview's, as a proposed solid is half way to the agent's."""
+HOVER_SOLID = _between(SOLID, HOVER)
+"""The face of the solid under the pointer."""
 AXIS_Z = QColor(P.axis_z)
 PLANE = QColor(P.plane)
+FAINT_PLANE = QColor(PLANE.red(), PLANE.green(), PLANE.blue(), 5 * P.plane_alpha)
+"""A plane's outline once the part has a feature: there, and out of the part's way."""
 PLANE_FILL = QColor(PLANE.red(), PLANE.green(), PLANE.blue(), P.plane_alpha)
 PICKED_PLANE_FILL = QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 2 * P.plane_alpha)
 

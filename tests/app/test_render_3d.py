@@ -177,9 +177,14 @@ def solid_per_point(
     width: float,
     height: float,
     tinted: frozenset[int] = frozenset(),
+    lit: frozenset[int] = frozenset(),
+    dim: bool = False,
 ) -> None:
     """`Scene._solid` as it was before Perf-8: every vertex and crease end projected with
-    `Camera.project`, and each face's light from `facing`, the axes worked out each time."""
+    `Camera.project`, and each face's light from `facing`, the axes worked out each time.
+    Nothing hovered and nothing dimmed, which came later: the part as it's drawn at rest."""
+    assert not lit
+    assert not dim
     mesh = scene.mesh
     assert mesh is not None
     flat = [camera.project(p, width, height) for p in mesh.vertices]
