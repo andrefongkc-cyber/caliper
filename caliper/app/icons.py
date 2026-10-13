@@ -53,6 +53,12 @@ _SHAPES: dict[str, str] = {
     "redo": '<path d="M12.5 5 L16 8.5 L12.5 12 M16 8.5 H8 A4 4 0 0 0 8 16.5 H11"/>',
     "measure": '<path d="M3 13 L13 3 L17 7 L7 17 Z M6 10 L7.5 11.5 M8.5 7.5 L10 9 M11 5 '
     'L12.5 6.5"/>',
+    # A plane seen at an angle, with a line drawn on it.
+    "sketch": '<path d="M2.5 15.5 L6.5 8.5 H17.5 L13.5 15.5 Z"/><path d="M7.5 13 L12.5 10.5"/>'
+    '<circle cx="7.5" cy="13" r="1"/><circle cx="12.5" cy="10.5" r="1"/>',
+    # A profile lying flat, and the way it's swept: up from it.
+    "extrude": '<path d="M3.5 14 L8 11.5 L16.5 14 L12 16.5 Z"/>'
+    '<path d="M10 12.5 V3.5 M7.5 6 L10 3.5 L12.5 6"/>',
     # Two chevrons: the tools that don't fit the bar, behind its overflow button.
     "more": '<path d="M5 5.5 L9.5 10 L5 14.5 M10.5 5.5 L15 10 L10.5 14.5"/>',
 }

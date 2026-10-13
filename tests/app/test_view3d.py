@@ -101,11 +101,15 @@ def test_each_tab_is_its_own_document_with_its_own_history(window: MainWindow) -
 
 
 def test_the_toggle_is_in_the_toolbar_and_on_command_and_keys(window: MainWindow) -> None:
-    buttons = {b.objectName() for b in window.tool_bar.findChildren(QToolButton)}
-    assert {"mode-2d", "mode-3d", "sketch"} <= buttons
+    def buttons() -> set[str]:
+        return {b.objectName() for b in window.tool_bar.findChildren(QToolButton)}
+
+    assert {"mode-2d", "mode-3d"} <= buttons()
+    assert "sketch" not in buttons()  # the part's tools aren't the 2D sketch's
     assert window.mode_2d_action.isChecked()
     window.mode_3d_action.trigger()
     assert window.mode == "3d"
+    assert {"sketch", "extrude"} <= buttons()
     assert window.mode_3d_action.isChecked()
     assert not window.mode_2d_action.isChecked()
     assert window.mode_3d_action.shortcut().toString() == "Ctrl+2"

@@ -327,15 +327,6 @@ class MainWindow(QMainWindow):
             "The part's Top, Front, and Right planes in the 3D view. Once the part has a "
             "feature they're faint outlines; hidden, they can't be picked"
         )
-        for action, name in (
-            (self.undo_action, "undo"),
-            (self.redo_action, "redo"),
-            (self.fit_action, "fit"),
-            (self.grid_action, "grid"),
-            (self.constraints_action, "badges"),
-        ):
-            action.setIcon(icons.icon(name))
-
         # The core mode switch (ADR 0015): the part in 3D, a sketch to test on in 2D. Each tab
         # is its own document.
         self.mode_2d_action = self._action("2D Sketch", lambda: self.set_mode("2d"), "Ctrl+1")
@@ -373,6 +364,17 @@ class MainWindow(QMainWindow):
         self.cancel_sketch_action = self._action("Cancel Sketch", self.cancel_sketch)
         self.face_action = self._action("Face the Sketch", self._face, "N")
         self.face_action.setToolTip("Look straight at the sketch again, to keep drawing (N)")
+
+        for action, name in (
+            (self.sketch_action, "sketch"),
+            (self.extrude_action, "extrude"),
+            (self.undo_action, "undo"),
+            (self.redo_action, "redo"),
+            (self.fit_action, "fit"),
+            (self.grid_action, "grid"),
+            (self.constraints_action, "badges"),
+        ):
+            action.setIcon(icons.icon(name))
 
         self.palette_action = self._action("Command Palette…", self.palette.open, "Ctrl+K")
         self.ask_action = self._action("Ask the Agent…", self._focus_prompt, "Ctrl+L")
@@ -577,19 +579,21 @@ class MainWindow(QMainWindow):
             planes.addAction(action)
         sketch.setMenu(planes)
         self.sketch_button = sketch
-        tools.addWidget(sketch)
-        tools.addAction(self.extrude_action)
-        tools.widgetForAction(self.extrude_action).setObjectName("extrude")
-        tools.addSeparator()
+        self._sketch_item = tools.addWidget(sketch)
+        """The Sketch button's place in the tray: taken out and put back with the context."""
+        tools.removeAction(self._sketch_item)
         # Groups by category, so a later category adds a group, not a redesign.
+        self._drawing_items: list[QAction] = []
+        """The sketch tools, a separator after each category: in the tray while there's a
+        sketch to draw on."""
         for category in ("select", "create", "constrain", "inspect"):
             for name, tool in self.controller.tools.items():
                 if tool.category == category:
-                    tools.addAction(self.tool_actions[name])
-            tools.addSeparator()
-        for action in (self.fit_action, self.constraints_action):
-            tools.addAction(action)  # icons only: they read at a glance, and the bar stays one row
-            tools.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                    self._drawing_items.append(self.tool_actions[name])
+            self._drawing_items.append(self._separator())
+        self._part_separator = self._separator()
+        self._tray_shows: tuple[bool, bool] | None = None
+        """Whether the tray last held the part's tools, and the sketch's (`_fill_tray`)."""
         more = tools.findChild(QToolButton, "qt_toolbar_ext_button")
         if more is not None:  # Qt's own arrow is dark, on a dark bar: ours is in the ink
             more.setIcon(icons.icon("more"))
@@ -599,6 +603,51 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.tool_bar = bar
         """The top bar: the 2D/3D switch, then the tray of tools (`self.tray.bar`)."""
+
+    def _separator(self) -> QAction:
+        line = QAction(self)
+        line.setSeparator(True)
+        return line
+
+    def _fill_tray(self, *, part: bool, drawing: bool) -> None:
+        """Put in the tray what the context can use, and nothing it can't: Sketch and Extrude
+        for the part (`part`), the sketch tools while there's a sketch to draw on (`drawing`).
+        The menus and the palette keep every action, disabled where it can't run; the tray is
+        the short list of what can."""
+        if self._tray_shows == (part, drawing):
+            return
+        self._tray_shows = (part, drawing)
+        tools = self.tray.bar
+        wanted: list[QAction] = []
+        if part and not drawing:
+            wanted.append(self._sketch_item)  # a sketch is open already while drawing
+        if part:
+            wanted += [self.extrude_action, self._part_separator]
+        if drawing:
+            wanted += self._drawing_items
+        wanted.append(self.fit_action)
+        if drawing:
+            wanted.append(self.constraints_action)
+        # Only what changes is taken out or put in: a button that stays isn't made again.
+        for action in tools.actions():
+            if action not in wanted:
+                button = tools.widgetForAction(action)
+                if button is not None and action is not self._sketch_item:
+                    button.setObjectName("")  # Qt deletes it later: it isn't "extrude" now
+                tools.removeAction(action)
+        present = tools.actions()
+        for index, action in enumerate(wanted):
+            if action not in present:
+                after = next((a for a in wanted[index + 1 :] if a in present), None)
+                tools.insertAction(after, action)  # type: ignore[arg-type]
+                present.append(action)
+        if part:
+            tools.widgetForAction(self.extrude_action).setObjectName("extrude")
+        for action in (self.fit_action, self.constraints_action):
+            button = tools.widgetForAction(action)
+            if isinstance(button, QToolButton):  # icons only: they read at a glance
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.tray.refit()
 
     def _build_dock(self) -> None:
         features = QDockWidget.DockWidgetFeature.DockWidgetMovable
@@ -1254,6 +1303,7 @@ class MainWindow(QMainWindow):
         elif backdrop.drawable:
             hint = "At an angle: draw on the sketch's plane, or N to face it"
         else:
+        self._fill_tray(part=self.mode == "3d", drawing=self.mode == "2d" or sketching)
             hint = "Turned too far to draw: press N to face the sketch and keep drawing"
         self.sketch_hint.setText(hint)
         self.sketch_bar.adjustSize()

@@ -260,7 +260,7 @@ def test_in_a_narrower_window_the_tray_takes_whats_left(window: MainWindow, qtbo
     assert tray.isVisible()
     assert tray.bar.x() == 0
     assert tray.bar.width() == tray.width()
-    assert window.sketch_button.isVisible()
+    assert tray.bar.widgetForAction(window.tool_actions["Select"]).isVisible()
     qtbot.waitUntil(lambda: overflow(window))
     window.resize(800, 700)
     qtbot.waitUntil(lambda: tray.bar.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly)

@@ -73,7 +73,7 @@ def test_tool_bar_drops_labels_when_the_window_is_narrow(window, qtbot) -> None:
 def test_the_overflow_button_can_be_seen_on_the_dark_bar(window, qtbot) -> None:
     """In a window too narrow for every tool, the rest wait behind the bar's overflow button.
     Qt draws its arrow dark, which a dark bar hides: ours is in the ink, like the tools."""
-    window.resize(window.minimumSizeHint().width(), 600)
+    window.resize(1000, 600)  # labels still on: narrower, they drop and every tool fits
     more = window.tray.bar.findChild(QToolButton, "qt_toolbar_ext_button")
     qtbot.waitUntil(more.isVisible)
     assert more.toolTip() == "More tools"

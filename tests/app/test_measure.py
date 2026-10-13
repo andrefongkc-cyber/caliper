@@ -82,9 +82,6 @@ def test_measure_sits_in_its_own_tool_bar_group(window) -> None:
     actions = window.tray.bar.actions()  # after the 2D/3D switch, in the sliding tray
     names = [a.text() if not a.isSeparator() else "|" for a in actions]
     assert names[: names.index("Zoom to Fit")] == [
-        "",  # New Sketch, a menu of planes
-        "Extrude…",
-        "|",
         "Select",
         "|",
         "Line",
