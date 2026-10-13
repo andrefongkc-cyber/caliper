@@ -8,6 +8,7 @@ tools, and the agent's prompt fold away for room (`collapse.py`)."""
 
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QSettings, QSize, Qt
@@ -55,6 +56,7 @@ from caliper.app.tokens import SPACE
 from caliper.app.tools.constrain import constraint_options
 from caliper.app.tools.controller import ToolController
 from caliper.app.viewport.backdrop import Backdrop, look
+from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.canvas import Canvas
 from caliper.app.viewport.scene3d import PLANE_NAMES
 from caliper.app.viewport.view3d import View3D
@@ -136,6 +138,9 @@ class MainWindow(QMainWindow):
         """The part behind the canvas while a sketch is edited in 3D, or a proposal shown."""
         self._previewing: EntityId | None = None
         """A sketch a proposal shown in 3D is making, faced before it exists."""
+        self._before_sketch: tuple[Camera, tuple[float, float, float]] | None = None
+        """The 3D view's camera when the canvas turned to face a sketch, and the canvas's view
+        then: where to turn back to when the sketch closes."""
         self._canvas_views: dict[str, tuple[float, float, float]] = {}
         """The canvas's view in each tab, while the other shows: the canvas edits both."""
         self.views = QStackedWidget()
@@ -1336,6 +1341,9 @@ class MainWindow(QMainWindow):
                 self.view3d.solid_shown,
             )
             look(self.canvas.view, frame, camera, self.views.width(), self.views.height())
+            if backdrop is None:
+                view = self.canvas.view
+                self._before_sketch = (camera, (view.scale, view.origin_x, view.origin_y))
         self.sketch_title.setText(f"{place_name(document, plane)}  ·  proposal")
         self._show_views()
         return True
@@ -1379,17 +1387,27 @@ class MainWindow(QMainWindow):
         self.show_message(f"Cancelled the sketch: undid {steps} (Redo brings them back)")
 
     def _close_sketch(self) -> None:
-        """Back to the part in 3D, the view where the sketch left it."""
+        """Back to the part in 3D, seen from where it was before the sketch was faced: facing
+        the sketch was for drawing on it, and face on, an extrude's depth can't be seen. The
+        view still looks at what was drawn, as close: only the turn is undone, and with the
+        sketch's view left as it opened, the camera is exactly where it was. A view the user
+        orbited to while sketching was chosen, and is kept."""
         self._previewing = None
         backdrop = self._backdrop
         if backdrop is None and self.sketch_open is None:
             return
         self.controller.cancel_operation()
         if backdrop is not None:
-            self.view3d.camera = backdrop.camera(
-                self.canvas.view, self.views.width(), self.views.height()
-            )
-        self._backdrop, self.sketch_open = None, None
+            view = self.canvas.view
+            camera = backdrop.camera(view, self.views.width(), self.views.height())
+            if backdrop.facing and self._before_sketch is not None:
+                before, opened = self._before_sketch
+                if (view.scale, view.origin_x, view.origin_y) == opened:
+                    camera = before
+                else:
+                    camera = replace(camera, yaw=before.yaw, pitch=before.pitch)
+            self.view3d.camera = camera
+        self._backdrop, self.sketch_open, self._before_sketch = None, None, None
         self._show_views()
 
     def _face(self) -> None:

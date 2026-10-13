@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from caliper.app.main_window import MainWindow
 from caliper.engine import features, geometry
 from caliper.engine.geometry.fake_kernel import FakeKernel
-from tests.app.parts import plate
+from tests.app.parts import plate, sketch_on
 
 NO_MODIFIER = Qt.KeyboardModifier.NoModifier
 SHIFT = Qt.KeyboardModifier.ShiftModifier
@@ -146,3 +146,59 @@ def test_a_sketch_turned_away_from_scrolls_as_the_part_does(window: MainWindow, 
     assert backdrop.free == free.panned(12, -8)
     scroll(canvas, QPoint(300, 300), pixels=QPoint(20, 0), modifiers=SHIFT)
     assert backdrop.free == free.panned(12, -8).orbited(20, 0)
+
+
+# --- F2: finishing a sketch turns the view back ----------------------------------------------
+
+
+def test_finishing_a_sketch_leaves_the_view_where_it_was(window: MainWindow) -> None:
+    sketch, _, _ = plate(window)
+    view = window.view3d
+    view.camera = view.camera.orbited(40, -25).panned(15, 5)
+    before = view.camera
+    window.edit_sketch(sketch)
+    window.finish_sketch()
+    assert view.camera == before  # not face on to the sketch, where depth can't be seen
+    window.edit_sketch(sketch)
+    window.cancel_sketch()
+    assert view.camera == before
+
+
+def test_a_sketch_panned_while_drawing_closes_looking_at_what_was_drawn(
+    window: MainWindow,
+) -> None:
+    sketch, _, _ = plate(window)
+    view = window.view3d
+    before = view.camera
+    window.edit_sketch(sketch)
+    window.canvas.view.pan(80, -40)
+    window.canvas.view.zoom_about(1.5, 300, 300)
+    backdrop = window.canvas.backdrop
+    assert backdrop is not None
+    faced = backdrop.camera(window.canvas.view, window.views.width(), window.views.height())
+    window.finish_sketch()
+    assert (view.camera.yaw, view.camera.pitch) == (before.yaw, before.pitch)  # turned back
+    assert view.camera.target == faced.target  # still looking at where the drawing was
+    assert view.camera.scale == faced.scale
+
+
+def test_a_view_orbited_to_while_sketching_is_kept(window: MainWindow, qtbot) -> None:  # type: ignore[no-untyped-def]
+    sketch, _, _ = plate(window)
+    window.edit_sketch(sketch)
+    canvas = window.canvas
+    qtbot.mousePress(canvas, Qt.MouseButton.RightButton, pos=QPoint(300, 300))
+    qtbot.mouseMove(canvas, QPoint(340, 330))
+    qtbot.mouseRelease(canvas, Qt.MouseButton.RightButton, pos=QPoint(340, 330))
+    backdrop = canvas.backdrop
+    assert backdrop is not None
+    chosen = backdrop.free
+    window.finish_sketch()
+    assert window.view3d.camera == chosen
+
+
+def test_a_new_sketch_closes_on_the_view_it_opened_from(window: MainWindow) -> None:
+    window.set_mode("3d")
+    before = window.view3d.camera
+    sketch_on(window)
+    window.finish_sketch()
+    assert window.view3d.camera == before
