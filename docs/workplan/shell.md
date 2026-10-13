@@ -1,10 +1,31 @@
-Status: PR #58 open (`shared/proposal-in-3d`, stacked on #57, awaiting Andre): a proposed solid is seen in 3D before Accept (C-16), a proposal waits with its tab (C-18), folds are remembered between launches, sharp pan and zoom, and four smaller fixes; next: Lucas's manual pass in the real window and Claude Desktop (#57's checklist and #58's), then a rebase onto `main` once #57 merges
+Status: doing the 3D UX fixes F1 to F15 on `shared/3d-ux-fixes` (stacked on #58, which is approved and rebased locally but not pushed or merged); next: the agent's auto mode (`shared/agent-auto-mode`), then navigation (`shared/3d-navigation`)
 
 # Shell workplan — Stream B
 
 Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contracts` and the in-memory engine; never imports a kernel.
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
+
+## 3D UX fixes (branch `shared/3d-ux-fixes`, stacked on `shared/proposal-in-3d`, 2026-10-13)
+
+Lucas asked for a plan of UI fixes and 3D-era features and approved it with all six decisions as recommended ([shell-3d-ux-plan.md](shell-3d-ux-plan.md): what was audited, the evidence for each item, what needs Andre). This is its Part 1. Stacked on #58 because #58 is approved but not merged (its rebased branch needs Lucas's force-push), and F3 and F13 build on its proposed solid.
+
+- [ ] F1 trackpad navigation in 3D matches the canvas
+- [ ] F2 the camera turns back after Finish
+- [ ] F3 Extrude previews its solid
+- [ ] F4 a selected extrude shows in 3D
+- [ ] F5 hover in 3D
+- [ ] F6 origin planes step back once the part has a feature
+- [ ] F7 the solid dims behind an open sketch
+- [ ] F8 the tool tray shows what the context can use
+- [ ] F9 one vocabulary for a feature
+- [ ] F10 double-click an extrude to edit it
+- [ ] F11 context menus
+- [ ] F12 the status bar and the shortcut sheet know about 3D
+- [ ] F13 a proposed solid is brought into view
+- [ ] F14 a check's row keeps its number
+- [ ] F15 a browser group's header toggles from the keyboard
+
 
 
 ## What an agent proposes, seen and kept (branch `shared/proposal-in-3d`, stacked on `shared/collapsible-chrome`, 2026-10-03; PR #58)
