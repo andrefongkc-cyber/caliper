@@ -8,6 +8,10 @@ panel has no scrubbing yet. A `Rejected` result marks the field its `Error.field
 A dimension's `value` (a number, or None) is a text field that may be left empty: a number
 makes the dimension driving, empty makes it driven, and while it's empty the field shows
 what the dimension measures. Flags (`construction`) are checkboxes.
+
+A part's features read as they do everywhere else in the window (`part_names`): a sketch's
+plane is "Top", an extrude's operation "Add to the solid", its `reversed` a choice of two
+directions. What's sent is still the contract's value.
 """
 
 import dataclasses
@@ -27,9 +31,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from caliper.app.part_names import (
+    DIRECTIONS,
+    OPERATIONS,
+    feature_text,
+    place_name,
+    profile_text,
+    titles,
+)
 from caliper.app.session import DocumentSession
 from caliper.contracts.commands import Applied, ModifyEntity, ParamValue, Rejected
-from caliper.contracts.document import Entity, EntityId, PartFeature, Point2, Ref
+from caliper.contracts.document import (
+    Entity,
+    EntityId,
+    Extrude,
+    PartFeature,
+    Point2,
+    Ref,
+    Sketch,
+)
 from caliper.contracts.errors import Error
 
 
@@ -69,6 +89,8 @@ class PropertiesPanel(QWidget):
         """Editable fields by path: "width", "corner.x", "orientation", "construction"."""
         self._entity_id: EntityId | None = None
         self._optional: set[str] = set()
+        self._choices: dict[str, list[object]] = {}
+        """A choice field's values, in the order its combo lists them."""
         """Paths of number fields that may be left empty (None)."""
         self._shown: dict[str, str] = {}
         """The text each number field was last given, so Return on an untouched, rounded
@@ -108,6 +130,7 @@ class PropertiesPanel(QWidget):
         self._body = QWidget()
         self._layout.insertWidget(0, self._body)
         self.fields = {}
+        self._choices = {}
         self._optional = set()
         self._shown = {}
         self._clear_error()
@@ -131,20 +154,57 @@ class PropertiesPanel(QWidget):
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(5)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        heading = QLabel(f"{_title(entity.kind)}  ·  {self._entity_id}")
+        named = titles(self.session.document.features).get(self._entity_id)
+        heading = QLabel(f"{named or _title(entity.kind)}  ·  {self._entity_id}")
         heading.setProperty("role", "section")
         form.addRow(heading)
         for field in dataclasses.fields(entity):
             if field.name == "id":
                 continue  # a feature's id is in the heading
             value = getattr(entity, field.name)
-            if field.name == "ids" and value == ():
-                form.addRow("Profile", QLabel("All of the sketch's geometry"))
+            if isinstance(entity, Sketch | Extrude) and self._add_feature_field(
+                form, entity, field.name, value
+            ):
                 continue
             if field.type == float | None:
                 form.addRow(_title(field.name), self._optional_number(field.name, value))
             else:
                 self._add_field(form, field.name, value)
+
+    def _add_feature_field(
+        self, form: QFormLayout, feature: PartFeature, name: str, value: object
+    ) -> bool:
+        """A field of a sketch or an extrude that the window has its own words for
+        (`part_names`), as the Extrude panel and the Part panel say it. False for the rest."""
+        document = self.session.document
+        match feature, name:
+            case Sketch(plane=plane), "plane":
+                form.addRow("Plane", QLabel(place_name(document, plane)))
+            case Extrude(sketch=sketch), "sketch":
+                form.addRow("Sketch", QLabel(feature_text(document, sketch)))
+            case Extrude(ids=ids), "ids":
+                form.addRow("Profile", QLabel(profile_text(ids)))
+            case Extrude(), "depth":
+                form.addRow("Depth (mm)", self._number(name, float(value)))  # type: ignore[arg-type]
+            case Extrude(operation=operation), "operation":
+                form.addRow("Operation", self._choice(name, OPERATIONS, operation))
+            case Extrude(reversed=reversed_), "reversed":
+                form.addRow("Direction", self._choice(name, DIRECTIONS, reversed_))
+            case _:
+                return False
+        return True
+
+    def _choice(self, name: str, options: dict, current: object) -> QComboBox:  # type: ignore[type-arg]
+        """One of a few values, each in the window's words; the value itself is what's sent."""
+        combo = QComboBox()
+        combo.setObjectName(name)
+        values = list(options)
+        combo.addItems([options[value] for value in values])
+        combo.setCurrentIndex(values.index(current))
+        combo.currentIndexChanged.connect(lambda index, n=name: self._commit(n, values[index]))
+        self.fields[name] = combo
+        self._choices[name] = values
+        return combo
 
     def _add_field(self, form: QFormLayout, name: str, value: object) -> None:
         match value:
@@ -234,6 +294,10 @@ class PropertiesPanel(QWidget):
             elif isinstance(widget, QCheckBox) and isinstance(current, bool):
                 widget.blockSignals(True)
                 widget.setChecked(current)
+                widget.blockSignals(False)
+            elif isinstance(widget, QComboBox) and path in self._choices:
+                widget.blockSignals(True)
+                widget.setCurrentIndex(self._choices[path].index(current))
                 widget.blockSignals(False)
             elif isinstance(widget, QComboBox) and isinstance(current, StrEnum):
                 widget.blockSignals(True)

@@ -46,9 +46,10 @@ from caliper.app.palette import CommandPalette
 from caliper.app.panels.assistant import AssistantLog
 from caliper.app.panels.browser import SketchBrowser
 from caliper.app.panels.checks import ChecksPanel
-from caliper.app.panels.features import FeatureTree, place_name, titles, volume_text
+from caliper.app.panels.features import FeatureTree, volume_text
 from caliper.app.panels.history import HistoryList
 from caliper.app.panels.timing import TimingPanel
+from caliper.app.part_names import place_name, titles
 from caliper.app.properties import PropertiesPanel
 from caliper.app.session import DocumentSession, Space
 from caliper.app.shortcuts import ShortcutSheet
@@ -72,6 +73,7 @@ from caliper.contracts.document import (
     Document,
     EntityId,
     Expectation,
+    Extrude,
     FaceRef,
     Geometry,
     Plane,
@@ -617,6 +619,7 @@ class MainWindow(QMainWindow):
         self.features.editing = lambda: self.sketch_open if self.mode == "3d" else None
         self.features.edit_requested.connect(self.edit_sketch)
         self.features.sketch_requested.connect(self.new_sketch)
+        self.features.extrude_requested.connect(self.edit_extrude)
         self.features.hovered.connect(self.view3d.set_hover)
         split = QSplitter(Qt.Orientation.Vertical)
         split.setObjectName("browser-split")
@@ -721,6 +724,7 @@ class MainWindow(QMainWindow):
         if self.confirm_discard():
             self.controller.cancel_operation()
             self._close_sketch()
+            self._close_extrude_form()
             self.session.new()
             if self.mode == "2d":
                 self.canvas.reset_view()
@@ -742,6 +746,7 @@ class MainWindow(QMainWindow):
         try:
             self.controller.cancel_operation()
             self._close_sketch()
+            self._close_extrude_form()
             self.session.open(path)
         except LoadError as error:
             self.show_load_error(path, error)
@@ -1163,6 +1168,7 @@ class MainWindow(QMainWindow):
             raise ValueError(f"no mode {mode!r}")
         if mode != self.mode or not self._mode_set:
             self.controller.cancel_operation()
+            self._close_extrude_form()
             view = self.canvas.view
             if self._mode_set:  # the canvas's view in the tab left, to come back to
                 self._canvas_views[self.mode] = (view.scale, view.origin_x, view.origin_y)
@@ -1330,6 +1336,7 @@ class MainWindow(QMainWindow):
         """Turn the canvas, over the part, to face `plane` (a plane or a face, where it is in
         `document`, the session's by default), from where the 3D view looks. False, with the
         reason shown, when a face can't be found."""
+        self._close_extrude_form()
         document = self.session.document if document is None else document
         frame = Bus(document).queries.plane_frame(plane)
         if isinstance(frame, Error):
@@ -1457,16 +1464,43 @@ class MainWindow(QMainWindow):
         if self.session.active_sketch is None:
             self.show_message("The part has no sketch to extrude: pick a plane and Sketch")
             return
-        old = getattr(self, "extrude_form", None)
-        if old is not None:
-            old.deleteLater()
-        self.extrude_form = ExtrudeForm(self.session, self.views)
+        self._show_extrude_form(None)
+
+    def edit_extrude(self, id: EntityId) -> None:
+        """Open the Extrude form on an extrude the part has, to change its depth, what it
+        does, or which way it goes: one change, seen in 3D before it's made."""
+        feature = next(
+            (f for f in self.session.document.features if isinstance(f, Extrude) and f.id == id),
+            None,
+        )
+        if self.mode != "3d" or feature is None:
+            return
+        self._close_sketch()
+        self.session.set_selection(frozenset({id}))
+        self._show_extrude_form(feature)
+
+    def _show_extrude_form(self, editing: Extrude | None) -> None:
+        self._close_extrude_form()
+        self.extrude_form = ExtrudeForm(self.session, self.views, editing)
         self.extrude_form.extruded.connect(self._extruded)
         self.extrude_form.closed.connect(lambda: self.views.currentWidget().setFocus())
+        self.extrude_form.previewed.connect(self.view3d.show_preview)
         self.extrude_form.open()
 
+    def _close_extrude_form(self) -> None:
+        """The Extrude form, if it's open, is over the view it was opened on: closed before
+        the view shows something else (a sketch, the other tab, another file)."""
+        old: ExtrudeForm | None = getattr(self, "extrude_form", None)
+        if old is not None:
+            if old.isVisible():
+                old.close_form()
+            old.deleteLater()
+            del self.extrude_form
+        self.view3d.show_preview(None)
+
     def _extruded(self, extrude: EntityId) -> None:
-        self.show_message(f"Extruded {extrude}: the part is {volume_text(self.session)}")
+        named = titles(self.session.document.features).get(extrude, extrude)
+        self.show_message(f"{named}: the part is {volume_text(self.session)}")
 
     def _update_part_labels(self) -> None:
         """The 2D tab's sketch label, and the solid's volume in the status bar."""

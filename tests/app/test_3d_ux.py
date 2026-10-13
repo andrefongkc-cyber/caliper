@@ -16,15 +16,29 @@ from PySide6.QtGui import (
     QPointingDevice,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from caliper.app import theme
 from caliper.app.main_window import MainWindow
 from caliper.app.viewport.camera3d import Camera
 from caliper.app.viewport.scene3d import DIM, Scene
 from caliper.app.viewport.view3d import View3D
-from caliper.contracts.commands import CreateCircle, CreateExtrude, CreateRectangle
-from caliper.contracts.document import EntityId, FaceRef, Plane, Point2
+from caliper.contracts.commands import (
+    CreateCircle,
+    CreateExtrude,
+    CreateLine,
+    CreateRectangle,
+    ModifyEntity,
+)
+from caliper.contracts.document import (
+    EntityId,
+    Extrude,
+    ExtrudeOperation,
+    FaceRef,
+    Plane,
+    Point2,
+)
+from caliper.contracts.errors import Error
 from caliper.contracts.queries import Point3
 from caliper.engine import features, geometry
 from caliper.engine.geometry.fake_kernel import FakeKernel
@@ -541,3 +555,245 @@ def _plate_mesh():  # type: ignore[no-untyped-def]
     bus.execute(CreateExtrude(depth=2.0, sketch=sketch))
     mesh = bus.queries.mesh()
     return bus.document, mesh
+
+
+# --- F3: Extrude shows the solid it would make -------------------------------------------------
+
+
+def volume(window: MainWindow) -> float:
+    found = window.session.queries.solid_properties()
+    assert not isinstance(found, Error), found
+    return found.volume
+
+
+def heights(view: View3D) -> tuple[float, float]:
+    """How far up and down the solid the view draws reaches."""
+    mesh = view.scene.mesh
+    assert mesh is not None
+    z = [p.z for p in mesh.vertices]
+    return min(z), max(z)
+
+
+def test_the_extrude_form_shows_its_solid_before_it_is_made(window: MainWindow) -> None:
+    sketch_on(window)
+    created(window, CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    window.extrude_action.trigger()
+    form, view = window.extrude_form, window.view3d
+    before, steps = window.session.document, len(window.session.history)
+    view.refresh()
+    assert view.scene.preview  # the default depth's solid, as the form opens
+    assert view.scene.proposed  # not the part's: it has no faces to pick
+    assert heights(view) == (0.0, 10.0)
+    form.depth.setText("25")
+    form.refresh_preview()
+    view.refresh()
+    assert heights(view) == (0.0, 25.0)
+    form.direction.setCurrentIndex(1)  # against the normal
+    form.refresh_preview()
+    view.refresh()
+    assert heights(view) == (-25.0, 0.0)
+    assert window.session.document is before  # nothing was changed to show it
+    assert len(window.session.history) == steps  # and nothing was sent: no step to undo
+    form.confirm.click()
+    view.refresh()
+    assert not view.scene.preview  # the part's own solid now
+    assert not view.scene.proposed
+    assert heights(view) == (-25.0, 0.0)
+    assert len(window.session.history) == steps + 1  # one step
+
+
+def test_the_preview_follows_the_fields_as_they_are_typed(window: MainWindow, qtbot) -> None:  # type: ignore[no-untyped-def]
+    sketch_on(window)
+    created(window, CreateRectangle(corner=Point2(x=0, y=0), width=120, height=50))
+    window.extrude_action.trigger()
+    form, view = window.extrude_form, window.view3d
+    form.depth.selectAll()
+    qtbot.keyClicks(form.depth, "40")
+
+    def followed() -> None:
+        view.refresh()
+        assert heights(view) == (0.0, 40.0)
+
+    qtbot.waitUntil(followed, timeout=2000)
+
+
+def test_a_refusal_shows_as_the_fields_change_and_the_part_is_drawn_as_it_is(
+    window: MainWindow,
+) -> None:
+    plate(window)
+    sketch = sketch_on(window, Plane.XZ)
+    created(window, CreateLine(start=Point2(x=0, y=0), end=Point2(x=10, y=0), sketch=sketch))
+    window.extrude_action.trigger()
+    form, view = window.extrude_form, window.view3d
+    assert form.error.isVisible()  # an open profile: said before Return, not after
+    assert "closed" in form.error.text() or "join" in form.error.text()
+    view.refresh()
+    assert not view.scene.preview
+    assert view.scene.mesh is view.mesh  # the plate, as it is
+    form.depth.setText("deep")
+    form.refresh_preview()
+    assert form.error.text() == "Type a depth in mm"
+    form.close_form()
+
+
+def test_closing_the_form_puts_the_part_back(window: MainWindow) -> None:
+    plate(window)
+    sketch = sketch_on(window, Plane.XZ)
+    created(window, CreateRectangle(corner=Point2(x=0, y=20), width=10, height=10, sketch=sketch))
+    window.extrude_action.trigger()
+    view = window.view3d
+    view.refresh()
+    assert view.scene.preview
+    window.extrude_form.close_form()
+    view.refresh()
+    assert not view.scene.preview
+    assert view.preview is None
+    window.extrude_action.trigger()
+    view.refresh()
+    assert view.scene.preview
+    window.set_mode("2d")  # the form was over the 3D view: it goes with it
+    window.set_mode("3d")
+    view.refresh()
+    assert not view.scene.preview
+    assert not hasattr(window, "extrude_form")
+
+
+def test_a_previewed_solid_that_outgrows_the_view_is_brought_into_it(window: MainWindow) -> None:
+    sketch_on(window)
+    created(window, CreateRectangle(corner=Point2(x=0, y=0), width=20, height=20))
+    window.extrude_action.trigger()
+    form, view = window.extrude_form, window.view3d
+    view.refresh()
+    held = view.camera
+    form.depth.setText("12")
+    form.refresh_preview()
+    view.refresh()
+    assert view.camera == held  # in view already: the view isn't moved
+    form.depth.setText("900")
+    form.refresh_preview()
+    view.refresh()
+    assert view.camera != held
+    assert (view.camera.yaw, view.camera.pitch) == (held.yaw, held.pitch)  # from the same side
+    top = view.camera.project(Point3(x=10.0, y=10.0, z=900.0), view.width(), view.height())
+    assert 0 <= top.x <= view.width()
+    assert 0 <= top.y <= view.height()
+    fitted = view.camera
+    view.camera = view.camera.zoomed(3.0, (10.0, 10.0), (view.width(), view.height()))
+    close = view.camera
+    form.depth.setText("850")  # no bigger than what was shown: zooming in on it holds
+    form.refresh_preview()
+    view.refresh()
+    assert view.camera == close
+    assert view.camera != fitted
+
+
+# --- F10: double-click an extrude to edit it ---------------------------------------------------
+
+
+def test_double_clicking_an_extrude_opens_it_in_the_form(window: MainWindow) -> None:
+    _, _, extrude = plate(window)
+    tree = window.features
+    tree.tree.itemDoubleClicked.emit(tree.items[extrude], 0)
+    form, view = window.extrude_form, window.view3d
+    assert form.isVisible()
+    assert form.editing == extrude
+    assert form.depth.text() == "10"
+    assert form.operation.currentData() == ExtrudeOperation.ADD
+    assert form.direction.currentData() is False
+    assert window.session.selection == {extrude}
+    view.refresh()
+    assert not view.scene.preview  # as the part is, until a field changes
+    form.depth.setText("30")
+    form.refresh_preview()
+    view.refresh()
+    assert view.scene.preview
+    assert heights(view) == (0.0, 30.0)
+    assert volume(window) == pytest.approx(60_000.0)  # not changed yet
+    steps = len(window.session.history)
+    form.confirm.click()
+    assert len(window.session.history) == steps + 1  # one step, of what changed
+    assert window.session.history[-1].commands == (
+        ModifyEntity(id=extrude, changes={"depth": 30.0}),
+    )
+    assert volume(window) == pytest.approx(180_000.0)
+    assert not form.isVisible()
+    assert len([f for f in window.session.document.features if isinstance(f, Extrude)]) == 1
+
+
+def test_editing_an_extrude_and_changing_nothing_sends_nothing(window: MainWindow) -> None:
+    _, _, extrude = plate(window)
+    window.edit_extrude(extrude)
+    steps = len(window.session.history)
+    form = window.extrude_form
+    form.confirm.click()
+    assert len(window.session.history) == steps
+    assert not form.isVisible()
+
+
+def test_a_cut_opens_in_the_form_as_the_cut_it_is(window: MainWindow) -> None:
+    _, _, base = plate(window)
+    window.new_sketch(FaceRef(feature=base, face="end"))
+    top = window.sketch_open
+    assert top is not None
+    created(window, CreateRectangle(corner=Point2(x=50, y=20), width=20, height=10, sketch=top))
+    window.finish_sketch()
+    pocket = created(
+        window, CreateExtrude(depth=4.0, sketch=top, operation=ExtrudeOperation.REMOVE)
+    )
+    window.edit_extrude(pocket)
+    form = window.extrude_form
+    assert form.operation.currentText() == "Cut from the solid"
+    assert form.direction.currentText() == "Against it"  # into the part, as it was made
+    assert form.depth.text() == "4"
+    steps = len(window.session.history)
+    form.confirm.click()
+    assert len(window.session.history) == steps  # nothing changed, nothing sent
+
+
+def test_an_edit_the_engine_refuses_is_explained_in_the_form(window: MainWindow) -> None:
+    _, _, extrude = plate(window)
+    window.edit_extrude(extrude)
+    form = window.extrude_form
+    form.depth.setText("0")
+    form.refresh_preview()
+    assert form.error.isVisible()
+    form.confirm.click()
+    assert form.isVisible()
+    assert volume(window) == pytest.approx(60_000.0)
+
+
+# --- F9: a feature reads the same in Properties as everywhere else -----------------------------
+
+
+def labels(window: MainWindow) -> list[str]:
+    """Every label Properties shows for what's selected."""
+    return [label.text() for label in window.properties._body.findChildren(QLabel)]
+
+
+def test_properties_names_a_feature_as_the_rest_of_the_window_does(window: MainWindow) -> None:
+    sketch, _, extrude = plate(window)
+    window.session.set_selection(frozenset({extrude}))
+    shown = labels(window)
+    assert f"Extrude 1  ·  {extrude}" in shown
+    assert f"Sketch 1 ({sketch})" in shown  # not the bare id
+    assert "All of its geometry" in shown
+    for said in ("Depth (mm)", "Operation", "Direction", "Profile"):
+        assert said in shown
+    assert "Reversed" not in shown
+    operation = window.properties.fields["operation"]
+    assert [operation.itemText(i) for i in range(operation.count())] == [
+        "Add to the solid",
+        "Cut from the solid",
+    ]
+    direction = window.properties.fields["reversed"]
+    assert direction.currentText() == "Along the normal"
+    direction.setCurrentIndex(1)  # the same choice the Extrude form gives
+    feature = window.session.document.features[-1]
+    assert isinstance(feature, Extrude)
+    assert feature.reversed is True
+    window.session.undo()
+    assert window.properties.fields["reversed"].currentText() == "Along the normal"
+    window.session.set_selection(frozenset({sketch}))
+    shown = labels(window)
+    assert f"Sketch 1  ·  {sketch}" in shown
+    assert "Top" in shown  # not "xy"

@@ -3,8 +3,10 @@
 "Default geometry" lists the origin and the Top, Front, and Right planes (ADR 0015): pick a
 plane to sketch on it, or double-click it to start one there. A sketch row shows its plane
 and whether it's open for editing; double-click it to edit it. An extrude row shows its depth
-and what it does, and a failing one says why in the error colour. Clicking a feature selects
-it, so Properties edits it and Delete deletes it. The panel's heading carries the volume.
+and what it does, and a failing one says why in the error colour; double-click it to edit it
+in the Extrude panel. Clicking a feature selects it, so Properties edits it and Delete deletes
+it. The row under the pointer shows in the 3D view (`hovered`). The panel's heading carries the
+volume.
 
 It reads `Document.features` and the queries (`feature_error`, `solid_properties`), the same
 contract the AI uses; the panel holds no state of its own.
@@ -26,16 +28,15 @@ from PySide6.QtWidgets import (
 )
 
 from caliper.app import theme
+from caliper.app.part_names import place_name, titles
 from caliper.app.properties import format_number
 from caliper.app.session import DocumentSession
 from caliper.app.tokens import SPACE
 from caliper.app.viewport.scene3d import PLANE_NAMES, PLANES
 from caliper.contracts.document import (
-    Document,
     EntityId,
     Extrude,
     ExtrudeOperation,
-    FaceRef,
     PartFeature,
     Plane,
     Sketch,
@@ -60,28 +61,13 @@ def grouped(value: float) -> str:
     return f"{value:,.3f}".rstrip("0").rstrip(".")
 
 
-def titles(features: tuple[PartFeature, ...]) -> dict[EntityId, str]:
-    """ "Sketch 1", "Extrude 2": each feature's kind and its number among that kind."""
-    counts: dict[str, int] = {}
-    found = {}
-    for feature in features:
-        counts[feature.kind] = counts.get(feature.kind, 0) + 1
-        found[feature.id] = f"{feature.kind.title()} {counts[feature.kind]}"
-    return found
-
-
-def place_name(document: Document, plane: Plane | FaceRef) -> str:
-    """Where a sketch sits, as the window names it: "Top", or "end of Extrude 1" (ADR 0016)."""
-    if isinstance(plane, Plane):
-        return PLANE_NAMES[plane]
-    return f"{plane.face} of {titles(document.features).get(plane.feature, plane.feature)}"
-
-
 class FeatureTree(QWidget):
     edit_requested = Signal(object)
     """A sketch's id the user wants to edit."""
     sketch_requested = Signal(object)
     """A `Plane` the user wants to start a sketch on."""
+    extrude_requested = Signal(object)
+    """An extrude's id the user wants to edit."""
     hovered = Signal(object)
     """The plane or the feature (its id) of the row under the pointer, or None: the 3D view
     shows it as hovered, so a row and what it names are seen to be the same thing."""
@@ -258,3 +244,5 @@ class FeatureTree(QWidget):
             self.sketch_requested.emit(found)
         elif any(isinstance(f, Sketch) and f.id == found for f in self.session.document.features):
             self.edit_requested.emit(found)
+        elif found is not None:  # the only other feature there is
+            self.extrude_requested.emit(found)
