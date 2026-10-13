@@ -6,7 +6,7 @@ answer the pointer. CI's app job has no OCCT, so the engine gets the analytic ke
 """
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QItemSelectionModel, QPoint, QPointF, Qt
 from PySide6.QtGui import (
     QColor,
     QFontMetrics,
@@ -1031,3 +1031,37 @@ def test_a_narrow_checks_row_keeps_the_expected_value() -> None:
     tiny = fitted(metrics, line, metrics.horizontalAdvance("= 60000 ±"))
     assert tiny.endswith("…")  # no room even for the value: cut from the right, as before
     assert fitted(metrics, "No value here", 30).endswith("…")
+
+
+# --- F15: a browser group's header toggles from the keyboard -----------------------------------
+
+
+def test_a_browser_groups_header_toggles_from_the_keyboard(window: MainWindow, qtbot) -> None:  # type: ignore[no-untyped-def]
+    line = created(window, CreateLine(start=Point2(x=0, y=0), end=Point2(x=30, y=10)))
+    browser = window.browser
+    header = browser.groups["Geometry"]
+    browser.setFocus()
+    browser.setCurrentItem(browser.items[line])
+    assert window.session.selection == {line}
+    qtbot.keyClick(browser, Qt.Key.Key_Up)  # the arrow keys reach the header
+    assert browser.currentItem() is header
+    assert header.foreground(0).color() == theme.TEXT  # and it shows which one they're on
+    qtbot.keyClick(browser, Qt.Key.Key_Space)
+    assert not header.isExpanded()
+    assert header.text(0) == "▸ GEOMETRY"
+    qtbot.keyClick(browser, Qt.Key.Key_Return)
+    assert header.isExpanded()
+    qtbot.keyClick(browser, Qt.Key.Key_Left)
+    assert not header.isExpanded()
+    qtbot.keyClick(browser, Qt.Key.Key_Right)
+    assert header.isExpanded()
+    assert not header.isSelected()  # a header is never selected
+    qtbot.keyClick(browser, Qt.Key.Key_Down)
+    assert browser.currentItem() is browser.items[line]
+    assert header.foreground(0).color() == theme.TEXT_DIM
+    browser.clearSelection()
+    index = browser.indexFromItem(browser.items[line])
+    browser.selectionModel().setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
+    qtbot.keyClick(browser, Qt.Key.Key_Space)  # on a row, Space is Qt's own: it selects
+    assert browser.items[line].isSelected()
+    assert header.isExpanded()

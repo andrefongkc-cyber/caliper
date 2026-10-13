@@ -9,7 +9,7 @@ stays collapsed while the sketch changes, and selecting on the canvas doesn't re
 import bisect
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -87,6 +87,7 @@ class SketchBrowser(QTreeWidget):
         # A header click toggles its group itself (mousePressEvent), so a double-click is two
         # toggles, not one more from Qt.
         self.setExpandsOnDoubleClick(False)
+        self.currentItemChanged.connect(self._mark_current)
         self.itemExpanded.connect(self._label)
         self.itemCollapsed.connect(self._label)
         self.itemSelectionChanged.connect(self._push_selection)
@@ -214,6 +215,23 @@ class SketchBrowser(QTreeWidget):
         if group.parent() is None:
             arrow = "▾" if group.isExpanded() else "▸"
             group.setText(0, f"{arrow} {group.data(0, GROUP_ROLE).upper()}")
+
+    def _mark_current(self, current: QTreeWidgetItem | None, last: QTreeWidgetItem | None) -> None:
+        """The header the arrow keys are on reads in the ink, so Space has something to act
+        on that can be seen; it isn't selected, which a header never is."""
+        for item, ink in ((last, theme.TEXT_DIM), (current, theme.TEXT)):
+            if item is not None and item.parent() is None:
+                item.setForeground(0, ink)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        """On a group's header (reached with the arrow keys), Space or Return collapses or
+        expands it, as a click does; Left and Right are Qt's own, collapse and expand."""
+        item = self.currentItem()
+        toggles = (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        if item is not None and item.parent() is None and event.key() in toggles:
+            item.setExpanded(not item.isExpanded())
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """A click on a group's header collapses or expands it, and leaves the selection."""
