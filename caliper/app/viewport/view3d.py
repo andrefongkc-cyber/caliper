@@ -11,7 +11,9 @@ agent's colour (C-16): an extrude changes no geometry, so this is where it's see
 
 A click picks a plane or a sketch, which is what Sketch and Extrude act on; a double-click on
 one asks to sketch on it or edit it. A left drag orbits, a right or middle drag (or Shift with
-a left drag) pans, the wheel zooms about the pointer, and F fits. The camera is UI state.
+a left drag) pans, and F fits. A trackpad moves it as it moves the canvas (`scrolled`): two
+fingers pan, a pinch or ⌘ with two fingers zooms about the pointer, and Shift with two fingers
+orbits; a mouse wheel zooms. The camera is UI state.
 """
 
 import math
@@ -19,8 +21,17 @@ import time
 from collections import deque
 from collections.abc import Callable
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QWheelEvent
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import (
+    QInputDevice,
+    QKeyEvent,
+    QMouseEvent,
+    QNativeGestureEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QWidget
 
 from caliper.app import theme
@@ -357,20 +368,60 @@ class View3D(QWidget):
         super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
-        steps = event.angleDelta().y() / 120
-        if steps:
-            at = event.position()
-            self.camera = self.camera.zoomed(
-                1.15**steps, (at.x(), at.y()), (self.width(), self.height())
-            )
-            self.update()
+        self.camera = scrolled(self.camera, event, self.width(), self.height())
+        self.update()
         event.accept()
+
+    def event(self, event: QEvent) -> bool:
+        if isinstance(event, QNativeGestureEvent):
+            camera = pinched(self.camera, event, self.width(), self.height())
+            if camera is not None:
+                self.camera = camera
+                self.update()
+                return True
+        return super().event(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_F:
             self.fit()
             return
         super().keyPressEvent(event)
+
+
+WHEEL_ZOOM = 1.15
+"""How much one notch of a mouse wheel zooms."""
+
+
+def scrolled(camera: Camera, event: QWheelEvent, width: float, height: float) -> Camera:
+    """`camera` after a scroll, read as the canvas reads one, so a trackpad does in 3D what it
+    does in a sketch: two fingers pan, with ⌘ they zoom, and with Shift they orbit (Fusion's
+    map on a Mac). A mouse wheel, which has no pixel delta, zooms. A zoom is about the
+    pointer."""
+    pixels = event.pixelDelta()
+    trackpad = not pixels.isNull() and (
+        event.device().type() == QInputDevice.DeviceType.TouchPad
+        or event.phase() != Qt.ScrollPhase.NoScrollPhase
+    )
+    modifiers = event.modifiers()
+    if trackpad and not modifiers & Qt.KeyboardModifier.ControlModifier:
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return camera.orbited(pixels.x(), pixels.y())
+        return camera.panned(pixels.x(), pixels.y())
+    steps = (event.angleDelta().y() or event.angleDelta().x()) / 120
+    if not steps:
+        return camera
+    at = event.position()
+    return camera.zoomed(WHEEL_ZOOM**steps, (at.x(), at.y()), (width, height))
+
+
+def pinched(
+    camera: Camera, event: QNativeGestureEvent, width: float, height: float
+) -> Camera | None:
+    """`camera` after a trackpad pinch, zoomed about the pointer; None for another gesture."""
+    if event.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+        return None
+    at = event.position()
+    return camera.zoomed(1.0 + event.value(), (at.x(), at.y()), (width, height))
 
 
 def _mesh(queries: Queries) -> Mesh | Error:

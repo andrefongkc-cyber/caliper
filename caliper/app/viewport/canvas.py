@@ -55,6 +55,7 @@ from caliper.app.viewport.hud import STARTS_ENTRY, NumericEntry
 from caliper.app.viewport.inference import acquire, align
 from caliper.app.viewport.painter import GEOMETRY_TYPES, ModelPainter, cosmetic_pen
 from caliper.app.viewport.transform import PlaneView, View, ViewTransform
+from caliper.app.viewport.view3d import scrolled
 from caliper.contracts.commands import Applied, Change, ModifyEntity
 from caliper.contracts.document import (
     AngleDimension,
@@ -746,13 +747,12 @@ class Canvas(QWidget):
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         backdrop = self.backdrop
         if backdrop is not None and backdrop.free is not None:
-            steps = event.angleDelta().y() / 120
-            if steps:
-                at = event.position()
-                backdrop.free = backdrop.free.zoomed(
-                    1.15**steps, (at.x(), at.y()), (self.width(), self.height())
-                )
-                self.update()
+            # Turned away from the sketch, the camera is the 3D view's: it scrolls as that does.
+            before = backdrop.free
+            backdrop.free = scrolled(before, event, self.width(), self.height())
+            if (backdrop.free.yaw, backdrop.free.pitch) != (before.yaw, before.pitch):
+                self.orbited.emit()  # whether the sketch can be drawn on may have changed
+            self.update()
             event.accept()
             return
         pixels = event.pixelDelta()
