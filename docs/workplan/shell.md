@@ -1,4 +1,4 @@
-Status: doing the 3D UX fixes F1 to F15 on `shared/3d-ux-fixes` (stacked on #58, which is approved and rebased locally but not pushed or merged); next: the agent's auto mode (`shared/agent-auto-mode`), then navigation (`shared/3d-navigation`)
+Status: the 3D UX fixes F1 to F15 are built and tested on `shared/3d-ux-fixes` (local, stacked on #58, which is approved and rebased locally but still needs Lucas's force-push and merge); doing the agent's auto mode on `shared/agent-auto-mode`; next: navigation (`shared/3d-navigation`)
 
 # Shell workplan — Stream B
 
@@ -6,27 +6,31 @@ Owns `caliper/app/`, `tests/app/`, and this file. Builds against `caliper.contra
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` done
 
-## 3D UX fixes (branch `shared/3d-ux-fixes`, stacked on `shared/proposal-in-3d`, 2026-10-13)
+## 3D UX fixes (branch `shared/3d-ux-fixes`, stacked on `shared/proposal-in-3d`, 2026-10-13; local, not pushed)
 
-Lucas asked for a plan of UI fixes and 3D-era features and approved it with all six decisions as recommended ([shell-3d-ux-plan.md](shell-3d-ux-plan.md): what was audited, the evidence for each item, what needs Andre). This is its Part 1. Stacked on #58 because #58 is approved but not merged (its rebased branch needs Lucas's force-push), and F3 and F13 build on its proposed solid.
+Lucas asked for a plan of UI fixes and 3D-era features and approved it with all six decisions as recommended ([shell-3d-ux-plan.md](shell-3d-ux-plan.md): what was audited, the evidence for each item, what needs Andre). This is its Part 1, all fifteen items. Stacked on #58 because #58 is approved but not merged (its rebased branch needs Lucas's force-push), and the Extrude preview builds on its proposed solid. **Not pushed on purpose:** once #58 merges this is rebased onto `main` and pushed for the first time, which needs no force-push.
 
-- [ ] F1 trackpad navigation in 3D matches the canvas
-- [ ] F2 the camera turns back after Finish
-- [ ] F3 Extrude previews its solid
-- [ ] F4 a selected extrude shows in 3D
-- [ ] F5 hover in 3D
-- [ ] F6 origin planes step back once the part has a feature
-- [ ] F7 the solid dims behind an open sketch
-- [ ] F8 the tool tray shows what the context can use
-- [ ] F9 one vocabulary for a feature
-- [ ] F10 double-click an extrude to edit it
-- [ ] F11 context menus
-- [ ] F12 the status bar and the shortcut sheet know about 3D
-- [ ] F13 a proposed solid is brought into view
-- [ ] F14 a check's row keeps its number
-- [ ] F15 a browser group's header toggles from the keyboard
+Every change has tests in `tests/app/test_3d_ux.py` (44), and each was broken on purpose to see its test fail: 66 breaks, 59 caught at once, 5 that showed a gap in the tests (a round wall's depth, a hovered sketch's colour, a cut opened for editing, a stale toolbar button after a tab switch, Space on a browser row), each closed and then caught, and 2 that change nothing a test could see (a second guard for the same case). `uv run pytest`: 2,041 passed (the app's own tests 754 before, 799 now); `ruff check`, `ruff format --check`, `mypy`, and the boundaries check: clean.
 
-
+- [x] **F1 A trackpad moves the part as it moves a sketch.** Two fingers pan, a pinch or ⌘ with two fingers zooms about the pointer, Shift with two fingers orbits (Fusion's map on a Mac); a mouse wheel still zooms. Two-finger scroll zoomed before, and a pinch did nothing. A sketch turned away from scrolls the same way (`view3d.scrolled`, `pinched`). **Changes what two-finger scroll does in 3D** (decision 5).
+- [x] **F2 Finishing a sketch turns the view back.** It was left face on to the sketch's plane, where an extrude's depth can't be seen. `_close_sketch` turns back to the direction the view had before the sketch was faced. With the sketch's view left as it opened, the camera is exactly where it was; panned or zoomed while drawing, it keeps looking at what was drawn, as close, and only the turn is undone (a narrowing of decision 3, which said "back to where it was": going back to a view that no longer shows what was just drawn would be worse). A view orbited to while sketching is kept.
+- [x] **F3 Extrude shows its solid as the fields change.** The form tries its command on a `Bus` of its own over the session's document and the 3D view draws the solid that leaves in the preview's colour (`Scene.preview`, `theme.PREVIEW_SOLID`): nothing is sent, nothing is undone by looking. A refusal (an open profile, a depth of 0) shows under the fields as they change, not after Return. 120 ms after the last keystroke, so "125" is one solid.
+- [x] **F4 A selected extrude shows in 3D** as what it made: its flat faces by name (`face_at`, one call a face), and its round walls, which have no name (ADR 0016), by where they are: on a circle or an arc of its profile, within its depth (`Scene.swept_triangles`). A wall a later cut removed isn't there to find. In the accent, as a picked face is; **for Lucas to judge in the real window** whether a whole solid in the accent is too loud (half way to it, as hover is, is a two-line change).
+- [x] **F5 What's under the pointer shows before the click:** a face of the solid, a plane, a sketch (`theme.HOVER`, `HOVER_SOLID`). One pick for however many moves arrived since the last. A row of the Part panel under the pointer shows in 3D too (`FeatureTree.hovered`), an extrude's row as what it made. Hovering picks nothing.
+- [x] **F6 The origin planes step back** once the part has a feature: faint outlines, in full again when under the pointer, picked, or offered by Sketch with nothing picked. View → Show Planes hides them, and hidden they can't be picked; remembered between launches. Their names are drawn after every plane, on the canvas's colour, so no plane's edge runs through one.
+- [x] **F7 The solid behind a sketch being drawn keeps a third of its colour** (`scene3d.DIM`), the rest the canvas's, so the profile's lines and the grid read against it. Opaque, not see-through: overlapping faces would add up.
+- [x] **F8 The tool tray holds what the context can use.** The part: Sketch, Extrude, Zoom to Fit. A sketch open: Extrude and the sketch tools. The 2D tab: the sketch tools, no part tools. The menus and the palette keep every action, disabled where it can't run. Sketch and Extrude have icons. Only what changes is taken out or put in (`_fill_tray`). Four tests that pinned the old everything-everywhere tray were updated.
+- [x] **F9 One vocabulary for a feature** (`caliper/app/part_names.py`): Properties says "Top", "Sketch 1 (e0)", "Add to the solid", and a Direction of two ways in place of a Reversed box, as the Extrude form and the Part panel do. What's sent is the contract's value, unchanged.
+- [x] **F10 Double-click an extrude to edit it** in the Extrude form: one `ModifyEntity` of what changed (nothing sent when nothing did), previewed as a new one is.
+- [x] **F11 A right click offers its menu** in the 3D view and on a Part panel row: Sketch on a plane or face, Edit, Extrude this sketch, Look at, Delete, Zoom to Fit, Show Planes. Each is what a button or a double-click already does. A right click that doesn't move picks what it's on first; a right drag still pans.
+- [x] **F12 The status bar and the shortcut sheet know about 3D.** Degrees of freedom show only while a sketch is being edited. Help → Keyboard Shortcuts has a 3D view section. The 3D tab's hint says what a trackpad does now.
+- [x] **F13 A proposed or previewed solid that outgrows the part and the view is brought into it,** with the part, from where the camera looks; once, so zooming in on it afterwards holds. Was "not done" under C-16.
+- [x] **F14 A narrow check row keeps the number it's about:** "Vol…art = 60000 ± 1e-06", not "Volume of the part = 60…" (`checks.fitted`).
+- [x] **F15 A browser group's header toggles from the keyboard:** reached with the arrow keys it reads in the ink, and Space or Return collapses or expands it (Left and Right are Qt's own). Carried from the collapsible-groups work.
+- **Cost** (24 holes, 2,604 triangles, OCCT, offscreen): a frame at rest 15.6 ms (15.7 before); the pick for a pointer move 6.8 ms, and a frame only when what's under the pointer changes; selecting an extrude 9.8 ms once; a previewed depth 36 ms, once per rest of the fields; a frame while previewing 17.3 ms (dashed edges, as a proposed solid's). `bench/perf.py --only 3d/` against the parent commit: no case slower beyond run-to-run noise.
+- **Found on the way and fixed:** an exception inside `paintEvent` (a parameter of mine shadowed by a local) took the whole test run down with a bus error some tests later, not at the test that caused it. The Sketch button lost its name when it gained an icon; seen in the first screenshot, not by a test, and a test pins it now.
+- **Not verified, Lucas's to try in the real window:** how the trackpad gestures feel, and whether Shift with two fingers reaches Qt as a vertical scroll on this Mac (macOS turns Shift+wheel sideways for a mouse; the code reads either axis for a wheel, but an orbit from a sideways-only delta would only turn, not tilt); HiDPI; the hover's response on a large part; the right-click menu on screen (tests build it and trigger its entries, they don't look at it).
+- Not done, by choice: animation of camera moves (Part 2's V2; Look at and the turn back after Finish jump), hover linking from the 3D view back to the Part panel's row (V7).
 
 ## What an agent proposes, seen and kept (branch `shared/proposal-in-3d`, stacked on `shared/collapsible-chrome`, 2026-10-03; PR #58)
 
