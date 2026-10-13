@@ -43,7 +43,14 @@ from caliper.app.agent.proposal import Proposal
 from caliper.app.session import DocumentSession, Space
 from caliper.app.tokens import SPACE
 from caliper.app.viewport.camera3d import Camera
-from caliper.app.viewport.scene3d import FACE_TOLERANCE, Picked, Scene, mesh_box
+from caliper.app.viewport.scene3d import (
+    FACE_TOLERANCE,
+    Picked,
+    Scene,
+    facing_camera,
+    mesh_box,
+    on_plane,
+)
 from caliper.contracts.document import (
     Arc,
     Circle,
@@ -55,7 +62,7 @@ from caliper.contracts.document import (
     Sketch,
 )
 from caliper.contracts.errors import Error, ErrorCode
-from caliper.contracts.queries import BoundingBox3, Mesh, Point3, Queries
+from caliper.contracts.queries import BoundingBox3, Frame, Mesh, Point3, Queries
 from caliper.engine.commands.bus import Bus
 
 DRAG_PX = 3.0
@@ -305,6 +312,13 @@ class View3D(QWidget):
         looks = self.plane_look()
         self.scene.paint(painter, camera, width, height, planes=looks, **options)  # type: ignore[arg-type]
         self.paint_triad(painter, camera, height)
+
+    def look_at(self, frame: Frame) -> None:
+        """Turn to look straight at the plane `frame` lies on, from its front, keeping what's
+        in the middle of the view there and as close."""
+        middle = on_plane(frame, self.camera.target)
+        self.camera = facing_camera(frame, middle, self.camera.scale)
+        self.update()
 
     def plane_look(self) -> str:
         """How the origin planes are drawn now (`scene3d.PLANE_LOOKS`)."""

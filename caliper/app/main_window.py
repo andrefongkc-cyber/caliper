@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         self.view3d = View3D(self.session)
         """The part from its planes up (V2, ADR 0015), in the 3D tab."""
         self.view3d.open_requested.connect(self._open_picked)
+        self.view3d.menu_requested.connect(self._show_part_menu)
         self.sketch_open: EntityId | None = None
         """The sketch being edited in 3D, until Finish or Cancel: UI state."""
         self._sketch_entry = 0
@@ -621,6 +622,7 @@ class MainWindow(QMainWindow):
         self.features.sketch_requested.connect(self.new_sketch)
         self.features.extrude_requested.connect(self.edit_extrude)
         self.features.hovered.connect(self.view3d.set_hover)
+        self.features.menu_requested.connect(self._show_part_menu)
         split = QSplitter(Qt.Orientation.Vertical)
         split.setObjectName("browser-split")
         split.setChildrenCollapsible(False)
@@ -1306,6 +1308,70 @@ class MainWindow(QMainWindow):
             return
         self.session.set_active_sketch(sketch)
         self.canvas.zoom_to_fit()
+
+    def part_menu(self, target: object) -> QMenu:
+        """What can be done with `target`, for a right click on it in the 3D view or on its
+        row in the Part panel: a plane, a face of the solid, a sketch or an extrude by its id,
+        or nothing (the view's own entries). Every entry is something a button or a
+        double-click already does: the menu is where they're found."""
+        menu = QMenu(self)
+        document = self.session.document
+        named = titles(document.features)
+
+        def entry(text: str, slot: Callable[[], object]) -> None:
+            menu.addAction(text).triggered.connect(lambda: slot())
+
+        feature = None
+        if isinstance(target, Plane | FaceRef):
+            where = place_name(document, target)
+            entry(f"Sketch on {where}", lambda: self.new_sketch(target))
+            entry(f"Look at {where}", lambda: self.look_at(target))
+            if isinstance(target, FaceRef):  # the face is its extrude's: that's there too
+                feature = next((f for f in document.features if f.id == target.feature), None)
+                menu.addSeparator()
+        elif target is not None:
+            feature = next((f for f in document.features if f.id == target), None)
+        match feature:
+            case Sketch(id=id, plane=plane):
+                entry(f"Edit {named[id]}", lambda: self.edit_sketch(id))
+                entry(f"Extrude {named[id]}…", lambda: self._extrude_sketch(id))
+                entry(f"Look at {named[id]}", lambda: self.look_at(plane))
+                menu.addSeparator()
+                entry(f"Delete {named[id]}", lambda: self._delete_feature(id))
+            case Extrude(id=id):
+                entry(f"Edit {named[id]}…", lambda: self.edit_extrude(id))
+                if not isinstance(target, FaceRef):
+                    menu.addSeparator()
+                    entry(f"Delete {named[id]}", lambda: self._delete_feature(id))
+        if not menu.isEmpty():
+            menu.addSeparator()
+        menu.addAction(self.fit_action)
+        menu.addAction(self.planes_action)
+        return menu
+
+    def _show_part_menu(self, target: object, at: QPoint) -> None:
+        """A right click picks what it's on, as a click does, then offers its menu."""
+        if isinstance(target, Plane | FaceRef):
+            self.session.set_picked_plane(target)
+        elif target is not None:
+            self.session.set_selection(frozenset({EntityId(str(target))}))
+        self._part_menu = self.part_menu(target)
+        self._part_menu.popup(at)
+
+    def look_at(self, plane: Plane | FaceRef) -> None:
+        """Turn the 3D view to look straight at a plane or a face."""
+        frame = self.session.queries.plane_frame(plane)
+        if isinstance(frame, Error):
+            self.show_message(f"Can't look at it: {frame.message}")
+            return
+        self.view3d.look_at(frame)
+
+    def _extrude_sketch(self, sketch: EntityId) -> None:
+        self.session.set_selection(frozenset({sketch}))
+        self.start_extrude()
+
+    def _delete_feature(self, id: EntityId) -> None:
+        self.session.execute(DeleteEntities(ids=(id,)))
 
     def _open_picked(self, found: object) -> None:
         """A double-click in the 3D view: sketch on a plane or a face, or edit a sketch."""

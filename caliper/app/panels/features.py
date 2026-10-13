@@ -14,7 +14,7 @@ contract the AI uses; the panel holds no state of its own.
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -68,6 +68,8 @@ class FeatureTree(QWidget):
     """A `Plane` the user wants to start a sketch on."""
     extrude_requested = Signal(object)
     """An extrude's id the user wants to edit."""
+    menu_requested = Signal(object, QPoint)
+    """A right click on a row: what it names (as `target`), and where on screen."""
     hovered = Signal(object)
     """The plane or the feature (its id) of the row under the pointer, or None: the 3D view
     shows it as hovered, so a row and what it names are seen to be the same thing."""
@@ -116,6 +118,8 @@ class FeatureTree(QWidget):
         """The document and the sketch being edited the rows show."""
         self.editing: Callable[[], EntityId | None] = lambda: session.active_sketch
         """The sketch open for editing, marked in its row: the window says which."""
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._menu)
         self.tree.setMouseTracking(True)
         self.tree.itemEntered.connect(lambda item: self.hovered.emit(self.target(item)))
         self.tree.viewport().installEventFilter(self)
@@ -232,6 +236,10 @@ class FeatureTree(QWidget):
             return plane
         id = item.data(0, ID_ROLE)
         return EntityId(id) if id in self.items else None
+
+    def _menu(self, at: QPoint) -> None:
+        found = self.target(self.tree.itemAt(at))
+        self.menu_requested.emit(found, self.tree.viewport().mapToGlobal(at))
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.Leave and watched is self.tree.viewport():

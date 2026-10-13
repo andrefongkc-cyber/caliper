@@ -797,3 +797,103 @@ def test_properties_names_a_feature_as_the_rest_of_the_window_does(window: MainW
     shown = labels(window)
     assert f"Sketch 1  ·  {sketch}" in shown
     assert "Top" in shown  # not "xy"
+
+
+# --- F11: a right click offers what can be done with what it's on ------------------------------
+
+
+def entries(window: MainWindow, target: object) -> list[str]:
+    return [a.text() for a in window.part_menu(target).actions() if not a.isSeparator()]
+
+
+def choose(window: MainWindow, target: object, text: str) -> None:
+    menu = window.part_menu(target)
+    next(a for a in menu.actions() if a.text() == text).trigger()
+
+
+def test_the_menu_lists_what_its_target_can_do(window: MainWindow) -> None:
+    sketch, _, extrude = plate(window)
+    view_entries = ["Zoom to Fit", "Show Planes"]
+    assert entries(window, None) == view_entries
+    assert entries(window, Plane.XZ) == ["Sketch on Front", "Look at Front", *view_entries]
+    assert entries(window, sketch) == [
+        "Edit Sketch 1",
+        "Extrude Sketch 1…",
+        "Look at Sketch 1",
+        "Delete Sketch 1",
+        *view_entries,
+    ]
+    assert entries(window, extrude) == ["Edit Extrude 1…", "Delete Extrude 1", *view_entries]
+    top = FaceRef(feature=extrude, face="end")
+    assert entries(window, top) == [
+        "Sketch on end of Extrude 1",
+        "Look at end of Extrude 1",
+        "Edit Extrude 1…",  # the face is its extrude's; deleting is asked of the feature
+        *view_entries,
+    ]
+
+
+def test_the_menus_entries_do_what_the_buttons_do(window: MainWindow) -> None:
+    sketch, _, extrude = plate(window)
+    top = FaceRef(feature=extrude, face="end")
+    choose(window, top, "Sketch on end of Extrude 1")
+    made = window.sketch_open
+    assert made is not None
+    assert window._plane_of(made) == top
+    window.cancel_sketch()
+    choose(window, sketch, "Edit Sketch 1")
+    assert window.sketch_open == sketch
+    window.finish_sketch()
+    choose(window, extrude, "Edit Extrude 1…")
+    assert window.extrude_form.editing == extrude
+    window.extrude_form.close_form()
+    choose(window, sketch, "Extrude Sketch 1…")
+    assert window.extrude_form.editing is None
+    assert window.session.active_sketch == sketch
+    window.extrude_form.close_form()
+    choose(window, extrude, "Delete Extrude 1")
+    assert not any(isinstance(f, Extrude) for f in window.session.document.features)
+    window.session.undo()
+    view = window.view3d
+    choose(window, Plane.XZ, "Look at Front")
+    back = view.camera.axes()[2]
+    assert (back.x, back.y, back.z) == pytest.approx((0.0, -1.0, 0.0))  # from the front
+    choose(window, top, "Look at end of Extrude 1")
+    back = view.camera.axes()[2]
+    assert (back.x, back.y, back.z) == pytest.approx((0.0, 0.0, 1.0), abs=1e-9)  # from above
+
+
+def test_a_right_click_asks_for_the_menu_and_a_right_drag_still_pans(
+    window: MainWindow, qtbot
+) -> None:  # type: ignore[no-untyped-def]
+    _, _, extrude = plate(window)
+    view = window.view3d
+    asked: list[object] = []
+    view.menu_requested.connect(lambda target, at: asked.append(target))
+    at = QPoint(*(round(v) for v in pixel_of(view, TOP_OF_PLATE)))
+    held = view.camera
+    qtbot.mouseClick(view, Qt.MouseButton.RightButton, pos=at)
+    assert asked == [FaceRef(feature=extrude, face="end")]
+    assert view.camera == held
+    assert window.session.picked_plane == FaceRef(
+        feature=extrude, face="end"
+    )  # picked, as by a click
+    window._part_menu.close()
+    asked.clear()
+    qtbot.mousePress(view, Qt.MouseButton.RightButton, pos=at)
+    qtbot.mouseMove(view, at + QPoint(30, 0))
+    qtbot.mouseRelease(view, Qt.MouseButton.RightButton, pos=at + QPoint(30, 0))
+    assert asked == []  # a drag is a pan, as it was
+    assert view.camera.target != held.target
+
+
+def test_a_right_click_on_a_row_of_the_part_panel_asks_for_its_menu(window: MainWindow) -> None:
+    sketch, _, _ = plate(window)
+    tree = window.features
+    asked: list[object] = []
+    tree.menu_requested.connect(lambda target, at: asked.append(target))
+    row = tree.tree.visualItemRect(tree.items[sketch]).center()
+    tree.tree.customContextMenuRequested.emit(row)
+    assert asked == [sketch]
+    assert window.session.selection == {sketch}
+    window._part_menu.close()
