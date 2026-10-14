@@ -103,6 +103,15 @@ CONSTRAINT_KEYS: dict[ConstraintType, str] = {
 NOTHING_TO_CONSTRAIN = "Select lines, circles, arcs, or points, or pick them with Constrain (K)"
 
 
+def _remembered(fold: str, default: bool) -> bool:
+    """Whether a part of the window's chrome was showing when Caliper last ran."""
+    return bool(QSettings().value(f"chrome/{fold}", default, type=bool))
+
+
+def _remember(fold: str, shown: bool) -> None:
+    QSettings().setValue(f"chrome/{fold}", shown)
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -155,6 +164,8 @@ class MainWindow(QMainWindow):
             self.session, self.prompt_bar, self.proposal_card, self, assistant=from_environment()
         )
         self.canvas.proposal = lambda: self.agent.proposal
+        self.view3d.proposal = lambda: self.agent.proposal
+        self.agent.proposal_changed.connect(self.view3d.show_proposal)
         self.canvas.reject_proposal = self.agent.reject
         self.agent.proposal_changed.connect(self.canvas.show_proposal)
         self.agent.proposal_changed.connect(self._proposal_settled)
@@ -189,6 +200,7 @@ class MainWindow(QMainWindow):
         self._build_edges()
         self._build_status_bar()
         self._build_sketch_bar()
+        self.proposal_card.top = self._card_top
 
         self.session.file_changed.connect(self._update_title)
         self.session.document_changed.connect(self._update_edit_actions)
@@ -250,6 +262,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self._mode_set = False
         self.set_mode(mode)
+        self._remember_chrome()
 
     # --- Construction ---------------------------------------------------------------------
 
@@ -362,7 +375,10 @@ class MainWindow(QMainWindow):
         self.right_panel_action = self._toggle(
             "Show Right Panel", lambda shown: self._fold(RIGHT, shown), "Ctrl+Alt+B", checked=True
         )
-        self.tray_action = self._toggle("Show Tool Tray", lambda _: None, checked=True)
+        # The tray is built as it was left, shut or open: it doesn't slide at launch.
+        self.tray_action = self._toggle(
+            "Show Tool Tray", lambda _: None, checked=_remembered("tool_tray", True)
+        )
         """The tray follows it (`SlidingTray`)."""
         self.prompt_action = self._toggle("Show Agent Prompt", self._show_prompt, checked=False)
         self.prompt_action.setIconText("Agent")
@@ -559,6 +575,10 @@ class MainWindow(QMainWindow):
         for action in (self.fit_action, self.constraints_action):
             tools.addAction(action)  # icons only: they read at a glance, and the bar stays one row
             tools.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        more = tools.findChild(QToolButton, "qt_toolbar_ext_button")
+        if more is not None:  # Qt's own arrow is dark, on a dark bar: ours is in the ink
+            more.setIcon(icons.icon("more"))
+            more.setToolTip("More tools")
         self.tray = SlidingTray(tools, self.tray_action)
         bar.addWidget(self.tray.row())
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
@@ -898,6 +918,20 @@ class MainWindow(QMainWindow):
         else:
             self._close_sketch()
 
+    def _remember_chrome(self) -> None:
+        """What was folded away when Caliper last ran is folded away again, and each fold is
+        remembered as it changes. Timing popped out isn't: it shows only while Claude Desktop
+        can connect."""
+        folds = {
+            "left_panel": self.left_panel_action,
+            "right_panel": self.right_panel_action,
+            "tool_tray": self.tray_action,
+            "agent_prompt": self.prompt_action,
+        }
+        for name, action in folds.items():
+            action.setChecked(_remembered(name, action.isChecked()))
+            action.toggled.connect(lambda shown, name=name: _remember(name, shown))
+
     def _fold(self, side: Qt.DockWidgetArea, shown: bool) -> None:
         """Hide the panels docked on one side, or show again the ones that hid; the view
         takes the room. A panel popped out (Timing) stays where it is."""
@@ -1127,6 +1161,7 @@ class MainWindow(QMainWindow):
                 self.canvas.reset_view()
         (self.mode_2d_action if mode == "2d" else self.mode_3d_action).setChecked(True)
         self._show_views()
+        self.agent.resume()  # a proposal left waiting on this tab is back on its card (C-18)
         if mode == "3d" and self.sketch_open is None:
             self.show_message("3D: drag to orbit, right-drag to pan, scroll to zoom, F to fit")
 
@@ -1158,6 +1193,18 @@ class MainWindow(QMainWindow):
             self.view3d.refresh()
             self.view3d.setFocus()
 
+    def _card_top(self) -> int:
+        """Where the proposal card's top goes: the view's top right, or under the sketch bar
+        when the view is too narrow for the two side by side, so neither covers the other."""
+        bar, card = self.sketch_bar, self.proposal_card
+        page = card.parentWidget()
+        if bar.isHidden() or page is None:
+            return SPACE.l
+        left = page.width() - card.width() - SPACE.l
+        if bar.geometry().right() + SPACE.m <= left:
+            return SPACE.l
+        return bar.geometry().bottom() + SPACE.m
+
     def _seat_card(self, page: QWidget) -> None:
         card = self.proposal_card
         if card.parentWidget() is page:
@@ -1188,6 +1235,8 @@ class MainWindow(QMainWindow):
             hint = "Turned too far to draw: press N to face the sketch and keep drawing"
         self.sketch_hint.setText(hint)
         self.sketch_bar.adjustSize()
+        if not self.proposal_card.isHidden():
+            self.proposal_card.reposition()  # the bar's width changed under it
         if drawing:
             self._update_constraint_actions()
         self._update_tool_state()
@@ -1279,7 +1328,12 @@ class MainWindow(QMainWindow):
             if backdrop is not None:
                 camera = backdrop.camera(self.canvas.view, self.views.width(), self.views.height())
             self._backdrop = Backdrop(
-                plane, frame, sketch, self.view3d.paint_scene, self.view3d.shows
+                plane,
+                frame,
+                sketch,
+                self.view3d.paint_scene,
+                self.view3d.shows,
+                self.view3d.solid_shown,
             )
             look(self.canvas.view, frame, camera, self.views.width(), self.views.height())
         self.sketch_title.setText(f"{place_name(document, plane)}  ·  proposal")

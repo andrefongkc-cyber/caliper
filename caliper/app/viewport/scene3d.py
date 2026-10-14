@@ -79,10 +79,23 @@ class Scene:
     normals: list[Point3] = field(default_factory=list)
     creases: list[tuple[int, int, int, int]] = field(default_factory=list)
     """Each crease's two vertices and the faces either side of it."""
+    proposed: bool = False
+    """The solid is one an agent's proposal would leave, not the part's: drawn in the agent's
+    colour, its edges dashed, until the proposal is accepted or rejected (C-16)."""
 
     @classmethod
-    def of(cls, document: Document, mesh: Mesh | None) -> "Scene":
-        curves = tuple(_curves(document))
+    def of(
+        cls,
+        document: Document,
+        mesh: Mesh | None,
+        *,
+        proposed: bool = False,
+        curves: tuple[Curve, ...] | None = None,
+    ) -> "Scene":
+        """`curves`, when given, are `document`'s sketches as a scene already worked them
+        out: a proposal changes the solid shown, not the document."""
+        if curves is None:
+            curves = tuple(_curves(document))
         normals: list[Point3] = []
         creases: list[tuple[int, int, int, int]] = []
         reach = max(
@@ -97,6 +110,7 @@ class Scene:
             half=max(MIN_HALF, 0.6 * reach),
             normals=normals,
             creases=creases,
+            proposed=proposed,
         )
 
     def box(self) -> BoundingBox3:
@@ -196,8 +210,12 @@ class Scene:
             if seen:
                 order.append((max(seen), 1, k))
         order.sort()
-        base = theme.SOLID
-        edge = _pen(theme.SOLID_EDGE, theme.GEOMETRY_WIDTH)
+        if self.proposed:  # as the canvas draws what a proposal adds: the agent's colour
+            base = theme.PROPOSED_SOLID
+            edge = _pen(theme.AGENT, theme.GEOMETRY_WIDTH, Qt.PenStyle.DashLine)
+        else:
+            base = theme.SOLID
+            edge = _pen(theme.SOLID_EDGE, theme.GEOMETRY_WIDTH)
         for _, kind, index in order:
             if kind == 1:
                 p, q, _, _ = self.creases[index]

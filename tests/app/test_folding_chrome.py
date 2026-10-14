@@ -266,3 +266,68 @@ def test_in_a_narrower_window_the_tray_takes_whats_left(window: MainWindow, qtbo
     qtbot.waitUntil(lambda: tray.bar.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly)
     qtbot.waitUntil(lambda: tray.width() == tray.bar.sizeHint().width() < full)
     assert not overflow(window)
+
+
+# --- Remembered between launches ---------------------------------------------------------------
+
+
+def test_what_was_folded_away_is_folded_away_at_the_next_launch(
+    window: MainWindow, new_window, qtbot
+) -> None:  # type: ignore[no-untyped-def]
+    window.left_panel_action.trigger()
+    window.tray_action.trigger()
+    window.prompt_action.trigger()
+    again = new_window()
+    assert not again.left_panel_action.isChecked()
+    assert again.browser_dock.isHidden()
+    assert again.left_edge.text() == POINT_RIGHT  # the strip offers to bring it back
+    assert again.right_panel_action.isChecked()  # left alone, so as it was
+    assert not any(dock.isHidden() for dock in right_docks(again))
+    assert not again.tray_action.isChecked()
+    assert again.tray.out == 0.0  # shut from the start:
+    assert not again.tray.sliding  # nothing slides at launch
+    assert again.tray.bar.isHidden()
+    assert again.prompt_action.isChecked()
+    assert again.prompt_bar.isVisible()
+
+
+def test_a_fresh_install_starts_with_everything_out_but_the_prompt(window: MainWindow) -> None:
+    assert window.left_panel_action.isChecked()
+    assert window.right_panel_action.isChecked()
+    assert window.tray_action.isChecked()
+    assert not window.prompt_action.isChecked()
+
+
+def test_panels_folded_at_launch_come_back_at_a_size_to_use(
+    window: MainWindow, new_window, qtbot
+) -> None:  # type: ignore[no-untyped-def]
+    """Folded before the window was ever laid out, panels have only the widths they were
+    built with and no heights yet: they come back that wide and sharing the height, much as
+    a window that never folded them lays them out, none squeezed to a sliver."""
+    fresh = [dock.geometry() for dock in right_docks(window)]
+    width = window.browser_dock.width()
+    window.left_panel_action.trigger()
+    window.right_panel_action.trigger()
+    again = new_window()
+    assert again.browser_dock.isHidden()
+    assert all(dock.isHidden() for dock in right_docks(again))
+    again.left_panel_action.trigger()
+    again.right_panel_action.trigger()
+    assert not again.browser_dock.isHidden()
+    qtbot.waitUntil(lambda: again.browser_dock.width() == width)
+
+    def as_it_starts() -> bool:
+        return all(
+            dock.width() == start.width() and abs(dock.height() - start.height()) <= 16
+            for dock, start in zip(right_docks(again), fresh, strict=True)
+        )
+
+    qtbot.waitUntil(as_it_starts)
+
+
+def test_showing_it_again_is_remembered_too(window: MainWindow, new_window) -> None:  # type: ignore[no-untyped-def]
+    window.right_panel_action.trigger()
+    window.right_panel_action.trigger()
+    again = new_window()
+    assert again.right_panel_action.isChecked()
+    assert not any(dock.isHidden() for dock in right_docks(again))

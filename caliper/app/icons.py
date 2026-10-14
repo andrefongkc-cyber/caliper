@@ -53,6 +53,8 @@ _SHAPES: dict[str, str] = {
     "redo": '<path d="M12.5 5 L16 8.5 L12.5 12 M16 8.5 H8 A4 4 0 0 0 8 16.5 H11"/>',
     "measure": '<path d="M3 13 L13 3 L17 7 L7 17 Z M6 10 L7.5 11.5 M8.5 7.5 L10 9 M11 5 '
     'L12.5 6.5"/>',
+    # Two chevrons: the tools that don't fit the bar, behind its overflow button.
+    "more": '<path d="M5 5.5 L9.5 10 L5 14.5 M10.5 5.5 L15 10 L10.5 14.5"/>',
 }
 
 _SHAPES["constrain"] = _SHAPES["constraint"]  # the tool that adds them

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 from caliper.app.agent.proposal import Plan
 from caliper.app.main_window import MainWindow
 from caliper.app.panels.checks import options
+from caliper.app.tokens import SPACE
 from caliper.app.viewport.painter import ModelPainter
 from caliper.app.viewport.scene3d import facing_camera
 from caliper.contracts.commands import (
@@ -23,6 +24,7 @@ from caliper.contracts.commands import (
     CreateLine,
     CreateRectangle,
     DeleteEntities,
+    ModifyEntity,
 )
 from caliper.contracts.document import (
     EntityId,
@@ -502,3 +504,24 @@ def test_the_facing_camera_looks_straight_at_each_plane_and_face() -> None:
         r, u, _ = facing_camera(frame, Point2(x=0, y=0), 1.0).axes()
         assert (r.x, r.y, r.z) == pytest.approx(right, abs=1e-12)
         assert (u.x, u.y, u.z) == pytest.approx(up, abs=1e-12)
+
+
+def test_the_proposal_card_sits_clear_of_the_sketch_bar(window: MainWindow) -> None:
+    """Both are at the top of the view: the bar from the left, the card on the right. In a
+    view too narrow for the two side by side the card goes under the bar, so Finish, Cancel,
+    and the card's title can all be read; in a wide one it's at the top."""
+    _, rectangle, _ = plate(window)
+    plan = Plan("Widen", "Wider.", (ModifyEntity(id=rectangle, changes={"width": 140.0}),))
+    window.agent.propose(plan, window.session.document)
+    QApplication.processEvents()
+    bar, card = window.sketch_bar, window.proposal_card
+    assert bar.isVisible()
+    assert card.isVisible()
+    assert card.parentWidget() is window.canvas  # which fills the views the bar is over
+    assert not card.geometry().intersects(bar.geometry())
+    assert card.y() > bar.geometry().bottom()
+    window.resize(1900, 800)
+    QApplication.processEvents()
+    assert not card.geometry().intersects(bar.geometry())
+    assert card.y() == SPACE.l
+    window.agent.reject()
